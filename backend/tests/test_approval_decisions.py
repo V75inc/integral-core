@@ -237,3 +237,25 @@ async def test_voice_decision_does_not_expand_effect_ceiling(monkeypatch, kind):
             conversation_id="conversation-1",
         )
     apply.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "operations,expected",
+    [
+        (
+            [{"kind": "create_entry", "payload": {}}],
+            ApprovalEffectClass.PRIVATE_REVERSIBLE,
+        ),
+        (
+            [{"kind": "create_entry"}, {"kind": "routine_task_create"}],
+            ApprovalEffectClass.MATERIAL_EXTERNAL,
+        ),
+        ([{"kind": "create_entry"}, None], ApprovalEffectClass.MATERIAL_EXTERNAL),
+        (
+            [{"kind": "batch", "payload": {"operations": [{"kind": "delete_app"}]}}],
+            ApprovalEffectClass.DESTRUCTIVE_SECURITY,
+        ),
+    ],
+)
+def test_policy_uses_the_serialized_executor_batch_operations(operations, expected):
+    assert effect_class("batch", {"operations": operations}) is expected

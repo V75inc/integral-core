@@ -8,6 +8,8 @@ The native resident is always registered, including when no model credentials ha
 
 The harness owns model interaction and reasoning-loop mechanics. Core owns authenticated execution scope, capabilities, policy, staging, effect boundaries, product transcripts, session records, and immutable usage observations. A model output or provider handle cannot select identity or tenancy.
 
+Native workspace chat and browser voice share the caller’s **Permissions** setting. Core stages the proposal and checks the policy revision bound to the turn before applying an eligible record edit. Switching modes preserves the caller’s Custom selections. App access, effect validation and execution receipts remain the responsibility of the canonical writer. See the [resident permission modes](../backend/voice-chat-conversation-contract.md#resident-permissions).
+
 ## Harness engineering principle
 
 Use the Pydantic AI Harness and Pydantic AI as fully as practical for the resident agent's runtime behavior. Before implementing or extending a custom harness mechanism, inspect the supported facilities and public extension points in the pinned library versions and prefer them when they meet Integral's requirements. Custom code belongs at Integral's substrate integration boundary or fills a documented gap where the libraries do not provide a suitable facility.

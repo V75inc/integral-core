@@ -25,14 +25,14 @@ const STATUS_ANNOUNCEMENT: Record<DictationStatus, string> = {
 
 export function ComposerMicButton() {
   const dictation = useComposerDictation();
-  if (!dictation || !dictation.available) return null;
+  if (!dictation?.available || dictation.voiceInputBlocked) return null;
 
-  const { status, level, error, hotkeyLabel, toggle, voiceInputBlocked } = dictation;
+  const { status, level, error, hotkeyLabel, toggle } = dictation;
   const listening = status === 'listening';
   const busy =
     status === 'requesting-permission' || status === 'connecting' || status === 'finalizing';
   const active = listening || busy;
-  const label = voiceInputBlocked ? "Dictation unavailable during a voice call" : active ? `Stop dictation (${hotkeyLabel})` : `Dictate (${hotkeyLabel})`;
+  const label = active ? `Stop dictation (${hotkeyLabel})` : `Dictate (${hotkeyLabel})`;
 
   return (
     <span className="inline-flex shrink-0 items-center gap-1">
@@ -43,7 +43,6 @@ export function ComposerMicButton() {
         shape="circle"
         tone="subtle"
         pressed={active}
-        disabled={voiceInputBlocked}
         onClick={toggle}
         data-dictation-status={status}
       >

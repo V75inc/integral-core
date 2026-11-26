@@ -267,9 +267,7 @@ async def test_peer_readout_ack_requires_browser_audio_and_retries_once(monkeypa
         assert retry["event_id"] != initial["event_id"]
         assert "Verified typed reply." in retry["response"]["instructions"]
         assert relay.protocol_counts["peer_readout_sent"] == 0
-        assert relay.peer_readouts == {
-            ("answer", "message"): "The chat reply says: Verified typed reply."
-        }
+        assert relay.peer_readouts == {("answer", "message"): "Verified typed reply."}
         await _audio(provider, browser, "retried", retry)
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(provider.outbox.get(), 0.06)

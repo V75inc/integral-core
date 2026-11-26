@@ -6,6 +6,22 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Native chat and browser voice share a per-workspace **Permissions** control.
+  **Ask for approval** reviews each change by default. **Approve for me**
+  covers simple record edits in owned private lists, **Custom** remembers
+  selected lists across mode changes, and **Full access** covers record
+  creates and edits across apps the caller can edit.
+- The call uses the configured realtime voice for acknowledgments, workspace
+  lookup results and eligible reviews. Callers can answer yes or no, request
+  the details again or correct a supported field before deciding. A new private
+  record and a one-time reminder to the current chat can be reviewed together.
+  Chat keeps the review details and the saved outcome.
+- Mute, end call and composer actions share one row in narrow chat. Dictation
+  returns when the call ends. The attachment hint stays inside the composer
+  on hover and keyboard focus.
+
+- Live calls give results and review status aloud while chat remains available for optional written answers, file uploads and approvals. Voice can read more of a saved answer on request.
+
 - Live voice can queue a related lookup during active work and pick up a separate question after completion. The caller receives clearer feedback when another call is open.
 
 - Stream ordinary native chat replies as their model produces answer text. Platform administrators can enable whole-answer protection in AI Models. Local workers and event readers wake as chat work arrives.

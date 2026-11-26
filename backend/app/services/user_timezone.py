@@ -30,6 +30,21 @@ async def get_user_timezone(principal_id: str) -> str:
     return (user.timezone if user else None) or "UTC"
 
 
+def greeting_period(zone: str | None, now: datetime | None = None) -> str:
+    """Return a greeting period only when the caller’s local time is known."""
+    if not zone:
+        return ""
+    try:
+        hour = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo(zone)).hour
+    except (ValueError, KeyError):
+        return ""
+    return (
+        "morning"
+        if 4 <= hour < 12
+        else "afternoon" if 12 <= hour < 18 else "evening" if hour >= 18 else ""
+    )
+
+
 async def user_time_context(principal_id: str) -> str:
     """Supply verified account-local clock context to the resident harness."""
     zone = await get_user_timezone(principal_id)

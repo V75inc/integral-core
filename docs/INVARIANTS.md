@@ -644,6 +644,11 @@ Generic defaults use `package.class: core_package` and the generic installer. Co
 
 **Scope:** `backend/app/agentive/unstaged_targets.py`, `backend/app/agentive/tooling/dispatch.py`, `backend/app/services/operational_model_compile.py`, `backend/app/services/operational_model_merge.py`, bundle manifests declaring `app.unstaged_tracks`.
 
+Interactive native chat and live voice always stage user-requested record mutations,
+including writes to manifest-declared capture tracks. The resident's saved
+permission can decide an eligible proposal under I-WORK-05. Existing background
+observation and decision-ledger contracts retain their own boundaries.
+
 **Rule:** An agent write MAY bypass staging only when ALL of the following hold: the staging kind is `create_entry` or `update_entry`; the target Track carries a manifest key (`Track.template_id`) listed in its App's attached-manifest `app.unstaged_tracks`; that App is `lifecycle_state=active`; the App's Workspace is `kind="personal"`; and the acting principal resolves to that Workspace's `IS_MEMBER_OF{role:"owner"}` User. Every other write stages — including every other track in the same App. The exempt keys are declared in the bundle manifest and gated at compile on `package.trust_tier ∈ {trusted, audited}` with a cap of `MAX_UNSTAGED_TRACKS_PER_APP`; the substrate MUST NOT name a bundle or a track key (I-SUBSTRATE-01). The gate fails closed: any error, missing link or ambiguity resolves to "stage it".
 
 **Rationale:** The approval surface exists so a person can refuse a change to their substrate. An App that records observations about the person would fill that surface with items where refusal means only "do not remember that", draining the signal from every other card. Observations are not changes to what the person owns; beliefs are, and beliefs stage.
@@ -943,6 +948,11 @@ Preserve the 80% global coverage requirement and 90% per-file requirement for ca
 **Rule:** Human waits require a pending `WorkApproval`. Approve requeues the original WorkItem; reject/expiry terminalize. A bounded mandate review cannot use ordinary approval to bypass current-grant and shared-limit admission: it remains non-runnable until the dedicated admission path is implemented and qualified. Cards without `work_approval_id` keep the legacy inline path.
 
 **Verification:** `tests/test_work_approvals.py`.
+
+A standing resident permission binds a human to their workspace. Ask (default) never authorizes an edit. Auto covers eligible simple edits in private tracks the caller owns. Custom limits those edits to the saved set. Full covers canonical record creates and updates in that workspace, subject to the caller’s current resource policy and the writer’s validation. Changing modes preserves the saved Custom set. Each effective grant revision is captured at interactive turn admission
+and rechecked under lock at the staged effect. Manual and automatic decisions
+use the canonical writer and receipt. A change to the grant cannot authorize
+a proposal from an earlier turn. Voice presents the same decision as chat.
 
 For legacy staged workspace tools, an explicit dictionary result `ok: false`
 is a refused outcome, even when dispatch returned normally. The approval must

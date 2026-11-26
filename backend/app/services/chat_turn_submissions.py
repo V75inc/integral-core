@@ -394,6 +394,28 @@ async def submit_chat_turn(
         )
         input_payload["request_fingerprint"] = fingerprint
         input_payload.update(capsule_ref)
+        if (
+            thread.provider_id == "integral_native"
+            and not thread.agent_profile_key
+            and not (thread.provider_session_id or "").startswith("wa:")
+            and not request.from_follow_up_queue
+            and _message_role(request) == "user"
+            and not (
+                request.execution_context
+                and (
+                    request.execution_context.design_only
+                    or request.execution_context.no_workspace_writes
+                    or request.execution_context.host_control
+                )
+            )
+        ):
+            from app.services.resident_permissions import read_permission
+
+            permission = await read_permission(
+                request.principal_id, request.workspace_id
+            )
+            if permission.mode in {"auto", "full"} or permission.track_ids:
+                input_payload["resident_permission_revision"] = permission.revision
         from app.services.performance import capture_trace_context
 
         traceparent = capture_trace_context()

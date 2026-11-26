@@ -17,7 +17,9 @@ from app.agentive.services.staging_apply import bless_and_execute
 from app.agentive.staging import StagingError, get_token, revoke_token
 
 Decision = Literal["approve", "reject"]
-DecisionSource = Literal["chat", "card", "channel", "inbox", "voice"]
+DecisionSource = Literal[
+    "chat", "card", "channel", "inbox", "voice", "resident_permission"
+]
 
 
 class StagedWriteProposal(BaseModel):
@@ -128,14 +130,31 @@ async def decide_staged_write(
         )
 
     proposal = proposal_from_staged(staged)
-    from app.services.native_voice_creation import permits_creation
+    from app.services.native_voice_batch import permits_batch
+    from app.services.native_voice_creation import (
+        permits_creation,
+    )
+    from app.services.native_voice_reminder import permits_reminder
 
-    if source == "voice" and (
-        proposal.effect_class != ApprovalEffectClass.PRIVATE_REVERSIBLE
-        or (
-            proposal.effect_kind != "update_entry"
-            and not (
-                proposal.effect_kind == "create_entry" and permits_creation(proposal_id)
+    if source == "resident_permission":
+        from app.services.resident_permissions import holds_permission
+
+        if decision != "approve" or not holds_permission(staged):
+            raise StagingError(
+                "strong_confirmation_required", "This change needs review."
+            )
+    if (
+        source == "voice"
+        and not permits_reminder(staged)
+        and not permits_batch(staged)
+        and (
+            proposal.effect_class != ApprovalEffectClass.PRIVATE_REVERSIBLE
+            or (
+                proposal.effect_kind != "update_entry"
+                and not (
+                    proposal.effect_kind == "create_entry"
+                    and permits_creation(proposal_id)
+                )
             )
         )
     ):

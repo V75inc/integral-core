@@ -33,8 +33,8 @@ pip-installed wheel.
    **one Settings projection**. Add and Configure are rendered from the
    manifest by Core's shared settings renderer, extended once for `secret`,
    `url` and OAuth. Secrets are encrypted handles that are never read back.
-5. Admins **Rescan** to admit declarative changes without restart. Rejected
-   packages are listed with a reason; installed connectors whose package
+5. Admins **Rescan** to admit declarative changes without restart. When a scan rejects a package, the result explains why. Rejected packages
+   stay out of the Add directory; installed connectors whose package
    becomes unavailable remain visible with Disable and Remove only.
 
 The manifest schema is

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { clearCallReview, presentCallReview } from "../voiceReviewPresentation";
 import { agentNavigationPath } from "../agentNavigation";
 import { requestOpenCompanionChat } from "../chatHandoff";
 import { useQuery } from "@tanstack/react-query";
@@ -20,25 +21,19 @@ import captureModuleUrl from "./nativeVoiceCapture.js?url&no-inline";
 const SAMPLE_RATE = 24000;
 export type NativeVoiceState = "idle" | "connecting" | "live";
 
-function announceLocalVoiceFailure(message: string) {
-  // The provider may be unreachable. Use an installed device voice only.
-  // The accessible status remains available if local speech is unsupported.
-  try {
-    const synth = window.speechSynthesis;
-    if (!synth || typeof SpeechSynthesisUtterance === "undefined") return;
-    const voice = synth.getVoices().find(candidate =>
-      candidate.localService && candidate.lang.toLowerCase().startsWith("en"));
-    if (!voice) return;
-    const utterance = new SpeechSynthesisUtterance(message);
-    utterance.voice = voice;
-    synth.speak(utterance);
-  } catch { /* The visible status is still available. */ }
-}
-
-
 export function createVoicePlayback(audio: AudioContext) {
   const sources = new Map<AudioBufferSourceNode, { at: number; samples: number; handle?: number }>();
   let nextTime = 0;
+  function enqueueBuffer(buffer: AudioBuffer, handle?: number) {
+    const source = audio.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audio.destination);
+    source.onended = () => { sources.delete(source); source.disconnect(); };
+    const at = Math.max(audio.currentTime + 0.02, nextTime);
+    sources.set(source, { at, samples: Math.round(buffer.duration * SAMPLE_RATE), handle });
+    nextTime = at + buffer.duration;
+    source.start(at);
+  }
   return {
     enqueue(data: ArrayBuffer, handle?: number) {
       if (data.byteLength === 0 || data.byteLength % 2 !== 0) return;
@@ -48,15 +43,9 @@ export function createVoicePlayback(audio: AudioContext) {
       for (let index = 0; index < samples.length; index += 1) {
         samples[index] = pcm.getInt16(index * 2, true) / 32768;
       }
-      const source = audio.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audio.destination);
-      source.onended = () => { sources.delete(source); source.disconnect(); };
-      const at = Math.max(audio.currentTime + 0.02, nextTime);
-      sources.set(source, { at, samples: samples.length, handle });
-      nextTime = at + buffer.duration;
-      source.start(at);
+      enqueueBuffer(buffer, handle);
     },
+    enqueueBuffer,
     flush() {
       const unplayed = new Map<number, number>();
       const now = audio.currentTime;
@@ -176,12 +165,13 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     let ready = false;
     let microphoneMuted = false;
     let playbackHandle: number | undefined;
-    let reviewSpeech: SpeechSynthesisUtterance | undefined;
+    let reviewId: string | undefined;
     let reviewAudioSource: AudioBufferSourceNode | undefined;
     let reviewAudioActive = false;
     let interruptReview: (() => void) | undefined;
     let reviewInterruptionFrames = 0;
     let captureGeneration = 0;
+    const reviewOwner = Symbol();
     let acceptedThreadId = "";
     let pageRevision = 0;
     let refreshTimer: number | undefined;
@@ -189,6 +179,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     const close = (refreshThread = true) => {
       if (ended) return;
       ended = true;
+      clearCallReview(reviewOwner);
       if (call.current?.close === close) call.current = null;
       window.clearTimeout(deadline);
       window.clearInterval(refreshTimer);
@@ -213,11 +204,6 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
           dispose(() => reviewAudioSource?.disconnect());
           reviewAudioSource = undefined;
         }
-        if (reviewSpeech) {
-          reviewSpeech.onend = reviewSpeech.onerror = null;
-          dispose(() => window.speechSynthesis.cancel());
-          reviewSpeech = undefined;
-        }
         if (socket) {
           socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
           dispose(() => socket?.close());
@@ -236,13 +222,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     const fail = (message: string) => {
       if (ended) return;
       if (document.activeElement === endButton.current) focusNext.current = "idle";
-      const wasLive = ready;
       close();
-      if (wasLive) announceLocalVoiceFailure(
-        message === "The microphone was disconnected. Reconnect it and start a new call."
-          ? message
-          : "The voice call ended. Start a new call to continue.",
-      );
       setState("idle");
       setError(message);
     };
@@ -296,8 +276,8 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       capture = new AudioWorkletNode(audio, "integral-native-voice", { numberOfOutputs: 0 });
       capture.port.onmessage = ({ data }: MessageEvent<{ generation: number; pcm: ArrayBuffer }>) => {
         if (ended || microphoneMuted || data.generation !== captureGeneration) return;
-        if (reviewSpeech || reviewAudioActive) {
-          // Do not send microphone audio to either provider while the local
+        if (reviewId || reviewAudioActive) {
+          // Do not send microphone audio to either provider while the verified
           // readback speaks. Sustained input interrupts the challenge.
           const samples = new Int16Array(data.pcm);
           const energy = samples.reduce((sum, sample) => sum + sample * sample, 0) / Math.max(1, samples.length);
@@ -315,14 +295,14 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
       socket = new WebSocket(endpoint);
       socket.binaryType = "arraybuffer";
-      socket.onopen = () => socket?.send(JSON.stringify({ ticket, ...opening, review_confirmation: true }));
+      socket.onopen = () => socket?.send(JSON.stringify({ ticket, ...opening, review_confirmation: true, conversational_review: true }));
       socket.onmessage = ({ data }) => {
         if (ended) return;
         if (data instanceof ArrayBuffer) {
           if (ready) playback?.enqueue(data, playbackHandle);
           return;
         }
-        const event = JSON.parse(String(data)) as { type: string; message?: string; thread_id?: string; handle?: number | null; id?: string; prompt?: string; audio?: string; origin_revision?: number; navigation?: unknown };
+        const event = JSON.parse(String(data)) as { type: string; message?: string; thread_id?: string; handle?: number | null; id?: string; proposal_id?: string; audio?: string; origin_revision?: number; navigation?: unknown };
         if (event.type === "navigation" && ready && acceptedThreadId && event.id) {
           const path = agentNavigationPath({ ok: true, navigation: event.navigation }, acceptedThreadId, workspace_id);
           const report = (status: string) => {
@@ -347,58 +327,23 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
           checkRendered();
           return;
         }
-        if (event.type === "review_confirmation" && ready && event.id && event.prompt) {
-          const id = event.id;
-          const notify = (type: "review_prompt_finished" | "review_prompt_unavailable" | "review_prompt_interrupted") => {
-            if (!ended && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, id }));
-          };
+        if (event.type === "review_details_required" && ready && acceptedThreadId && event.proposal_id) {
+          presentCallReview(reviewOwner, acceptedThreadId, event.proposal_id, true);
+          return;
+        }
+        if (event.type === "review_confirmation" && ready && event.id) {
+          if (acceptedThreadId && event.proposal_id) presentCallReview(reviewOwner, acceptedThreadId, event.proposal_id);
+          reviewId = event.id;
           playback?.flush();
-          try {
-            const synth = window.speechSynthesis;
-            const voice = synth?.getVoices().find(candidate => candidate.localService && candidate.lang.toLowerCase().startsWith("en"));
-            if (!voice || typeof SpeechSynthesisUtterance === "undefined" || reviewSpeech) {
-              notify("review_prompt_unavailable");
-              return;
-            }
-            const utterance = new SpeechSynthesisUtterance(event.prompt);
-            utterance.voice = voice;
-            reviewSpeech = utterance;
-            reviewInterruptionFrames = 0;
-            interruptReview = () => {
-              if (reviewSpeech !== utterance) return;
-              utterance.onend = utterance.onerror = null;
-              reviewSpeech = undefined;
-              interruptReview = undefined;
-              synth.cancel();
-              notify("review_prompt_interrupted");
-            };
-            utterance.onend = () => {
-              if (reviewSpeech !== utterance) return;
-              reviewSpeech = undefined;
-              interruptReview = undefined;
-              captureGeneration += 1;
-              capture?.port.postMessage({ muted: microphoneMuted, generation: captureGeneration });
-              notify("review_prompt_finished");
-            };
-            utterance.onerror = () => {
-              if (reviewSpeech !== utterance) return;
-              reviewSpeech = undefined;
-              interruptReview = undefined;
-              notify("review_prompt_unavailable");
-            };
-            synth.speak(utterance);
-          } catch {
-            reviewSpeech = undefined;
-            notify("review_prompt_unavailable");
-          }
           return;
         }
         if (event.type === "review_confirmation_audio" && ready && event.id && event.audio) {
           const id = event.id;
+          if (id !== reviewId) return;
           const notify = (type: "review_prompt_finished" | "review_prompt_unavailable" | "review_prompt_interrupted") => {
             if (!ended && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, id }));
           };
-          if (!audio || reviewSpeech || reviewAudioActive || event.audio.length > 8_000_000) {
+          if (!audio || reviewAudioActive || event.audio.length > 8_000_000) {
             notify("review_prompt_unavailable");
             return;
           }
@@ -420,7 +365,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
             try {
               const bytes = Uint8Array.from(atob(event.audio!), character => character.charCodeAt(0));
               const buffer = await context.decodeAudioData(bytes.buffer);
-              if (ended || !reviewAudioActive) return;
+              if (ended || !reviewAudioActive || reviewId !== id) return;
               const source = context.createBufferSource();
               source.buffer = buffer;
               source.connect(context.destination);
@@ -431,6 +376,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
                 reviewAudioSource = undefined;
                 reviewAudioActive = false;
                 interruptReview = undefined;
+                reviewId = undefined;
                 captureGeneration += 1;
                 capture?.port.postMessage({ muted: microphoneMuted, generation: captureGeneration });
                 notify("review_prompt_finished");
@@ -443,6 +389,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
           return;
         }
         if (event.type === "review_confirmation_ended") {
+          if (acceptedThreadId && !opening.profile_key) presentCallReview(reviewOwner, acceptedThreadId);
           interruptReview = undefined;
           reviewAudioActive = false;
           if (reviewAudioSource) {
@@ -451,11 +398,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
             reviewAudioSource.disconnect();
             reviewAudioSource = undefined;
           }
-          if (reviewSpeech) {
-            reviewSpeech.onend = reviewSpeech.onerror = null;
-            reviewSpeech = undefined;
-            window.speechSynthesis.cancel();
-          }
+          reviewId = undefined;
         }
         if (event.type === "playback_item") playbackHandle = event.handle ?? undefined;
         if (event.type === "flush") {
@@ -475,6 +418,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
           }
           acceptedThreadId = event.thread_id || thread_id;
           if (acceptedThreadId) {
+            if (!opening.profile_key) presentCallReview(reviewOwner, acceptedThreadId);
             void onThreadReady?.(acceptedThreadId, opening);
             if (onThreadRefresh) {
               refreshTimer = window.setInterval(() => {
@@ -511,12 +455,12 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     {live ? (
       <Surface role="group" aria-label="Live voice call controls" tone="panel-2" radius="pill"
         border="default" padding="none" className="inline-flex max-w-full shrink-0 items-center gap-0.5 p-0.5">
-        <div role="status" className="inline-flex items-center gap-1 pl-2 pr-0.5">
+        <div role="status" className="composer-call-status inline-flex items-center gap-1 pl-2 pr-0.5">
           <AudioLines size={14} aria-hidden />
           <span className="sr-only">{muted ? "Voice call live · Mic muted" : "Voice call live"}</span>
-          <Text as="span" variant="body-sm" aria-hidden="true" className="hidden sm:inline">Live</Text>
+          <Text as="span" variant="body-sm" aria-hidden="true" className="composer-action-label">Live</Text>
         </div>
-        <HoverTooltip label={microphoneAction} placement="top">
+        <HoverTooltip label={microphoneAction} placement="top" dismissOnPress>
           <Button type="button" variant={muted ? "secondary" : "ghost"} size="xs"
             className="h-9 w-9 rounded-full !p-0" aria-label={microphoneAction}
             icon={muted
@@ -524,16 +468,20 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
               : <Mic size={17} aria-hidden />}
             onClick={() => call.current?.toggleMicrophone()} />
         </HoverTooltip>
-        <Button ref={endButton} type="button" variant="danger" size="xs" aria-label="End call"
-          className="h-9 whitespace-nowrap rounded-full px-2"
-          icon={<Square size={12} aria-hidden />}
-          onClick={() => {
-            if (document.activeElement === endButton.current) focusNext.current = "idle";
-            call.current?.close();
-            setState("idle");
-          }}>
-          <span className="hidden sm:inline">End call</span>
-        </Button>
+        <span className="composer-end-call inline-flex">
+          <HoverTooltip label="End call" placement="top">
+            <Button ref={endButton} type="button" variant="danger" size="xs" aria-label="End call"
+              className="h-9 whitespace-nowrap rounded-full px-2"
+              icon={<Square size={12} aria-hidden />}
+              onClick={() => {
+                if (document.activeElement === endButton.current) focusNext.current = "idle";
+                call.current?.close();
+                setState("idle");
+              }}>
+              <span className="composer-action-label">End call</span>
+            </Button>
+          </HoverTooltip>
+        </span>
       </Surface>
     ) : (
       <>

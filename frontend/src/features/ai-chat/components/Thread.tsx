@@ -88,6 +88,7 @@ import { ToolFallback } from "./ToolFallback";
 import { LogoMark } from "../../../components/ui/Logo";
 import { MessageUndoActions } from "./MessageUndoActions";
 import { ComposerAttachmentErrorToast } from "./ComposerAttachmentErrorToast";
+import { ResidentPermissions } from "./ResidentPermissions";
 import { NativeVoiceCall } from "./NativeVoiceCall";
 import { ComposerMicButton } from "./ComposerMicButton";
 import { ComposerDictationProvider } from "../../speech/ComposerDictationContext";
@@ -1508,13 +1509,15 @@ function ComposerAction({ home = false }: { home?: boolean }) {
   const hasAttachments = useAuiState(s => s.composer.attachments.length > 0);
   const actionRef = useRef<HTMLDivElement>(null);
   return (
-    <div ref={actionRef} className="relative flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap" role="group" aria-label="Message actions">
-      <div className="flex min-w-0 flex-1 basis-36 items-center gap-1 sm:basis-0">
-        <HoverTooltip label="Attach an image or file" placement="top"><ComposerPrimitive.AddAttachment asChild>
+    <div ref={actionRef} className="composer-toolbar relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" role="group" aria-label="Message actions">
+      {!home && steeringRunning && hasAttachments && (
+        <Text variant="meta" tone="subtle" className="basis-full">Send attachments after this reply.</Text>
+      )}
+      <div className="composer-tools flex max-w-full flex-wrap items-center gap-1">
+        <HoverTooltip label="Attach an image or file" placement="top-start"><ComposerPrimitive.AddAttachment asChild>
           <button
             type="button"
             aria-label="Attach a file"
-            title="Attach an image or file"
             className="
               flex h-10 w-10 shrink-0 items-center justify-center rounded-full
               text-[var(--text-subtle)]
@@ -1535,10 +1538,8 @@ function ComposerAction({ home = false }: { home?: boolean }) {
         }))} /></HoverTooltip>
         <ConversationModelPicker />
       </div>
-      <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-1 sm:flex-nowrap">
-        {!home && steeringRunning && hasAttachments && (
-          <Text variant="meta" tone="subtle" className="max-sm:basis-full">Send attachments after this reply.</Text>
-        )}
+      <div className="composer-controls ml-auto flex max-w-full flex-wrap items-center justify-end gap-1">
+        <ResidentPermissions />
         <ComposerMicButton />
         <NativeVoiceCall />
         <AuiIf condition={(s) => !s.thread.isRunning || (!home && steeringRunning)}>

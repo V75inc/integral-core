@@ -142,10 +142,8 @@ has already been sent.
 
 The workspace assistant can read a supported reversible edit of the record
 you selected by voice. For an explicit approve or reject request, a compatible
-browser reads the actual change and a one-use challenge through a local device
-voice or offline host synthesis. Mac hosts use the built-in speech synthesizer.
-The Core runtime container includes eSpeak NG. Linux wheel installations can
-install eSpeak NG as a host package. Generated audio is bounded and temporary.
+browser plays the verified proposal and one short question in the configured
+call voice. The caller can say “go ahead” or “no thanks.”
 The configured batch-capable Speech to Text model independently recognizes
 your response. Only a matching, unexpired confirmation for that
 exact current proposal enters the shared approval service. Other changes use

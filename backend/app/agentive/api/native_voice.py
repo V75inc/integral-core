@@ -21,13 +21,16 @@ from app.config import settings
 from app.models.nodes import Workspace
 from app.schemas.voice_configuration import VoiceStart
 from app.services.native_voice import (
+    BROWSER_CALL_ACTIONS,
     VoiceRelay,
     VoiceScope,
     authorize,
     open_upstream,
     voice_thread_continuity,
 )
+from app.services.native_voice_review_audio import ReviewVoice
 from app.services.permissions import get_user_node
+from app.services.user_timezone import greeting_period
 from app.services.voice_configuration import resolve_realtime_credential
 from app.services.ws_ticket import redeem_ws_ticket_shared
 
@@ -58,7 +61,8 @@ async def native_voice(browser: WebSocket):
                 raise ValueError("Invalid request")
             opening = VoiceStart.model_validate_json(payload)
             principal = await redeem_ws_ticket_shared(opening.ticket)
-            if not principal or await get_user_node(principal) is None:
+            caller = await get_user_node(principal) if principal else None
+            if caller is None:
                 await browser.close(code=4403)
                 return
             if principal in _active_calls:
@@ -73,7 +77,11 @@ async def native_voice(browser: WebSocket):
             _active_calls.add(principal)
             claimed = True
             scope = VoiceScope(
-                principal, opening.workspace_id, opening.profile_key, opening.thread_id
+                principal,
+                opening.workspace_id,
+                opening.profile_key,
+                opening.thread_id,
+                actions=BROWSER_CALL_ACTIONS,
             )
             thread = await authorize(scope)
             continuity = voice_thread_continuity(thread)
@@ -150,12 +158,15 @@ async def native_voice(browser: WebSocket):
             upstream,
             scope,
             check=still_authorized,
+            review_voice=ReviewVoice(lambda: open_upstream(credential)),
             review_confirmation_supported=opening.review_confirmation,
+            conversational_review=opening.conversational_review,
         ).run(
             identity.persona,
             name=identity.name,
             continuity=continuity,
             workspace_label=workspace_label,
+            greeting_period=greeting_period(getattr(caller, "timezone", None)),
         )
     except WebSocketDisconnect:
         pass

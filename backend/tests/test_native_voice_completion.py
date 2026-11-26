@@ -11,13 +11,19 @@ from app.services import chat_turn_submissions, native_voice
 from tests.test_native_voice import Browser, Provider, event, request
 
 
-async def _send_tool(provider, response_id, call_id, operation="request"):
+async def _send_tool(
+    provider, response_id, call_id, operation="request", delivery="voice"
+):
     await provider.inbox.put(
         {"type": "response.created", "response": {"id": response_id}}
     )
     item = request(call_id, response_id, "Check the current chat")
     item["response"]["output"][0]["arguments"] = json.dumps(
-        {"request": "Check the current chat", "operation": operation}
+        {
+            "request": "Check the current chat",
+            "operation": operation,
+            "delivery": delivery,
+        }
     )
     await provider.inbox.put(item)
 
@@ -33,9 +39,12 @@ async def completed_readout(provider, expected):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("initial", ["running", "waiting_for_human"])
+@pytest.mark.parametrize(
+    ("initial", "delivery"),
+    [("running", "voice"), ("running", "written_only"), ("waiting_for_human", "voice")],
+)
 async def test_completion_follows_ordinary_speech_without_new_work(
-    monkeypatch, initial
+    monkeypatch, initial, delivery
 ):
     """Hold a submitted result through an ordinary turn, then announce it once."""
     browser, provider = Browser(), Provider()
@@ -62,7 +71,7 @@ async def test_completion_follows_ordinary_speech_without_new_work(
         await event(provider.outbox)
         await provider.inbox.put({"type": "session.updated"})
         await event(browser.outbox)
-        await _send_tool(provider, "delegate", "first")
+        await _send_tool(provider, "delegate", "first", delivery=delivery)
         first = (await event(provider.outbox))["item"]
         assert first["call_id"] == "first"
         if initial == "waiting_for_human":
@@ -75,6 +84,12 @@ async def test_completion_follows_ordinary_speech_without_new_work(
         await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
         assert await event(browser.outbox) == {"type": "flush"}
 
+        if initial == "running":
+            tools_update = await event(provider.outbox)
+            assert tools_update["type"] == "session.update"
+            assert native_voice.STEER_ACTIVE in {
+                tool["name"] for tool in tools_update["session"]["tools"]
+            }
         current[:] = ["succeeded", "The exact workspace result is ready."]
         await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
         await provider.inbox.put(
@@ -90,7 +105,14 @@ async def test_completion_follows_ordinary_speech_without_new_work(
             }
         )
         old = await completed_readout(provider, "exact workspace result")
-        assert "exact workspace result" in old["response"]["instructions"]
+        expected = (
+            native_voice._WRITTEN_RECEIPT
+            if delivery == "written_only"
+            else "exact workspace result"
+        )
+        assert expected in old["response"]["instructions"]
+        if delivery == "written_only":
+            assert "exact workspace result" not in old["response"]["instructions"]
         assert (old["response"]["tool_choice"], old["response"]["conversation"]) == (
             "none",
             "none",
@@ -122,6 +144,12 @@ async def test_completion_follows_ordinary_speech_without_new_work(
                 "response": {"id": "ordinary-two", "status": "completed"},
             }
         )
+        if initial == "running":
+            update = await event(provider.outbox)
+            assert update["type"] == "session.update"
+            assert native_voice.STEER_ACTIVE not in {
+                t["name"] for t in update["session"]["tools"]
+            }
         retry = await event(provider.outbox)
         assert retry["response"]["metadata"] != old["response"]["metadata"]
         await provider.inbox.put(
@@ -224,6 +252,11 @@ async def test_pending_completion_recovers_when_provider_neither_replies_nor_spe
         assert "accepted" in (await event(provider.outbox))["item"]["output"]
         await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
         assert await event(browser.outbox) == {"type": "flush"}
+        tools_update = await event(provider.outbox)
+        assert tools_update["type"] == "session.update"
+        assert native_voice.STEER_ACTIVE in {
+            tool["name"] for tool in tools_update["session"]["tools"]
+        }
         status.return_value = ("succeeded", "A committed result is ready.")
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(provider.outbox.get(), 0.03)
@@ -486,3 +519,58 @@ async def test_follow_through_can_advance_visible_completed_work(monkeypatch, st
     finally:
         previous.cancel()
         await asyncio.gather(previous, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "delivered", "remember"),
+    [
+        ("completed", True, True),
+        ("cancelled", True, False),
+        ("completed", False, False),
+    ],
+)
+async def test_completed_spoken_review_retains_only_question(
+    status, delivered, remember
+):
+    provider = Provider()
+    relay = native_voice.VoiceRelay(
+        Browser(),
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+    )
+    relay.navigation_readout = native_voice.VoiceReviewReadout(
+        "Private record text",
+        "work-id",
+        "run-id",
+        "proposal-token",
+        "target-id",
+        "fingerprint",
+    )
+    relay.speech_only_response_id = relay.response_generation = "readout"
+    relay.readout_audio_verified = delivered
+    reader = asyncio.create_task(relay._read_provider())
+    try:
+        await provider.inbox.put(
+            {"type": "response.done", "response": {"id": "readout", "status": status}}
+        )
+        if remember:
+            item = (await event(provider.outbox))["item"]
+            assert item["role"] == "assistant"
+            assert "approve or reject" in item["content"][0]["text"]
+            assert all(
+                value not in str(item)
+                for value in (
+                    "Private record text",
+                    "proposal-token",
+                    "target-id",
+                    "work-id",
+                    "fingerprint",
+                )
+            )
+        else:
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(provider.outbox.get(), 0.1)
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)

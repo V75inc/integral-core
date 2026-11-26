@@ -1,3 +1,95 @@
 .chat-composer {
   container: integral-composer / inline-size;
 }
+
+.composer-action-label {
+  display: none;
+}
+
+@container integral-composer (min-width: 28rem) {
+  .composer-action-label {
+    display: inline;
+  }
+
+  .composer-end-call [role="tooltip"] {
+    display: none;
+  }
+}
+
+/* Use available composer width, including a dock on a wide screen. */
+@container integral-composer (max-width: 23rem) {
+  .composer-toolbar,
+  .composer-tools,
+  .composer-controls {
+    column-gap: 2px;
+  }
+
+  .composer-toolbar button {
+    width: 2rem;
+    min-width: 2rem;
+    height: 2rem;
+    padding-inline: 0;
+  }
+
+  .composer-call-status {
+    padding-inline: 3px;
+  }
+}
+
+@container integral-composer (max-width: 18rem) {
+  .composer-call-status {
+    /* Mute and End identify the call. Keep its live status available to AT. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    padding: 0;
+  }
+}
+
+/* Keep the native input and let forced-colors users keep their system control. */
+@media (forced-colors: none) {
+  .theme-dark .resident-permission-checkbox {
+    appearance: none;
+    display: inline-grid;
+    place-items: center;
+    border: 1px solid var(--text-subtle);
+    border-radius: 4px;
+    background-color: var(--panel);
+    color: var(--brand-accent-contrast);
+  }
+
+  .theme-dark .resident-permission-checkbox:is(:checked, :indeterminate) {
+    border-color: var(--brand-accent);
+    background-color: var(--brand-accent);
+  }
+
+  .theme-dark .resident-permission-checkbox:checked::before {
+    content: "";
+    width: 9px;
+    height: 5px;
+    border-left: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: translateY(-1px) rotate(-45deg);
+  }
+
+  .theme-dark .resident-permission-checkbox:indeterminate::before {
+    content: "";
+    width: 8px;
+    height: 2px;
+    border: 0;
+    border-radius: 1px;
+    background: currentColor;
+    transform: none;
+  }
+
+  .theme-dark .resident-permission-checkbox:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+
+  .theme-dark .resident-permission-checkbox:disabled {
+    opacity: .55;
+  }
+}

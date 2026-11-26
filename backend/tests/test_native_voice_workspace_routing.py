@@ -94,7 +94,7 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
         assert mode_hint in instructions
         assert "including requests phrased as 'can you'" in instructions
         assert "Do not refuse a workspace request merely because" in instructions
-        assert "do not accept approval by voice" in instructions
+        assert "Only Integral can record an approval" in instructions
         assert ("creating a dashboard for review" in instructions) is (not profile)
         assert (native_voice.FIND_CAPABILITY in instructions) is (not profile)
         assert all(
@@ -127,7 +127,6 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
                     native_voice.OPEN_PAGE,
                     native_voice.NAVIGATE,
                     native_voice.QUEUE_FOLLOW_UP,
-                    native_voice.STEER_ACTIVE,
                 ]
                 if not profile
                 else []
@@ -418,3 +417,13 @@ async def test_live_navigation_delivery_is_exact_and_not_replayed(monkeypatch):
     await relay._deliver_navigation(replace(accepted, work_item_id="other"))
     assert browser.outbox.empty()
     replay.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_voice_work_does_not_repeat_the_call_greeting():
+    from types import SimpleNamespace
+
+    from app.agentive.harness.workspace_orientation import workspace_orientation
+
+    ctx = SimpleNamespace(text="Add a record", extra_data={"voice_delegate": True})
+    assert await workspace_orientation(ctx, None) == ""

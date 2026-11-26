@@ -16,6 +16,13 @@ _LISTS = {
 _KINDS = {"integral_list_apps": "app", "integral_list_tracks": "track"}
 
 
+def needs_directory_discovery():
+    """Offer search only when the installed read catalogue adds a directory."""
+    from app.agentive.tooling.catalogue import build_voice_quick_read_catalogue
+
+    return bool(set(build_voice_quick_read_catalogue()).difference(_LISTS.values()))
+
+
 @dataclass(frozen=True)
 class VoiceDestination:
     kind: str

@@ -331,6 +331,8 @@ async def transition_staged_decision(
         updates = {"state": target, "resolved_at": now.isoformat()}
         if decision_source is not None:
             updates["decision_source"] = decision_source
+            if target == "blessed" and decision_source == "resident_permission":
+                updates["autonomy_grant_used"] = True
         if target == "blessed":
             updates.update(
                 blessed_at=now.isoformat(),

@@ -1,9 +1,10 @@
 # Shared conversation contract for text and live voice
 
-This is the contract for a signed-in Integral Native conversation. It does not
-expose a visitor route or give a public channel access to a staff conversation. The
-[voice-first operation plan](../product/VOICE_FIRST_OPERATION.md) covers the proposed
-hands-free review, navigation and authenticated phone experience.
+This contract covers signed-in browser calls attached to an Integral Native
+conversation. The [voice-first guide](../product/VOICE_FIRST_OPERATION.md)
+describes how to use and qualify spoken navigation, review and readback.
+Telephone admission is deferred. Public visitor chat has its own identity
+and conversation boundary.
 
 ## One conversation, two interfaces
 
@@ -20,6 +21,13 @@ conversational surface, not another worker, database, or source of authority.
   lookup can use a capability discovered from the reviewed catalog. Larger
   work goes through the canonical harness once. The authorized queue,
   steering, cancellation and approval paths remain the same.
+  The shared chat carries the request in the caller’s voice. For example,
+  “Can you put ‘Send the revised quote’ on my list for Friday?” keeps the title
+  and date intact. While that work is starting, the realtime voice can say
+  “Sure, I’ll add that to your Friday list.” A quick result can speak for itself.
+  For a workspace lookup the voice model calls the resident first and speaks its answer. After the delegation, only a requested acknowledgment or authorized readout can speak until the caller speaks again. The acknowledgment is a short line to voice. It is never replayed to the model as a new user request. A denial is reported when the authorized lookup returns one.
+  A clarification such as “Friday afternoon” goes to the resident as a short reply.
+  Confirmation and the receipt still depend on the actual proposal and outcome.
 - **Attachments:** a submitted, visible attachment can be acknowledged by named
   metadata. The user has not attached anything merely by selecting it in a
   composer. Presence does not mean extraction or analysis succeeded. Use the
@@ -27,34 +35,68 @@ conversational surface, not another worker, database, or source of authority.
   original, base64 bytes, extracted text, URLs, or credentials as event context.
   Convey readiness only when the authoritative permission-checked state is
   available.
-- **Approvals:** approvals and outcomes use canonical workflow state, not the
-  speech model's assertion. An acknowledgment can tell the user to review the
-  item in chat without claiming approval or execution. Spoken authorization
-  must use separate exact confirmation and the existing approval gate.
+- **Approvals:** during a call, speak the essential proposed change. Offer
+  independent spoken confirmation for eligible effects. A decision made on
+  a card enters the same workflow. Announce the verified outcome once.
+  When a stronger review is required, explain what remains pending and the
+  specific step that can complete it.
+  The call asks about the action directly, for example “Would you like me to
+  add ‘Review the proposal’ to Today?” Answer once, for example
+  “Yes, please” or “No, thanks.” A qualified answer such as “Yes, but make it
+  tomorrow” leaves the proposal pending. The chat keeps **Review details** available.
+  Recurring schedules, agent runs and write grants retain their respective reviews.
+
+### Resident permissions
+
+Open **Permissions** in the workspace assistant’s composer. The setting applies to the signed-in person’s new chat and voice turns in this workspace.
+
+| Mode | What the resident can do without asking |
+| --- | --- |
+| Ask for approval (default) | Read. Every proposed change waits for a decision. |
+| Approve for me | Make supported simple record additions and edits in private lists you own. Changes involving hooks, assignments or more complex fields still need review. |
+| Custom | Make the same simple edits only in the private lists you select. Checking an app selects its currently eligible lists. |
+| Full access | Create and edit records across apps where you have write access, including shared lists. The canonical writer enforces current access, app rules, record revisions and normal save hooks. |
+
+Choose **Custom** to view or edit your saved selection. Switching to **Ask for approval**, **Approve for me** or **Full access** keeps those selections. Returning to Custom shows the previous choices. A list that loses eligibility cannot authorize an edit.
+
+Mode changes take effect on new turns. Previously pending proposals retain their review. Deletion, sharing, connector actions, batches and other effects outside record creation and update keep their existing review requirements. The previous single-list and multi-list settings read back as Custom when nonempty and Ask for approval when empty.
 
 ### When the caller cannot see chat
 
-The browser is the only live call adapter today. For a future voice-only
-connector, the authenticated adapter must declare whether this caller has an
-interactive chat surface. A durable conversation or a connector that also
-supports text messaging does not establish that the caller can see a message or
-act on a card during the call. An unknown surface must assume voice only.
+Every live call follows the same conversation rule. Speak the useful answer,
+the decision needed or the reason work stopped. For a long result, give the
+short answer and make the rest available by voice on request. If the caller
+asks to put a list in chat, post it once and give a brief spoken receipt.
+If they only want a written answer, honor that request. These choices apply
+to that request. They do not switch the rest of the call to text.
 
-Pass that fact to both the realtime model and the resident handling delegated
-work. Use it when offering tools and when delivering results, errors and review
-receipts. In-app calls can continue to use chat and acknowledged page navigation.
-On a voice-only call, speak the outcome, offer details on request, and carry the
-selected resource forward by voice. Never announce a page opened on an absent
-browser. For an eligible review, read the proposed effect and use the existing
-separate confirmation. If the channel cannot perform the required verification,
-say what remains pending and why. Channel capabilities never grant authority.
+The browser is the only live call adapter today. Use the capabilities of the
+authenticated adapter for individual actions. Opening an App on screen
+requires a bound browser and its render acknowledgment. Selecting an App
+as the subject of the next question requires authorized resource resolution.
+If a future audio connector cannot render a page, the caller can still
+select the App and ask about its records. An unavailable written destination
+or confirmation method must have an accurate spoken explanation.
 
-Qualify each new adapter with the same scoped lookup, ambiguous selection and
-review as the browser. Exercise a caller with no open browser and no text
-delivery. They must hear the result, distinguish a pending change from an
-applied one, and resume after interruption without consulting a chat card.
+The same conversation holds the task, its receipts and the caller's place.
+Typing, uploading or clicking a card may change that state. React to the
+meaningful outcome at a pause. Avoid echoing the user's input, narrating
+interface events, or resubmitting completed work. Interrupting speech stops
+playback. Ending the call ends spoken delivery. Neither cancels admitted work.
+
+An explicitly written lookup carries its delivery choice on that request
+through queue promotion. On successful completion the call speaks a receipt.
+For an ordinary spoken answer, read linked resources by their display names.
+Their route targets remain in the saved message. When the caller requests
+the wording of a saved reply, read a bounded passage aloud. “Continue” and
+“repeat” refer to the same reply in this call. Recheck the conversation and
+the saved content before releasing another passage.
 
 ## Realtime routing and interruption
+
+A question about an existing record or the contents of a list goes to the resident,
+even when nothing has run in the call yet. A question about the progress of a
+request already sent to the resident reads that conversation’s execution status.
 
 During an active workspace lookup, an independent spoken question can enter the
 durable FIFO behind that exact work item. The relay reads the queue receipt
@@ -96,7 +138,7 @@ retained decisions by resolution timestamp and receipt ID. It rechecks the exact
 originating work even when that work is older than the recent-turn window.
 Completed readouts free capacity for later updates. If all readout slots are
 pending, the receipt cursor waits for capacity. Qualification and limits are
-tracked in the [voice parity ADR](adr/019-native-chat-live-voice-parity.md#active-completion-goal-and-qualification-2026-11-25).
+tracked in the [voice parity ADR](adr/019-native-chat-live-voice-parity.md#acceptance-and-evidence).
 
 The selected voice model receives microphone audio directly through Integral’s
 authenticated relay and returns speech on the same connection. Ordinary
@@ -155,28 +197,37 @@ staged payload. The same projection must still match when playback begins.
 Simple creation also uses the existing proposal form and canonical field
 validator to present the Track, type, title and effective scalar values.
 The writer checks the same schema and values inside its effect transaction.
-An optional, empty Markdown field permits simple creation. Populated rich text,
-hooks, relation/file/computed fields, long body content, tags and compound
-effects require their existing card. Published-profile review remains a
+A Markdown field can be empty or contain a short, single line of literal text. Its full value is included in the independent spoken review. Formatted or linked content,
+hooks, relation/file/computed fields, long body content and tags require their existing card.
+A single proposal containing one supported record creation and one one-time
+reminder in this chat can use spoken review. Both operations must be literal
+and independently reviewable. Approval binds the ordered pair; the record and
+the reminder have separate execution receipts. Other compound effects retain
+their existing review.  Published-profile review remains a
 separate qualification item.
 
-A browser that supports independent review confirmation can request a decision
-on one exact eligible record change. An installed local device
-voice reads the exact change and a one-use six-digit challenge. When the
-browser has no suitable local voice, the trusted host can generate the exact
-WAV offline using macOS speech tools or an installed eSpeak NG/eSpeak binary
-on Linux. The browser plays that WAV and confirms playback completion. A
-missing or failed local synthesizer leaves the proposal pending. The realtime model never
-receives the challenge. The relay drops microphone frames during readback and
-captures only a bounded response after playback completion. The configured
-batch Speech to Text adapter transcribes that response independently. An
-explicit decision (for example, “I approve”) and all six digits, a current matching proposal and live
-authorization are required before the canonical staged decision service is
-called. Silence, interruption, mute, expiry, a changed proposal or recognition
-failure leave the decision unchanged. The challenge and recording are
-ephemeral in Core. The configured transcription provider receives only the
-bounded confirmation audio under its normal service policy. Destructive and security effects retain their existing card gate.
-A spoken correction identifies a proposed title or typed date by its unique
+After reconnect, the caller can return to one eligible pending proposal in the same chat. The server checks its work attempt and proposal identity again. At a speech turn boundary the relay offers steering only while its foreground work is known to be queued or running. A reply to a finished clarification can enter the same chat as the next turn.
+
+The configured realtime model renders the exact eligible proposal and a short
+question in the call’s voice in a separate tool-free session. Core checks the
+returned caption before releasing the audio. After successful playback the
+relay captures one bounded microphone response. The configured batch Speech
+to Text adapter transcribes it independently of the conversational model.
+A clear affirmative approves the proposed change and a clear negative rejects
+it. The single-use window belongs to the call and exact proposal. Before
+submitting the decision, Core rechecks the caller, current proposal and expiry.
+A reply with new information cannot approve the original proposal. For these
+replies only, the configured call model interprets the bounded transcript,
+reviewed question, field labels and account-local date in an isolated text
+request. A request for details repeats the verified question. An explicit
+supported edit uses the existing revision service and starts a fresh spoken
+review. A pause or unresolved condition leaves the change pending. Silence,
+interruption, mute and a changed proposal invalidate the decision window. The recording is ephemeral in Core. The
+transcription provider receives the bounded response under its service policy.
+A recording played into an open microphone can sound like assent. This
+mechanism verifies an answer in the authenticated call, not speaker identity.
+Destructive and security-sensitive effects retain their existing review gate.
+A spoken correction can change a title or typed date. During record creation it can also replace a short literal text or Markdown note. Select a field by its unique
 Operational Model field label or key. Creation is scoped to its destination
 Track and an edit to its record. On reconnect, selecting the same target can
 recover a single pending replacement. Correction uses the existing Entry

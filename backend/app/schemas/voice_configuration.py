@@ -38,6 +38,11 @@ class VoiceStart(BaseModel):
     profile_key: str = Field(default="", max_length=64)
     thread_id: str = Field(default="", max_length=255)
     review_confirmation: bool = False
+    conversational_review: bool = False
+    # Older browser builds can still start calls. This hint grants no authority.
+    direct_track: str = Field(
+        default="", pattern=r"^(?:n\.Track\.[A-Za-z0-9_-]+)?$", max_length=255
+    )
 
 
 class VoicePlaybackInterrupted(BaseModel):

@@ -63,7 +63,7 @@ async def test_entry_review_requires_exact_current_record_and_work(monkeypatch):
         run_id="run",
     )
     answer = await review.read_entry_review(**args)
-    assert "Acme Georgetown" in answer.text and answer.text.startswith("Update record")
+    assert answer.text == "Would you like me to rename “Acme” to “Acme Georgetown”?"
     assert "private-token" not in answer.text and "private-id" not in answer.text
     assert await review.read_entry_review(**{**args, "run_id": "other"}) is None
     row["context"]["record_revision"] = 3

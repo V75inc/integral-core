@@ -54,12 +54,10 @@ describe('ComposerMicButton', () => {
     expect(screen.getByTestId('hint')).toHaveTextContent('⇧⌘Space dictate');
   });
 
-  it('disables the separate dictation action and hides its shortcut during voice', () => {
+  it('hides dictation and its shortcut while a call owns the microphone', () => {
     const value = dictation({ voiceInputBlocked: true });
     renderWith(value);
-    const button = screen.getByRole('button', { name: 'Dictation unavailable during a voice call' });
-    expect(button).toBeDisabled();
-    fireEvent.click(button);
+    expect(screen.queryByRole('button')).toBeNull();
     expect(value.toggle).not.toHaveBeenCalled();
     expect(screen.getByTestId('hint')).toBeEmptyDOMElement();
   });

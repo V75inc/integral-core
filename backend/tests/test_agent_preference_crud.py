@@ -82,3 +82,30 @@ async def test_put_preference_unknown_provider_400(
         json={"provider_id": "no-such-provider", "agent_id": "x"},
     )
     assert response.status_code == 400, response.text
+
+
+@pytest.mark.parametrize(
+    ("stored", "mode", "saved", "active"),
+    [
+        ({"track_id": "one"}, "custom", ["one"], ["one"]),
+        ({"track_ids": ["one", "two"]}, "custom", ["one", "two"], ["one", "two"]),
+        ({"track_id": ""}, "ask", [], []),
+        (
+            {"mode": "ask", "custom_track_ids": ["one"], "track_ids": ["one"]},
+            "ask",
+            ["one"],
+            [],
+        ),
+        ({"mode": "full", "custom_track_ids": ["one"]}, "full", ["one"], []),
+    ],
+)
+def test_resident_approval_legacy_and_inactive_projections(stored, mode, saved, active):
+    from app.schemas.agent_preferences import ResidentPermissionValue
+
+    value = ResidentPermissionValue.model_validate(stored)
+    assert (value.mode, value.custom_track_ids, value.track_ids) == (
+        mode,
+        saved,
+        active,
+    )
+    assert value.track_id == (active[0] if len(active) == 1 else "")

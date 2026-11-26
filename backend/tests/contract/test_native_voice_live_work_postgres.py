@@ -39,8 +39,16 @@ async def test_live_voice_and_explicit_stop_rerun(
     task = asyncio.create_task(relay.run())
 
     async def speech():
+        previously_offered = relay.steering_offered
         await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
         assert await event(browser.outbox) == {"type": "flush"}
+        if relay.steering_offered != previously_offered:
+            update = await event(provider.outbox)
+            assert update["type"] == "session.update"
+            assert (
+                native_voice.STEER_ACTIVE
+                in {t["name"] for t in update["session"]["tools"]}
+            ) == relay.steering_offered
 
     async def tool(turn, *, operation=None):
         await provider.inbox.put({"type": "response.created", "response": {"id": turn}})
@@ -192,6 +200,12 @@ async def test_durable_voice_completion_after_conversation_pause(
         assert item is not None and item.status == "running"
         await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
         assert await event(browser.outbox) == {"type": "flush"}
+        update = await event(provider.outbox)
+        assert update["type"] == "session.update"
+        assert native_voice.STEER_ACTIVE in {
+            t["name"] for t in update["session"]["tools"]
+        }
+
         ctx = work_execution.build_work_execution_context(
             work_item=item,
             logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),
@@ -299,6 +313,17 @@ async def test_realtime_tool_uses_canonical_queue_and_voice_steering(
                 "sent your correction",
             ),
         ):
+            # A new spoken turn interrupts an outstanding readout and refreshes
+            # the provider's steering offer for this exact active work item.
+            await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+            assert await event(browser.outbox) == {"type": "flush"}
+            await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+            if operation == "queue":
+                update = await event(provider.outbox)
+                assert update["type"] == "session.update"
+                assert native_voice.STEER_ACTIVE in {
+                    tool["name"] for tool in update["session"]["tools"]
+                }
             await _tool(provider, operation, tool_name, {"request": text})
             closure = await event(provider.outbox)
             assert closure["item"]["call_id"] == operation
@@ -316,8 +341,9 @@ async def test_realtime_tool_uses_canonical_queue_and_voice_steering(
         await asyncio.wait_for(task, 3)
 
 
+@pytest.mark.parametrize("delivery", ["voice", "written_only"])
 async def test_queued_voice_successor_is_checked_and_announced_once(
-    authenticated_client, test_user, monkeypatch
+    authenticated_client, test_user, monkeypatch, delivery
 ):
     """Establish actual queue promotion and fenced successor completion."""
     from app.agentive.services import work_execution, work_items
@@ -395,7 +421,12 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         assert "accepted" in (await event(provider.outbox))["item"]["output"]
         first = relay.accepted
         assert first is not None
-        await _send_tool(provider, "add-queued", "add-queued", "queue")
+        await _tool(
+            provider,
+            "add-queued",
+            native_voice.QUEUE_FOLLOW_UP,
+            {"request": "Queue the separate summary.", "delivery": delivery},
+        )
         assert (
             "added that follow-up" in (await event(provider.outbox))["item"]["output"]
         )
@@ -421,13 +452,16 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         )
         await event(provider.outbox)
         visible = (await event(provider.outbox))["response"]
-        assert "Latest saved reply: " + earlier in visible["instructions"]
+        assert "Read the supplied message aloud once" in visible["instructions"]
         assert earlier in visible["instructions"]
         await finished_audio("check-visible-result", visible)
 
         # Status should not fall back to that earlier result.
         await _tool(
-            provider, "check-next", native_voice.CHECK_CHAT, {"view": "latest_task"}
+            provider,
+            "check-next",
+            native_voice.CHECK_CHAT,
+            {"view": "last_chat_request"},
         )
         await event(provider.outbox)
         check = (await event(provider.outbox))["response"]
@@ -438,7 +472,12 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         final = "The separately queued summary finished."
         assert (await settle(promoted.work_item_id, final)).status == "succeeded"
         observed = (await completed_readout(provider, final))["response"]
-        assert final in observed["instructions"]
+        expected = (
+            native_voice._WRITTEN_RECEIPT if delivery == "written_only" else final
+        )
+        assert expected in observed["instructions"]
+        if delivery == "written_only":
+            assert final not in observed["instructions"]
         assert "by its subject or changed constraint" in observed["instructions"]
         await finished_audio("successor-result", observed)
         with pytest.raises(TimeoutError):
@@ -448,8 +487,13 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         await asyncio.wait_for(task, 3)
 
 
+@pytest.mark.parametrize(
+    "actions",
+    [native_voice.BROWSER_CALL_ACTIONS, native_voice.VoiceCallActions()],
+    ids=["browser", "audio-only"],
+)
 async def test_provider_discovers_and_uses_real_scoped_catalogue_reads(
-    authenticated_client, test_user, monkeypatch
+    authenticated_client, test_user, monkeypatch, actions
 ):
     """Both generic provider stages reach the normal app/workspace permission gates."""
     from tests.test_native_voice_live_tools import _quick_read
@@ -479,7 +523,7 @@ async def test_provider_discovers_and_uses_real_scoped_catalogue_reads(
     relay = native_voice.VoiceRelay(
         browser,
         provider,
-        native_voice.VoiceScope(test_user.user_id, ws, "", thread.id),
+        native_voice.VoiceScope(test_user.user_id, ws, "", thread.id, actions=actions),
     )
     task = asyncio.create_task(relay.run())
     try:
@@ -502,8 +546,13 @@ async def test_provider_discovers_and_uses_real_scoped_catalogue_reads(
         await asyncio.wait_for(task, 3)
 
 
+@pytest.mark.parametrize(
+    "actions",
+    [native_voice.BROWSER_CALL_ACTIONS, native_voice.VoiceCallActions()],
+    ids=["browser", "audio-only"],
+)
 async def test_spoken_navigation_context_and_cancellation(
-    authenticated_client, test_user, monkeypatch
+    authenticated_client, test_user, monkeypatch, actions
 ):
     """Exercise the actual voice relay, scoped list and durable submission."""
     from tests.test_native_voice_live_tools import _tool
@@ -547,7 +596,9 @@ async def test_spoken_navigation_context_and_cancellation(
     thread = await create_thread(
         user_id=test_user.user_id, workspace_id=ws, provider_id="integral_native"
     )
-    scope = native_voice.VoiceScope(test_user.user_id, ws, "", thread.id)
+    scope = native_voice.VoiceScope(
+        test_user.user_id, ws, "", thread.id, actions=actions
+    )
     browser, provider = Browser(), Provider()
     relay = native_voice.VoiceRelay(browser, provider, scope)
     task = asyncio.create_task(relay.run())
@@ -710,9 +761,31 @@ async def test_spoken_review_of_canonical_entry_proposal(
     assert await read_entry_review(**args) is None
 
 
-@pytest.mark.parametrize("edit", ["title", "date", "reject", "create"])
+@pytest.mark.parametrize(
+    "edit",
+    [
+        "title",
+        "date",
+        "reject",
+        "create",
+        "direct",
+        "policy_edit",
+        "full_edit",
+        "full_create",
+        "full_denied",
+        "auto_private",
+        "auto_shared",
+        "ask_saved",
+        "policy_outside",
+        "policy_revoked",
+        "policy_late",
+        "batch",
+        "batch_reject",
+        "batch_partial",
+    ],
+)
 async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
-    authenticated_client, test_user, monkeypatch, edit
+    authenticated_client, test_user, second_user_client, test_user2, monkeypatch, edit
 ):
     """A synthetic independent recognition can apply exactly one real record edit."""
     from app.agentive.services import work_approvals
@@ -737,18 +810,40 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     ws = response.json()["workspace"]["id"]
     me = test_user.user_id
     headers = {"X-Integral-Scope": f"ws:{ws}"}
+    track_input = {"title": "Contracts", "visibility": "private"}
+    if edit in {"policy_edit", "policy_outside"}:
+        for name in ("Planning", "Sales"):
+            app = await authenticated_client.post(
+                "/api/apps",
+                headers=headers,
+                json={"name": name, "visibility": "private"},
+            )
+            assert app.status_code == 200, app.text
+            app_id = app.json()["app"]["id"]
+            if name == "Planning":
+                other = await authenticated_client.post(
+                    "/api/tracks",
+                    headers=headers,
+                    json={**track_input, "app_id": app_id},
+                )
+                assert other.status_code in (200, 201), other.text
+                other_track = other.json()["track"]["id"]
+            else:
+                track_input["app_id"] = app_id
+    if edit in {"full_edit", "full_create", "full_denied", "auto_shared"}:
+        track_input["visibility"] = "workspace"
     track = await authenticated_client.post(
-        "/api/tracks",
-        headers=headers,
-        json={"title": "Contracts", "visibility": "private"},
+        "/api/tracks", headers=headers, json=track_input
     )
     assert track.status_code in (200, 201), track.text
     track_id = track.json()["track"]["id"]
     record_input = {"track_id": track_id, "title": "Acme"}
+    batch = edit in {"batch", "batch_reject", "batch_partial"}
+    creating = edit in {"create", "direct", "full_create"} or batch
     date_key, date_label = (
-        ("renew_on", "Renewal on") if edit == "create" else ("due_date", "Due date")
+        ("renew_on", "Renewal on") if creating else ("due_date", "Due date")
     )
-    if edit in {"date", "create"}:
+    if edit == "date" or creating:
         kind = await authenticated_client.post(
             "/api/entry-types",
             headers=headers,
@@ -760,6 +855,7 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
                         {"key": date_key, "name": date_label, "type": "date"},
                         {"key": "notes", "name": "Notes", "type": "markdown"},
                         {"key": "count", "name": "Count", "type": "number"},
+                        {"key": "lead", "name": "Assigned lead", "type": "member"},
                         {"key": "expedite", "name": "Expedite", "type": "boolean"},
                     ]
                 },
@@ -775,9 +871,90 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     )
     assert response.status_code in (200, 201), response.text
     entry = response.json()["entry"]
+    if edit in {"full_edit", "full_denied"}:
+        from app.models.edges import IS_MEMBER_OF
+        from app.models.nodes import Workspace
+
+        owner_client = authenticated_client
+        await test_user2.connect(
+            await Workspace.get(ws), edge=IS_MEMBER_OF, role="member"
+        )
+        shared = await owner_client.post(
+            f"/api/tracks/{track_id}/collaborators",
+            headers=headers,
+            json={"collaborator_user_id": test_user2.id, "role": "editor"},
+        )
+        assert shared.status_code == 200, shared.text
+        me, authenticated_client = test_user2.user_id, second_user_client
     thread = await create_thread(
         user_id=me, workspace_id=ws, provider_id="integral_native"
     )
+    policy_mode = edit in {
+        "direct",
+        "policy_edit",
+        "full_edit",
+        "full_create",
+        "full_denied",
+        "auto_private",
+        "auto_shared",
+        "ask_saved",
+        "policy_outside",
+        "policy_revoked",
+        "policy_late",
+    }
+    if policy_mode:
+        path = f"/api/workspaces/{ws}/resident-permission"
+        saved = await authenticated_client.get(path, headers=headers)
+        assert saved.status_code == 200 and saved.json()["track_id"] == ""
+    if policy_mode and edit != "policy_late":
+        invalid = await authenticated_client.put(
+            path, headers=headers, json={"track_id": "n.Track.unowned", "revision": ""}
+        )
+        assert invalid.status_code == 400
+        if edit in {"policy_edit", "policy_outside"}:
+            wanted = [other_track, track_id] if edit == "policy_edit" else [other_track]
+            body = {"track_ids": wanted, "revision": ""}
+        elif edit.startswith("full_"):
+            body = {"mode": "full", "revision": ""}
+        elif edit.startswith("auto_"):
+            body = {"mode": "auto", "revision": ""}
+        else:
+            body = {"track_id": track_id, "revision": ""}
+        granted = await authenticated_client.put(path, headers=headers, json=body)
+        assert granted.status_code == 200, granted.text
+        grant = granted.json()
+        expected = body.get("track_ids", [track_id] if "track_id" in body else [])
+        assert set(grant["track_ids"]) == set(expected)
+        if edit == "ask_saved":
+            ask = await authenticated_client.put(
+                path,
+                headers=headers,
+                json={"mode": "ask", "revision": grant["revision"]},
+            )
+            assert ask.status_code == 200
+            grant = ask.json()
+            assert grant["custom_track_ids"] == [track_id] and not grant["track_ids"]
+        readback = await authenticated_client.get(path, headers=headers)
+        assert readback.json() == grant
+        if edit == "policy_edit":
+            invalid = await authenticated_client.put(
+                path,
+                headers=headers,
+                json={
+                    "track_ids": [track_id, "n.Track.unowned"],
+                    "revision": grant["revision"],
+                },
+            )
+            assert invalid.status_code == 400
+            assert (
+                await authenticated_client.get(path, headers=headers)
+            ).json() == grant
+            legacy_overwrite = await authenticated_client.put(
+                path,
+                headers=headers,
+                json={"track_id": other_track, "revision": grant["revision"]},
+            )
+            assert legacy_overwrite.status_code == 409
     receipt = await submit_chat_turn(
         ChatTurnSubmissionRequest(
             principal_id=me,
@@ -810,18 +987,54 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         )
     else:
         payload["title"] = "Acme Georgetown"
-    if edit == "create":
+    if edit == "full_edit":
+        payload["body"] = "Updated notes for the whole project."
+    if creating:
         payload = {
             "track_id": track_id,
             "title": "Water the plants",
             "body": "At noon local time",
             "entry_type": entry["type_id"],
-            "fields": {date_key: "2026-11-27", "count": 0, "expedite": False},
+            "fields": {
+                date_key: "2026-11-27",
+                "count": 0,
+                "expedite": False,
+                "notes": "08:00",
+            },
+        }
+    if batch:
+        payload = {
+            "operations": [
+                {
+                    "kind": "create_entry",
+                    "payload": payload,
+                    "summary": "Create record",
+                    "diff_human": "Display only",
+                    "diff_machine": {},
+                },
+                {
+                    "kind": "routine_task_create",
+                    "payload": dict(
+                        thread_id=thread.id,
+                        workspace_id=ws,
+                        agent_id="integral_core",
+                        instruction="Water the plants.",
+                        timezone="America/Guyana",
+                        run_at="2099-11-26T13:00:00+00:00",
+                        max_runs=1,
+                        cron="",
+                        delivery_mode="reminder",
+                        write_scope=[],
+                    ),
+                },
+            ]
         }
     proof = {
         "version": "work-proposal-v1",
         "capability_key": (
-            "integral_create_entry" if edit == "create" else "integral_update_entry"
+            "integral_commit_batch"
+            if batch
+            else ("integral_create_entry" if creating else "integral_update_entry")
         ),
         "work_item_id": claimed.work_item_id,
         "run_id": run_id,
@@ -829,12 +1042,14 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         "workspace_id": ws,
         "thread_id": thread.id,
     }
+    if policy_mode:
+        proof.update(attempt=claimed.attempt, effect_key="fixture-effect")
     with bind_proposal_origin(proof):
         staged = await create_staged_change(
             user_id=me,
             workspace_id=ws,
             session_id=thread.id,
-            kind="create_entry" if edit == "create" else "update_entry",
+            kind=("batch" if batch else "create_entry" if creating else "update_entry"),
             summary="Rename Acme",
             diff_human="Title from Acme to Acme Georgetown",
             diff_machine=payload,
@@ -878,24 +1093,58 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     relay.accepted = native_voice._AcceptedVoiceTurn(
         receipt.work_item_id, receipt.message_id, "Rename Acme to Georgetown"
     )
-    if edit == "create":
+    if creating:
         relay.navigation.focus = VoiceDestination("track", track_id, "Tasks")
     else:
         relay.navigation.focus = VoiceDestination(
             "entry", entry["id"], "Acme", track_id
         )
     review = await relay._current_review()
-    assert review is not None
+    if edit == "full_edit":
+        assert (
+            review is None
+        )  # A body replacement is outside the simple spoken projection.
+    else:
+        assert review is not None
     if edit == "date":
         assert "2026-11-26" in review.text and "2026-11-27" in review.text
-        await relay._revise_pending_review(
-            "correct-date", {"field_number": 1, "value": "2026-11-30"}, relay.generation
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from app.services.native_voice_review_audio import ReviewFollowup
+
+        # Exercise the actual answer window. The independent recognizer supplies
+        # the utterance and the interpreter can suggest only a draft edit.
+        relay.conversational_review = True
+        relay.review_voice = SimpleNamespace(
+            interpret_reply=AsyncMock(
+                return_value=ReviewFollowup(
+                    intent="revise", field="Due date", value="2026-11-30"
+                )
+            )
         )
-        assert (await event(provider.outbox))["item"]["call_id"] == "correct-date"
-        revised_speech = (await event(provider.outbox))["response"]["instructions"]
-        assert "2026-11-30" in revised_speech and "not been applied" in revised_speech
-        # Finish this private readout so the later approval can speak.
-        relay._discard_silent_readout()
+        captured = VoiceConfirmation(review, ("fixture", "model", "byok", "fixture"))
+        captured.audio.extend(b"\xff\x7f" * 48000)
+        captured.capture_done.set()
+        relay.review_confirmation = captured
+        monkeypatch.setattr(
+            service,
+            "transcribe_voice_confirmation",
+            AsyncMock(return_value="Actually, make it Monday."),
+        )
+        offer = AsyncMock()
+        monkeypatch.setattr(relay, "_request_review_confirmation", offer)
+        await relay._capture_review_confirmation(captured)
+        assert (await event(browser.outbox))["type"] == "review_confirmation_ended"
+        corrected_review = await relay._current_review()
+        assert corrected_review and corrected_review.proposal_id != review.proposal_id
+        assert (
+            "2026-11-30" in corrected_review.text
+            and corrected_review.text.startswith("Would you like me to")
+        )
+        offer.assert_awaited_once_with(
+            None, "ask", relay.generation, expected=corrected_review
+        )
         from app.agentive.staging import get_token
 
         old = await get_token(staged.token)
@@ -932,27 +1181,144 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         review = await relay._current_review()
         assert review is not None and review.proposal_id != staged.token
     if edit == "create":
+        await relay._revise_pending_review(
+            "correct-note",
+            {"field": "Notes", "value": "8:00, as written"},
+            relay.generation,
+        )
+        assert (await event(provider.outbox))["item"]["call_id"] == "correct-note"
+        corrected = (await event(provider.outbox))["response"]["instructions"]
+        assert "8:00, as written" in corrected
+        relay._discard_silent_readout()
+        review = await relay._current_review()
         relay = native_voice.VoiceRelay(browser, provider, scope)
         relay.navigation.focus = VoiceDestination("track", track_id, "Tasks")
         recovered = await relay._current_review()
         assert recovered and recovered.proposal_id == review.proposal_id
         review = recovered
+    if policy_mode:
+        from types import SimpleNamespace
+
+        from app.models.nodes import Entry
+        from app.services.resident_permissions import apply_resident_permission
+
+        ctx = SimpleNamespace(
+            attempt=claimed.attempt,
+            effect_key="fixture-effect",
+            principal_id=me,
+            workspace_id=ws,
+            thread_id=thread.id,
+            work_item_id=claimed.work_item_id,
+            run_id=run_id,
+        )
+        if edit == "full_denied":
+            removed = await owner_client.delete(
+                f"/api/tracks/{track_id}/collaborators/{test_user2.id}", headers=headers
+            )
+            assert removed.status_code == 200, removed.text
+        if edit in {"auto_shared", "policy_outside", "ask_saved", "full_denied"}:
+            if edit == "ask_saved":
+                assert "resident_permission_revision" not in claimed.input_payload
+            assert await apply_resident_permission(claimed, ctx, staged.token) is None
+            assert (await Entry.get(entry["id"])).title == "Acme"
+            return
+        if edit == "policy_late":
+            assert "resident_permission_revision" not in claimed.input_payload
+            late = await authenticated_client.put(
+                path, headers=headers, json={"track_id": track_id, "revision": ""}
+            )
+            assert late.status_code == 200
+            assert await apply_resident_permission(claimed, ctx, staged.token) is None
+            return
+        if edit == "policy_revoked":
+            revoked = await authenticated_client.put(
+                path,
+                headers=headers,
+                json={"track_id": "", "revision": grant["revision"]},
+            )
+            assert revoked.status_code == 200
+            restored = await authenticated_client.put(
+                path,
+                headers=headers,
+                json={"track_id": track_id, "revision": revoked.json()["revision"]},
+            )
+            assert restored.status_code == 200
+            assert await apply_resident_permission(claimed, ctx, staged.token) is None
+            return
+        assert (
+            claimed.input_payload["resident_permission_revision"] == grant["revision"]
+        )
+        stale = await authenticated_client.put(
+            path, headers=headers, json={"track_id": "", "revision": "stale"}
+        )
+        assert stale.status_code == 409
+        assert (
+            await apply_resident_permission(claimed, ctx, "unrelated-proposal") is None
+        )
+        applied = await apply_resident_permission(claimed, ctx, staged.token)
+        assert applied and applied["consumed"], applied
+        assert await apply_resident_permission(claimed, ctx, staged.token) is None
+        revoked = await authenticated_client.put(
+            path, headers=headers, json={"track_id": "", "revision": grant["revision"]}
+        )
+        assert revoked.status_code == 200 and not revoked.json()["track_id"]
+        if edit in {"policy_edit", "full_edit", "auto_private"}:
+            updated = await Entry.get(entry["id"])
+            assert updated.title == "Acme Georgetown"
+            if edit == "full_edit":
+                assert updated.body == payload["body"]
+            return
+        saved = await Entry.find(
+            {"context.track_id": track_id, "context.title": "Water the plants"}
+        )
+        assert len(saved) == 1
+        assert not browser.outbox.qsize()
+        return
+    if edit == "batch_partial":
+        from app.agentive import staging_executors
+
+        dispatch = staging_executors.dispatch_under_scope
+
+        async def refuse_second(**kwargs):
+            if kwargs["kind"] == "routine_task_create":
+                return {"ok": False, "error": True, "message": "Schedule unavailable"}
+            return await dispatch(**kwargs)
+
+        monkeypatch.setattr(staging_executors, "dispatch_under_scope", refuse_second)
     confirmation = VoiceConfirmation(
         review,
-        "reject" if edit == "reject" else "approve",
         ("fixture", "fixture", "byok", "fixture"),
     )
     confirmation.phase = "capture"
     confirmation.audio.extend(b"\xff\x7f" * 48000)
 
     async def recognize(*args, **kwargs):
-        return confirmation.decision + " " + confirmation.code
+        return "No thanks" if edit in {"reject", "batch_reject"} else "Yes, please"
 
     monkeypatch.setattr(service, "transcribe_voice_confirmation", recognize)
     monkeypatch.setattr(native_voice, "CAPTURE_SECONDS", 0.01)
     relay.review_confirmation = confirmation
     await relay._capture_review_confirmation(confirmation)
     assert (await event(browser.outbox))["type"] == "review_confirmation_ended"
+    if batch:
+        from app.agentive.nodes import RoutineTask
+        from app.models.nodes import Entry
+        from app.services.native_voice_review import read_applied_values
+
+        assert len(review.children) == 2
+        created = await Entry.find(
+            {"context.title": "Water the plants", "context.track_id": track_id}
+        )
+        routines = await RoutineTask.find({"context.thread_id": thread.id})
+        assert len(created) == int(edit != "batch_reject")
+        assert len(routines) == int(edit == "batch")
+        if created:
+            assert created[0].custom_fields["notes"] == "08:00"
+            applied = await read_applied_values(review, principal=me, workspace=ws)
+            assert applied and applied.complete == (edit == "batch")
+            if edit == "batch_partial":
+                assert "couldn't verify that the reminder was scheduled" in applied.text
+        return
     if edit == "create":
         from app.models.nodes import Entry
 
@@ -965,6 +1331,8 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         spoken = (await event(provider.outbox))["response"]["instructions"]
         assert "Water the plants" in spoken and "Current saved values" in spoken
         assert "Count: 0" in spoken and "Expedite: False" in spoken
+        assert "Notes: 8:00, as written" in spoken
+        assert created[0].custom_fields["notes"] == "8:00, as written"
         await relay._capture_review_confirmation(confirmation)
         assert (
             len(

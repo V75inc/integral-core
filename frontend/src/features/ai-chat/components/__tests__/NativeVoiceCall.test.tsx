@@ -156,8 +156,7 @@ it("uses a waveform and waits for provider readiness before requesting one openi
 
   act(() => socket.receive("ready"));
   expect(screen.getByRole("status")).toHaveTextContent("Voice call live");
-  expect(screen.queryByText("End call", { selector: "[role=tooltip]" })).not.toBeInTheDocument();
-  expect(screen.getAllByText("End call")).toHaveLength(1);
+  expect(screen.getByText("End call", { selector: "[role=tooltip]" })).toHaveAttribute("aria-hidden", "true");
   expect(screen.getByRole("button", { name: "End call" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Cancel voice call" })).not.toBeInTheDocument();
   expect(socket.send).toHaveBeenNthCalledWith(2, JSON.stringify({ type: "opening" }));
@@ -254,6 +253,9 @@ it("mutes socket input immediately, drops stale capture frames on resume, and ke
   expect(track.enabled).toBe(false);
   const unmute = within(callWidget).getByRole("button", { name: "Unmute microphone" });
   expect(unmute).toHaveFocus();
+  expect(screen.queryByText("Unmute microphone", { selector: "[role=tooltip]" })).toBeNull();
+  fireEvent.pointerEnter(unmute);
+  expect(screen.getByText("Unmute microphone", { selector: "[role=tooltip]" })).toBeInTheDocument();
   expect(unmute.textContent).toBe("");
   expect(unmute.querySelector(".lucide-mic-off")).toHaveClass("text-[var(--danger-fg)]");
   expect(screen.getByRole("status")).toHaveTextContent("Mic muted");
@@ -397,78 +399,40 @@ it("recovers when an active microphone is disconnected", async () => {
   expect(stopTrack).toHaveBeenCalledTimes(1);
 });
 
-it("reads the exact review with a local device voice before admitting confirmation audio", async () => {
-  let spoken: { text: string; onend?: () => void; onerror?: () => void } | undefined;
-  class TestUtterance {
-    onend?: () => void;
-    onerror?: () => void;
-    constructor(public text: string) {}
-  }
-  vi.stubGlobal("SpeechSynthesisUtterance", TestUtterance);
-  vi.stubGlobal("speechSynthesis", {
-    getVoices: () => [{ localService: false, lang: "en-US" }, { localService: true, lang: "en-US" }],
-    speak: (utterance: TestUtterance) => { spoken = utterance; },
-    cancel: vi.fn(),
-  });
+it.each(["finish", "interrupt"] as const)("uses only verified call audio during review (%s)", async (action) => {
+  const speak = vi.fn();
+  vi.stubGlobal("speechSynthesis", { getVoices: () => [{ lang: "en-US", localService: true }], speak });
   show();
   const socket = await startCall();
   act(() => { socket.open(); socket.receive("ready"); });
-  act(() => socket.onmessage?.({ data: JSON.stringify({
-    type: "review_confirmation", id: "fixture", prompt: "Change Acme to Georgetown. Confirmation digits: one two three four five six.",
-  }) }));
-  expect(spoken?.text).toContain("Change Acme to Georgetown");
-  const capture = new ArrayBuffer(16);
-  act(() => emitCapture(capturePorts[0], capture));
-  expect(socket.send).toHaveBeenCalledTimes(2);
-  act(() => spoken?.onend?.());
-  expect(socket.send).toHaveBeenNthCalledWith(3, JSON.stringify({ type: "review_prompt_finished", id: "fixture" }));
-  act(() => emitCapture(capturePorts[0], capture, 1));
-  expect(socket.send).toHaveBeenNthCalledWith(4, capture);
-});
-
-it("invalidates the local review when the caller interrupts its readback", async () => {
-  const stop = vi.fn();
-  class TestUtterance {
-    onend?: () => void;
-    onerror?: () => void;
-    constructor(public text: string) {}
-  }
-  vi.stubGlobal("SpeechSynthesisUtterance", TestUtterance);
-  vi.stubGlobal("speechSynthesis", {
-    getVoices: () => [{ localService: true, lang: "en-US" }],
-    speak: vi.fn(),
-    cancel: stop,
-  });
-  show();
-  const socket = await startCall();
-  act(() => { socket.open(); socket.receive("ready"); });
-  act(() => socket.onmessage?.({ data: JSON.stringify({
-    type: "review_confirmation", id: "fixture", prompt: "Read before deciding.",
-  }) }));
-  const spoken = new Int16Array(480).fill(6000).buffer;
-  act(() => { for (let index = 0; index < 8; index++) emitCapture(capturePorts[0], spoken); });
-  expect(stop).toHaveBeenCalledTimes(1);
-  expect(socket.send).toHaveBeenNthCalledWith(3, JSON.stringify({ type: "review_prompt_interrupted", id: "fixture" }));
-  expect(socket.send).not.toHaveBeenCalledWith(spoken);
-});
-
-
-it("plays an offline host review when the browser has no installed voice", async () => {
-  vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak: vi.fn(), cancel: vi.fn() });
-  show();
-  const socket = await startCall();
-  act(() => { socket.open(); socket.receive("ready"); });
-  act(() => socket.onmessage?.({ data: JSON.stringify({
-    type: "review_confirmation", id: "fixture", prompt: "Read before deciding.",
-  }) }));
-  expect(socket.send).toHaveBeenNthCalledWith(3, JSON.stringify({ type: "review_prompt_unavailable", id: "fixture" }));
-  act(() => socket.onmessage?.({ data: JSON.stringify({
-    type: "review_confirmation_audio", id: "fixture", audio: btoa("fixture-WAV"),
-  }) }));
+  const send = (data: object) => act(() => socket.onmessage?.({ data: JSON.stringify(data) }));
+  send({ type: "review_confirmation", id: "fixture" });
+  send({ type: "review_confirmation_audio", id: "stale", audio: btoa("stale-WAV") });
+  expect(startPlayback).not.toHaveBeenCalled();
+  send({ type: "review_confirmation_audio", id: "fixture", audio: btoa("fixture-WAV") });
   await waitFor(() => expect(startPlayback).toHaveBeenCalledTimes(1));
-  const silentMic = new ArrayBuffer(16);
-  act(() => emitCapture(capturePorts[0], silentMic));
-  expect(socket.send).toHaveBeenCalledTimes(3);
-  act(() => playbackSources[0].onended?.());
-  expect(socket.send).toHaveBeenNthCalledWith(4, JSON.stringify({ type: "review_prompt_finished", id: "fixture" }));
+  const silent = new ArrayBuffer(16);
+  act(() => emitCapture(capturePorts[0], silent));
+  expect(socket.send).toHaveBeenCalledTimes(2);
+  if (action === "finish") {
+    act(() => playbackSources[0].onended?.());
+    expect(socket.send).toHaveBeenLastCalledWith(JSON.stringify({ type: "review_prompt_finished", id: "fixture" }));
+    act(() => emitCapture(capturePorts[0], silent, 1));
+    expect(socket.send).toHaveBeenLastCalledWith(silent);
+  } else {
+    const voice = new Int16Array(480).fill(6000).buffer;
+    act(() => { for (let index = 0; index < 8; index++) emitCapture(capturePorts[0], voice); });
+    expect(socket.send).toHaveBeenLastCalledWith(JSON.stringify({ type: "review_prompt_interrupted", id: "fixture" }));
+    expect(socket.send).not.toHaveBeenCalledWith(voice);
+  }
+  expect(speak).not.toHaveBeenCalled();
+});
+
+it("opens a voice call without forwarding a legacy browser permission", async () => {
+  localStorage.setItem(JSON.stringify(["voice-create-list", "one", "workspace"]), "n.Track.tasks");
+  render(<NativeVoiceControls eligible opening={{workspace_id:"workspace",profile_key:"",thread_id:"thread"}} playingDictation={() => false} />);
+  const socket = await startCall();
+  act(() => socket.open());
+  expect(JSON.parse(socket.send.mock.calls[0][0])).not.toHaveProperty("direct_track");
+  localStorage.clear();
 });

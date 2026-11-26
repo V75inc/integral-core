@@ -53,9 +53,7 @@ it('blocks dictation from both the composer and keyboard throughout the voice le
   render(<ComposerDictationProvider><Harness onClaim={onClaim} /></ComposerDictationProvider>);
   fireEvent.click(screen.getByRole('button', { name: 'Claim live voice' }));
   expect(onClaim).toHaveBeenCalledWith(true);
-  const disabled = screen.getByRole('button', { name: 'Dictation unavailable during a voice call' });
-  expect(disabled).toBeDisabled();
-  fireEvent.click(disabled);
+  expect(screen.queryByRole('button', { name: /^Dictate/ })).toBeNull();
   fireEvent.keyDown(window, hotkey);
   expect(fixture.beginDictation).not.toHaveBeenCalled();
 

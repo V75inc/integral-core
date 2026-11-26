@@ -207,7 +207,6 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
             native_voice.OPEN_PAGE,
             native_voice.NAVIGATE,
             native_voice.QUEUE_FOLLOW_UP,
-            native_voice.STEER_ACTIVE,
         }
         await provider.inbox.put({"type": "session.updated"})
         assert (await event(browser.outbox))["thread_id"] == scope.thread
@@ -218,13 +217,20 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
         assert not relay.pending.done()
 
         await _tool(
-            provider, "status", native_voice.CHECK_CHAT, {"view": "current_task"}
+            provider,
+            "status",
+            native_voice.CHECK_CHAT,
+            {"view": "running_chat_request"},
         )
         assert "checked" in (await event(provider.outbox))["item"]["output"]
         speech = (await event(provider.outbox))["response"]
         assert "running: Draft the report." in speech["instructions"]
         assert speech["conversation"] == "none" and speech["tool_choice"] == "none"
 
+        # The next spoken question interrupts the still-pending status readout.
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+        assert (await event(provider.outbox))["type"] == "session.update"
         speech = await _quick_read(provider, "apps", "show apps", "Visible apps here")
         assert "Visible Projects" in speech and "hidden-app-id" not in speech
         assert "Visible apps here" not in speech
@@ -253,8 +259,13 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
             "added that follow-up" in (await event(provider.outbox))["item"]["output"]
         )
         await event(provider.outbox)
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
         await _tool(
-            provider, "foreground", native_voice.CHECK_CHAT, {"view": "current_task"}
+            provider,
+            "foreground",
+            native_voice.CHECK_CHAT,
+            {"view": "running_chat_request"},
         )
         await event(provider.outbox)
         assert (
@@ -732,3 +743,208 @@ async def test_chat_write_tool_accepts_directory_only_in_workspace_voice(profile
         relay._speak_result.assert_awaited_once_with(
             relay.generation, result="I posted the list in this chat.", read_back=True
         )
+
+
+@pytest.mark.asyncio
+async def test_audio_only_call_uses_spoken_focus_and_explains_unavailable_actions(
+    monkeypatch,
+):
+    """Run a provider conversation without a browser route, note sink or human confirmation."""
+    from types import SimpleNamespace
+
+    from app.services import native_voice_navigation as nav
+
+    actions = native_voice.VoiceCallActions()
+    relay = native_voice.VoiceRelay(
+        Browser(),
+        Provider(),
+        native_voice.VoiceScope("caller", "workspace", "", "thread", actions=actions),
+        check=AsyncMock(),
+        work=AsyncMock(return_value="Two items are urgent."),
+    )
+    relay.ready = True
+    relay._speak_result = AsyncMock()
+    session = native_voice.session_update("", actions=actions)["session"]
+    offered = {tool["name"] for tool in session["tools"]}
+    assert {
+        native_voice.NAVIGATE,
+        native_voice.DELEGATE,
+        native_voice.CHECK_CHAT,
+    } <= offered
+    unavailable = {
+        native_voice.OPEN_PAGE,
+        native_voice.WRITE_CHAT_NOTE,
+        native_voice.REQUEST_REVIEW,
+        native_voice.REVISE_REVIEW,
+    }
+    assert not unavailable & offered
+    assert "This call cannot open a screen" in session["instructions"]
+    assert "still pending" in relay._present_review(
+        SimpleNamespace(action="move the due date to Monday")
+    )
+
+    async def turn(name, args, key):
+        relay.response_generation = key
+        await relay._completed_response(request(key, key, "", name=name, args=args))
+
+    one = nav.VoiceDestination("app", "a", "Garden notes")
+    two = nav.VoiceDestination("app", "b", "Library notes")
+    page = nav.VoicePage(None, (one, two), (one.label, two.label))
+    relay.navigation.accept_page(page)
+    monkeypatch.setattr(nav, "refresh_page", AsyncMock(return_value=page))
+    monkeypatch.setattr(nav, "verified_destination", AsyncMock(return_value=True))
+    await turn(native_voice.NAVIGATE, {"action": "select", "ordinal": 2}, "choose")
+    await relay.live_read
+    assert relay.navigation.focus == two
+    assert relay.scope.page_context is None
+    for name, args, expected in (
+        (native_voice.OPEN_PAGE, {"destination": 2}, "cannot open"),
+        (native_voice.REQUEST_REVIEW, {"decision": "approve"}, "No decision"),
+        (native_voice.WRITE_CHAT_NOTE, {"text": "write me"}, "no written destination"),
+        (
+            native_voice.DELEGATE,
+            {"request": "What is urgent?", "delivery": "written_only"},
+            "no written destination",
+        ),
+    ):
+        await turn(name, args, name)
+        assert expected in relay._speak_result.await_args.kwargs["result"]
+        relay.work.assert_not_awaited()
+    await turn(
+        native_voice.DELEGATE,
+        {"request": "What is urgent in the selected app?"},
+        "lookup",
+    )
+    await relay.pending
+    relay.work.assert_awaited_once()
+    assert relay.accepted_focus == two
+    assert relay._speak_result.await_args.kwargs["result"] == "Two items are urgent."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["", "On it."])
+async def test_only_a_requested_acknowledgment_is_spoken_before_work(intent):
+    scope = native_voice.VoiceScope("user", "workspace", "", "thread")
+    relay = native_voice.VoiceRelay(Browser(), Provider(), scope, check=AsyncMock())
+    relay.conversational_review = True
+    relay.ready = True
+    relay.response_generation = "turn"
+
+    async def admit(*args):
+        relay.pending = asyncio.get_running_loop().create_future()
+
+    relay._start_requested_work = admit
+    relay._speak_handoff = AsyncMock()
+    await relay._completed_response(
+        request(
+            "call", "turn", "", args={"request": "Friday", "intent_summary": intent}
+        )
+    )
+    assert relay.pending is not None
+    if intent:
+        await relay.handoff_task
+        relay._speak_handoff.assert_awaited_once_with(
+            intent, relay.pending, relay.generation
+        )
+    else:
+        assert relay.handoff_task is None
+    relay.pending.cancel()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("caller_text", "cue"),
+    [
+        (
+            "Could you add ‘Check quote 007’ to my list for Friday?",
+            "Sure, I’ll add that to your Friday list.",
+        ),
+        (
+            "Move my planning session to tomorrow at eight.",
+            "Okay, I’ll move your planning session.",
+        ),
+    ],
+)
+async def test_pending_handoff_separates_chat_wording_from_spoken_intent(
+    caller_text, cue
+):
+    provider = Provider()
+    work = AsyncMock()
+    finish = asyncio.Event()
+
+    async def wait_for_worker(*args):
+        await finish.wait()
+        return "Finished."
+
+    work.side_effect = wait_for_worker
+    relay = native_voice.VoiceRelay(
+        Browser(),
+        provider,
+        native_voice.VoiceScope("user", "workspace", "", "thread"),
+        check=AsyncMock(),
+        work=work,
+    )
+    relay.conversational_review = True
+    relay.ready = True
+    relay.response_generation = "turn"
+    try:
+        await relay._completed_response(
+            request(
+                "call", "turn", "", args={"request": caller_text, "intent_summary": cue}
+            )
+        )
+        speech = (await event(provider.outbox))["response"]
+        work.assert_awaited_once_with(relay.scope, "call", caller_text)
+        assert speech["conversation"] == "none" and speech["tool_choice"] == "none"
+        assert speech["input"] == []
+        assert "already underway" in speech["instructions"]
+        assert "never a new user request" in speech["instructions"]
+        assert cue in speech["instructions"]
+        assert caller_text not in speech["instructions"]
+    finally:
+        finish.set()
+        await relay.pending
+        await relay.handoff_task
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("already_spoken", [False, True])
+async def test_fast_task_or_spoken_acknowledgment_does_not_prompt_a_second_ack(
+    already_spoken,
+):
+    provider = Provider()
+    work = AsyncMock(return_value="The Friday list is ready.")
+    relay = native_voice.VoiceRelay(
+        Browser(),
+        provider,
+        native_voice.VoiceScope("user", "workspace", "", "thread"),
+        check=AsyncMock(),
+        work=work,
+    )
+    relay.conversational_review = True
+    relay.ready = True
+    relay.response_generation = "turn"
+    if already_spoken:
+        relay.last_spoken_response = "turn"
+    await relay._completed_response(
+        request(
+            "call",
+            "turn",
+            "",
+            args={
+                "request": "Can you prepare my Friday list?",
+                "intent_summary": "Prepare Friday list.",
+            },
+        )
+    )
+    await relay.pending
+    if relay.handoff_task:
+        await relay.handoff_task
+    assert (await event(provider.outbox))["item"][
+        "output"
+    ] == "The Friday list is ready."
+    assert (
+        "The Friday list is ready."
+        in (await event(provider.outbox))["response"]["instructions"]
+    )
+    assert provider.outbox.empty()

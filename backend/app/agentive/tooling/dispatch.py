@@ -1674,8 +1674,6 @@ async def _dispatch_propose(
             )
         return ToolResult(data=batched)
 
-    from app.agentive.unstaged_targets import is_unstaged_target
-
     # ADR-006 / I-PC-01 — the one write path that skips the card.
     #
     # An App may declare tracks that accept agent writes unstaged, and the
@@ -1689,7 +1687,13 @@ async def _dispatch_propose(
     # batch asked for one card covering the whole workflow, and honouring that
     # is more useful than exempting some of its ops — an exempt op inside a
     # batch would land early and out of order with the rest.
-    if await is_unstaged_target(
+    from app.agentive.services.proposal_origin import (
+        checking_resident_permission,
+        interactive_resident_proposal,
+    )
+    from app.agentive.unstaged_targets import is_unstaged_target
+
+    if not interactive_resident_proposal() and await is_unstaged_target(
         user_id=principal_id, kind=staged["kind"], payload=staged["payload"]
     ):
         from app.agentive.staging_executors import dispatch as execute_staged
@@ -1730,6 +1734,7 @@ async def _dispatch_propose(
     if (
         session_id is not None
         and (sc.origin_proof or {}).get("requires_deferred_link") is not True
+        and not checking_resident_permission()
     ):
         from app.services.prompt_queue import enqueue_staged_write
 

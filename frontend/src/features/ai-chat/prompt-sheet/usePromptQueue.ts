@@ -465,6 +465,7 @@ export function usePromptQueue() {
   );
 
   return {
+    threadId: activeThreadId,
     open: scopeCurrent && open,
     queue: scopeCurrent ? queue : null,
     current,

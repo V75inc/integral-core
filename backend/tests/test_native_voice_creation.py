@@ -30,7 +30,7 @@ def test_creation_requires_exact_scope_schema_values_and_no_hooks(monkeypatch):
         "body": "",
         "fields": fields,
     }
-    review = SimpleNamespace(proposal_id="one-proposal", creation=creation)
+    review = SimpleNamespace(proposal_id="one-proposal", creation=creation, children=())
     assert not permits_creation("one-proposal")
 
     with confirmed_creation(review):
@@ -54,6 +54,33 @@ def test_creation_requires_exact_scope_schema_values_and_no_hooks(monkeypatch):
                 track, entry_type, spec, "Water plants", "", fields, [], []
             )
     assert not permits_creation("one-proposal")
+
+
+@pytest.mark.parametrize(
+    ("definition", "values"),
+    [
+        ({}, {"lead": "someone"}),
+        ({"required": True}, {}),
+        ({"required_on_create": True}, {}),
+        ({"default": "someone"}, {}),
+        ({"default_from_setting": "default_lead"}, {}),
+        ({"validation": {"preview_default_tool": "assign"}}, {}),
+    ],
+)
+def test_member_assignment_cannot_enter_simple_voice_creation(
+    monkeypatch, definition, values
+):
+    from app.services.hooks import registry
+
+    monkeypatch.setattr(registry, "get_workspace_hooks", lambda *_: [])
+    track = SimpleNamespace(id="track", workspace_id="workspace")
+    field = {"key": "lead", "type": "member"}
+    kind = SimpleNamespace(id="type")
+    check_creation_schema(track, kind, {"fields": [field]}, {})
+    with pytest.raises(StagingError):
+        check_creation_schema(
+            track, kind, {"fields": [{**field, **definition}]}, values
+        )
 
 
 def test_fast_card_outcome_and_failed_retry_are_each_announced_once():
@@ -90,3 +117,42 @@ def test_fast_card_outcome_and_failed_retry_are_each_announced_once():
     assert len(relay.peer_readouts) == 2
     relay._observe_review_outcomes(applied)
     assert len(relay.peer_readouts) == 2
+
+
+@pytest.mark.parametrize(
+    "note,allowed",
+    [
+        ("8:00", True),
+        ("8 AM — phone Sam & Dee.", True),
+        ("**different text**", False),
+        ("[label](https://example.org)", False),
+        ("<em>HTML</em>", False),
+        ("~~obsolete~~", False),
+        ("www.example.com", False),
+        ("1. first", False),
+        ("line\nline", False),
+        ({"text": "structured"}, False),
+        ("x" * 201, False),
+        ("call\u202e now", False),
+    ],
+)
+def test_can_read_literal_note_in_full(note, allowed):
+    from app.services.native_voice_creation import is_spoken_note
+
+    assert is_spoken_note(note) is allowed
+
+
+def test_numeric_text_is_read_as_digits_without_changing_quantities():
+    from app.services.native_voice_creation import _spoken_value
+
+    assert _spoken_value("088442") == "zero, eight, eight, four, four, two"
+    assert _spoken_value(88442) == 88442
+    assert _spoken_value("ZX-4") == "ZX-4"
+
+
+def test_spoken_review_names_each_field_but_reads_identical_text_once():
+    from app.services.native_voice_creation import _spoken_fields
+
+    assert _spoken_fields(
+        [("Description", "Blue"), ("Notes", "Blue"), ("Count", 1), ("Priority", True)]
+    ) == ["Description and Notes set to Blue", "Count set to 1", "Priority set to True"]

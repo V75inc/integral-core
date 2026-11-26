@@ -23,7 +23,16 @@ const heldOut = process.argv.includes('--variant');
 const note = heldOut ? 'water the green fern' : 'check the blue umbrella';
 const postList = process.argv.includes('--post-list');
 if (postList) assert.ok(expectedApps?.length, 'Supply the expected directory names for the chat write check.');
-const cases = postList ? [
+const writtenResult = process.argv.includes('--written-result');
+if (writtenResult) {
+  assert.ok(!postList && env.VOICE_QA_LOOKUP && env.VOICE_QA_EXPECTED_RESULT,
+    'Supply a disposable lookup and a distinguishing result phrase absent from the question.');
+  assert.ok(!normalizeSpeech(env.VOICE_QA_LOOKUP).includes(normalizeSpeech(env.VOICE_QA_EXPECTED_RESULT)));
+}
+const cases = writtenResult ? [
+  ['written-result', env.VOICE_QA_LOOKUP + ' Put the answer in chat only. Please do not read it aloud.'],
+  ['back-to-voice', 'What is six plus seven? Please say the number.'],
+] : postList ? [
   ['apps', heldOut ? 'What apps do I have in here?' : 'Which apps can I use here?'],
   ['post-list', heldOut ? 'Put those in our chat so I can look at them.' : 'Can you list it out in the chat?'],
 ] : [
@@ -133,6 +142,12 @@ try {
       execFileSync('afconvert', ['-f', 'WAVE', '-d', 'LEI16@24000', base + '.aiff', base + '-in.wav']);
       await page.waitForFunction(() => !window.voiceJourney.playing && performance.now() - window.voiceJourney.last > 1500);
       await page.evaluate(wav => window.voiceJourney.say(wav), (await readFile(base + '-in.wav')).toString('base64'));
+      if (id === 'written-result') {
+        await page.locator('.aui-md').filter({hasText: env.VOICE_QA_EXPECTED_RESULT}).last().waitFor({timeout: 90000});
+        visibleDuringCall = await end.isVisible();
+        // Include any late completion speech, not just the acceptance receipt.
+        await page.waitForTimeout(10000);
+      }
       await page.waitForFunction(() => {
         const s = window.voiceJourney;
         return s.first !== null && !s.playing && performance.now() - s.last > 2400;
@@ -160,7 +175,10 @@ try {
   await page.reload();
   const {messages} = await (await readThread).json();
   const notes = messages.filter(m => m.role === 'assistant' && m.provider_metadata?.source === 'voice_note');
-  if (postList) {
+  if (writtenResult) {
+    savedOnReload = messages.filter(m => m.role === 'assistant' && m.parts.some(p =>
+      p.type === 'text' && p.text.includes(env.VOICE_QA_EXPECTED_RESULT))).length === 1;
+  } else if (postList) {
     const text = notes[0]?.parts.find(p => p.type === 'text')?.text ?? '';
     const lines = text.split('\n').filter(line => /^\d+\. /.test(line)).map(line => line.replace(/^\d+\. /, ''));
     savedOnReload = notes.length === 1 && JSON.stringify(lines) === JSON.stringify(expectedApps)
@@ -208,6 +226,8 @@ for (const result of results) {
     result.repeatedNames = expectedApps.filter(name => normalizeSpeech(result.heard).includes(normalizeSpeech(name)));
     result.passed &&= result.repeatedNames.length === 0 && /chat|conversation|post|wrote|written|put|saved|added/i.test(result.heard);
   }
+  if (result.id === 'written-result') result.passed &&= !normalizeSpeech(result.heard).includes(normalizeSpeech(env.VOICE_QA_EXPECTED_RESULT));
+  if (result.id === 'back-to-voice') result.passed = /\b(thirteen|13)\b/i.test(result.heard) && result.firstPlaybackMs >= 0;
   if (result.id === 'orientation') result.passed &&= /help|work|task|answer|chat/i.test(result.heard);
   if (result.id === 'save-note') result.passed &&= /sav|add|post|wrote|written|left/i.test(result.heard);
   if (result.id === 'workspace') result.passed &&= normalizeSpeech(result.heard) === normalizeSpeech(env.VOICE_QA_WORKSPACE);
@@ -215,6 +235,6 @@ for (const result of results) {
 }
 await writeFile(path.join(dir, 'results.json'), JSON.stringify(results, null, 2));
 console.log(dir, { savedOnReload, visibleDuringCall, results });
-if (postList) assert.ok(visibleDuringCall, 'No written list appeared while the call was active');
-assert.ok(savedOnReload, 'Saved note missing on reload of the admitted thread');
+if (postList || writtenResult) assert.ok(visibleDuringCall, 'No written result appeared while the call was active');
+assert.ok(savedOnReload, 'Written result missing or duplicated after reloading the admitted thread');
 assert.ok(results.every(r => r.passed), 'Review the captured playback and saved chat before qualifying this iteration.');

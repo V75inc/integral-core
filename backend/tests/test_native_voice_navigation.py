@@ -169,13 +169,13 @@ async def test_saved_reply_paging_and_repeat_are_call_local():
         user_id=owner.id, workspace_id=workspace.id, provider_id="integral_native"
     )
     message = (
-        "First section. "
+        "First section. [Garden notes](/apps/n.WorkspaceApp.123456789012345678901234). "
         + "alpha " * 95
         + " Second section. "
         + "beta " * 95
         + " Final section."
     )
-    await append_message(
+    saved = await append_message(
         thread=thread,
         role="assistant",
         parts=[
@@ -190,15 +190,41 @@ async def test_saved_reply_paging_and_repeat_are_call_local():
     )
     first = await relay._read_chat_content("latest_reply")
     assert "First section" in first and "Second section" not in first
+    assert (
+        "Garden notes" in first and "/apps/" not in first and "123456789" not in first
+    )
+    relay._function_output = AsyncMock()
+    relay._speak_result = AsyncMock()
+    await relay._read_live_tool(
+        "first", native_voice.CHECK_CHAT, "latest_reply", relay.generation
+    )
+    assert "view more_reply" in relay._function_output.await_args.args[1]
+    assert "First section" not in relay._function_output.await_args.args[1]
+    assert relay._speak_result.await_args.kwargs["read_back"] is True
     first_cursor = relay.chat_read_cursor
     second = await relay._read_chat_content("more_reply")
     assert "Second section" in second and "HIDDEN" not in second
-    assert relay.chat_read_cursor[1] == first_cursor[2]
+    assert relay.chat_read_cursor.start == first_cursor.end
     assert await relay._read_chat_content("repeat_reply") == second
     another = native_voice.VoiceRelay(Browser(), Provider(), relay.scope)
     assert "read the latest saved reply first" in await another._read_chat_content(
         "more_reply"
     )
+    # A newer answer must not replace the one the caller just heard.
+    from time import monotonic
+
+    await append_message(
+        thread=thread,
+        role="assistant",
+        parts=[{"type": "text", "text": "Newer unrelated reply."}],
+    )
+    another.last_spoken_reply = (saved.id, monotonic() + 180)
+    first_detail = await another._read_chat_content("more_reply")
+    assert "First section" in first_detail and "Newer unrelated" not in first_detail
+    assert "Second section" in await another._read_chat_content("more_reply")
+    another.chat_read_cursor = None
+    another.last_spoken_reply = ("missing", monotonic() + 180)
+    assert "couldn’t verify" in await another._read_chat_content("more_reply")
 
 
 def test_directory_chat_copy_preserves_page_and_keeps_labels_literal():
@@ -213,3 +239,43 @@ def test_directory_chat_copy_preserves_page_and_keeps_labels_literal():
         "More items are available on the next page.",
     ]
     assert nav.VoicePage(None, (), ()).chat_text() == "There are no items on this page."
+
+
+def test_spoken_links_keep_labels_through_readout_and_truncated_peer_projection():
+    from types import SimpleNamespace
+
+    from app.services import native_voice
+
+    route = "/tracks/n.Track.7095735a48be4bcd822066c4?entry=n.Entry.f12c3cd77c7347bbacdebeda"
+    link = f"[QA Silver Lantern]({route})"
+    assert (
+        native_voice._speech_ready_result(f"One item: {link}.")
+        == "One item: QA Silver Lantern."
+    )
+    for text in (link, link[:-8] + "…"):
+        row = SimpleNamespace(
+            source="typed", kind="message", role="assistant", text=text
+        )
+        assert native_voice.VoiceRelay._peer_readout(row) == "QA Silver Lantern"
+
+
+def test_directory_search_only_needed_for_additional_installed_reads(monkeypatch):
+    from app.agentive.tooling import catalogue
+    from app.services.native_voice import FIND_CAPABILITY, NAVIGATE, session_update
+    from app.services.native_voice_navigation import needs_directory_discovery
+
+    reads = dict.fromkeys(
+        ["integral_list_apps", "integral_list_tracks", "integral_list_workspaces"]
+    )
+    monkeypatch.setattr(catalogue, "build_voice_quick_read_catalogue", lambda: reads)
+    session = session_update("", discover_directories=needs_directory_discovery())[
+        "session"
+    ]
+    names = {tool["name"] for tool in session["tools"]}
+    assert NAVIGATE in names and FIND_CAPABILITY not in names
+    assert FIND_CAPABILITY not in session["instructions"]
+    reads["additional_reviewed_directory"] = object()
+    session = session_update("", discover_directories=needs_directory_discovery())[
+        "session"
+    ]
+    assert FIND_CAPABILITY in {tool["name"] for tool in session["tools"]}

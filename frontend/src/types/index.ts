@@ -523,6 +523,7 @@ export interface TrackAnchorSource {
 }
 
 export interface Track {
+  resident_permission_eligible?: boolean;
   id: string;
   title: string;
   purpose?: string;

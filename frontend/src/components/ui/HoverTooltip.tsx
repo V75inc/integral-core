@@ -1,9 +1,10 @@
-import type { ReactElement, ReactNode } from 'react';
+import { useState, type ReactElement, type ReactNode } from 'react';
 
-type HoverTooltipPlacement = 'top' | 'bottom' | 'right';
+type HoverTooltipPlacement = 'top' | 'top-start' | 'bottom' | 'right';
 
 const PLACEMENT_CLASS: Record<HoverTooltipPlacement, string> = {
   top: 'bottom-full left-1/2 -translate-x-1/2 mb-1.5',
+  'top-start': 'bottom-full start-0 mb-1.5',
   bottom: 'top-full left-1/2 -translate-x-1/2 mt-1.5',
   right: 'left-full top-1/2 -translate-y-1/2 ml-2',
 };
@@ -13,6 +14,7 @@ interface HoverTooltipProps {
   children: ReactElement;
   placement?: HoverTooltipPlacement;
   disabled?: boolean;
+  dismissOnPress?: boolean;
 }
 
 /** Small inverse popover on hover/focus — matches collapsed sidebar nav tooltips. */
@@ -21,11 +23,16 @@ export function HoverTooltip({
   children,
   placement = 'bottom',
   disabled = false,
+  dismissOnPress = false,
 }: HoverTooltipProps) {
+  const [dismissed, setDismissed] = useState(false);
   return (
-    <span className="group/hovertip relative inline-flex">
+    <span className="group/hovertip relative inline-flex"
+      onClickCapture={dismissOnPress ? () => setDismissed(true) : undefined}
+      onPointerEnter={dismissOnPress ? () => setDismissed(false) : undefined}
+      onFocusCapture={dismissOnPress ? () => setDismissed(false) : undefined}>
       {children}
-      {!disabled && <span
+      {!disabled && !dismissed && <span
         role="tooltip"
         aria-hidden
         className={[

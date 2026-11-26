@@ -648,6 +648,17 @@ class Track(Node):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
+    def allows_resident_write_permission(self, principal: str, workspace: str) -> bool:
+        """Eligibility for an owner's explicit permission for ordinary record changes."""
+        return bool(
+            principal
+            and workspace
+            and self.owner_id == principal
+            and self.workspace_id == workspace
+            and self.visibility == "private"
+            and not self.kind
+        )
+
 
 class EntryType(Node):
     """Blueprint for a category of Entries (track-scoped or template under CP)."""

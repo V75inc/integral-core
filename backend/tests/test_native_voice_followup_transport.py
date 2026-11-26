@@ -330,3 +330,78 @@ async def test_new_lookup_during_active_work_uses_same_fifo(monkeypatch):
     finally:
         relay.pending.cancel()
         await asyncio.gather(relay.pending, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_steering_a_completed_proposal_restores_its_review(monkeypatch):
+    scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
+    relay = native_voice.VoiceRelay(
+        Browser(),
+        Provider(),
+        scope,
+        check=AsyncMock(return_value=SimpleNamespace(active_work_item_id=None)),
+    )
+    foreground = native_voice._AcceptedVoiceTurn("work", "message", "Create the record")
+    relay.accepted = foreground
+    review = native_voice.VoiceReviewReadout(
+        "Create the record with notes of 8:00.",
+        "work",
+        "run",
+        "token",
+        "track",
+        "digest",
+    )
+    monkeypatch.setattr(
+        native_voice,
+        "_delegated_status",
+        AsyncMock(return_value=("succeeded", "Ready for approval")),
+    )
+    relay._review_for_receipt = AsyncMock(return_value=review)
+    relay._speak_result = AsyncMock()
+    relay._function_output = AsyncMock()
+    relay._start_requested_work = AsyncMock()
+    assert await relay._continue_completed_lookup(
+        "id", "go ahead", "steer", relay.generation, foreground
+    )
+    relay._start_requested_work.assert_not_awaited()
+    relay._speak_result.assert_awaited_once_with(
+        relay.generation,
+        result=relay._present_review(review),
+        navigation_readout=review,
+    )
+    assert relay.review_confirmation is None
+
+
+@pytest.mark.asyncio
+async def test_steer_offer_tracks_its_foreground_work_without_regranting_other_tools():
+    relay = native_voice.VoiceRelay(
+        Browser(),
+        Provider(),
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+    )
+    # This call has only these two admitted tools.
+    relay.session_tools = (
+        {"name": native_voice.DELEGATE},
+        {"name": native_voice.STEER_ACTIVE},
+    )
+    relay.steering_offered = False
+    relay.send_event = AsyncMock()
+    await relay._refresh_steering_offer()
+    relay.send_event.assert_not_awaited()
+    relay.accepted = native_voice._AcceptedVoiceTurn("work", "message", "original")
+    relay.steerable_work_id = "work"
+    await relay._refresh_steering_offer()
+    assert relay.send_event.await_args.args[0]["session"]["tools"] == list(
+        relay.session_tools
+    )
+    relay.observed_terminal_receipts.add("work")
+    await relay._refresh_steering_offer()
+    assert relay.send_event.await_args.args[0]["session"]["tools"] == [
+        {"name": native_voice.DELEGATE}
+    ]
+    await relay._refresh_steering_offer()
+    assert relay.send_event.await_count == 2
+    relay.tool_budget_announced = True
+    relay.accepted = native_voice._AcceptedVoiceTurn("other", "message2", "next")
+    await relay._refresh_steering_offer()
+    assert relay.send_event.await_count == 2

@@ -895,6 +895,23 @@ async def _execute_chat_turn(
                 tool_call_id=call.tool_call_id,
                 input_schema=current_core_deferred_schema(call.tool_name),
             )
+            if item.input_payload.get("resident_permission_revision"):
+                from app.agentive.harness.broker_tools import _tool_work_context
+                from app.services.resident_permissions import apply_resident_permission
+
+                tool_context = _tool_work_context(
+                    ctx, call.tool_call_id, call.tool_name
+                )
+                applied = await apply_resident_permission(
+                    item, tool_context, approval.staging_token
+                )
+                if applied is not None and applied.get("consumed"):
+                    current = await work_items._current_work_item(item.work_item_id)
+                    if current is None:
+                        raise WorkError(
+                            "work.not_found", "Applied work item disappeared"
+                        )
+                    return current
             try:
                 from app.agentive.staging import _push_created_event, get_token
 

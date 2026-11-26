@@ -4,7 +4,14 @@ import json
 
 import pytest
 
-from app.services.native_voice import CHECK_CHAT, DELEGATE, VoiceRelay, VoiceScope
+from app.services.native_voice import (
+    BROWSER_CALL_ACTIONS,
+    CHECK_CHAT,
+    DELEGATE,
+    VoiceCallActions,
+    VoiceRelay,
+    VoiceScope,
+)
 
 
 class Browser:
@@ -67,9 +74,12 @@ def request(call_id, response_id, text, *, name=DELEGATE, args=None):
 
 @pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
+@pytest.mark.parametrize(
+    "actions", [BROWSER_CALL_ACTIONS, VoiceCallActions()], ids=["browser", "audio-only"]
+)
+async def test_voice_relays_audio_and_delegates_unique_completed_call_once(actions):
     browser, provider = Browser(), Provider()
-    scope = VoiceScope("caller", "workspace", "profile", "thread")
+    scope = VoiceScope("caller", "workspace", "profile", "thread", actions=actions)
     calls = []
 
     async def heavy(request_scope, call_id, text):
@@ -84,7 +94,7 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
     instructions = event_config["session"]["instructions"]
     assert 'Your assistant name is "Payroll Guide"' in instructions
     assert "Explain payroll plainly." in instructions
-    assert "do not accept approval by voice" in instructions
+    assert "Only Integral can record an approval" in instructions
     assert (
         event_config["session"]["audio"]["input"]["turn_detection"][
             "interrupt_response"
@@ -94,7 +104,7 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
     assert [tool["name"] for tool in event_config["session"]["tools"]] == [
         DELEGATE,
         "check_integral_chat",
-        "write_note_to_current_chat",
+        *(["write_note_to_current_chat"] if actions.post_note else []),
         "cancel_integral_voice_work",
     ]
     await provider.inbox.put({"type": "session.updated"})
@@ -106,6 +116,20 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
     }
     await provider.inbox.put({"type": "response.created", "response": {"id": "r1"}})
     unique = "Read fixture Cedar-981 once."
+    await provider.inbox.put(
+        {
+            "type": "response.output_item.added",
+            "response_id": "r1",
+            "item": {"type": "function_call", "name": DELEGATE, "call_id": "lookup-1"},
+        }
+    )
+    await provider.inbox.put(
+        {
+            "type": "response.output_audio.delta",
+            "response_id": "r1",
+            "delta": "AAE=",
+        }
+    )
     completed = request("lookup-1", "r1", unique)
     await provider.inbox.put(completed)
     await provider.inbox.put(completed)
@@ -116,7 +140,22 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
     assert spoken_result["type"] == "response.create"
     assert spoken_result["response"]["tool_choice"] == "none"
     assert "without greeting" in spoken_result["response"]["instructions"]
-    await provider.inbox.put({"type": "response.created", "response": {"id": "r2"}})
+    assert browser.outbox.empty()  # No speculative answer from the tool turn.
+    # Some providers start a separate reply after a tool turn. It must
+    # neither speak nor steal the authorization for the real result.
+    await provider.inbox.put({"type": "response.created", "response": {"id": "extra"}})
+    await provider.inbox.put(
+        {"type": "response.output_audio.delta", "response_id": "extra", "delta": "AAE="}
+    )
+    await provider.inbox.put(
+        {
+            "type": "response.created",
+            "response": {
+                "id": "r2",
+                "metadata": spoken_result["response"]["metadata"],
+            },
+        }
+    )
     audio = b"\x01\x00\x03\x00"
     await provider.inbox.put(
         {
@@ -126,6 +165,14 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
         }
     )
     assert await event(browser.outbox) == audio
+    await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+    assert await event(browser.outbox) == {"type": "flush"}
+    await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+    await provider.inbox.put({"type": "response.created", "response": {"id": "next"}})
+    await provider.inbox.put(
+        {"type": "response.output_audio.delta", "response_id": "next", "delta": "AAE="}
+    )
+    assert await event(browser.outbox) == b"\x00\x01"
     await browser.inbox.put({"type": "websocket.disconnect"})
     await asyncio.wait_for(task, 2)
     assert calls == [(scope, "lookup-1", unique)]
@@ -925,7 +972,11 @@ async def test_spoken_chat_lookup_reads_current_thread_without_submitting(
             )
         )
         reply = await event(provider.outbox)
-        assert reply["item"]["output"] == "Integral checked your request."
+        if view in {"latest_reply", "latest_chat"} and role == "assistant":
+            assert "view more_reply" in reply["item"]["output"]
+            assert same[role][:35].strip() not in reply["item"]["output"]
+        else:
+            assert reply["item"]["output"] == "Integral checked your request."
         spoken = await event(provider.outbox)
         assert spoken["type"] == "response.create"
         assert spoken["response"]["conversation"] == "none"

@@ -246,21 +246,22 @@ connected, including its current microphone mute setting. **End call** hangs up.
 
 Ask a complete question such as “Which high-priority tasks are due today?”
 or “Add a task called Check the delivery, due today.” The assistant checks the
-App's fields and can ask for a missing detail. A proposed new record appears
-in chat for review. You can also say “Put this note in our chat” or “Read
+App’s fields and asks for any missing detail. With the default **Ask for
+approval** setting, the call offers to confirm eligible changes aloud. Chat
+keeps their review details. You can also say “Put this note in our chat” or “Read
 the last reply back to me.” A standalone note can be saved after active work
 and any pending review in that conversation have settled.
 
-For a supported edit to a selected record, ask to hear the proposed change.
-If you explicitly request approval or rejection, a compatible browser reads
-the exact change and a one-use challenge using an installed local device voice
-or the host's offline speech synthesizer. Independent recognition needs a
-configured batch-capable Speech to Text model. Wait until the
-readback finishes and speak the requested decision and digits. Integral
-checks the current proposal again and announces the decision and saved outcome.
-If the challenge expires or the proposal changes, ask to review it again.
-To correct a proposed title or typed date, state the correction and hear the
-replacement before confirming. For other changes, reject the old proposal
+For a supported edit, the call asks a question such as “Would you like me
+to rename ‘Site visit’ to ‘Site inspection’?” You can ask to hear it again.
+When the question finishes, say “yes,” “go ahead,” “no thanks,” or another
+clear answer. The configured Speech to Text model recognizes the reply.
+Integral checks the current proposal again and announces the outcome.
+If the review expires, the proposal changes, or your reply is unclear,
+the change stays pending. Ask to hear it again when ready.
+You can answer that same question with a correction. For example, “Actually,
+call it ‘Site audit’” prepares a revised proposal. Hear the new title and
+confirm it when it is right. You can also correct a supported date. For other changes, reject the old proposal
 and ask for the corrected edit. Other proposal types and unsupported devices use the ordinary review controls.
 
 You can ask to cancel the current accepted task, hear its status, or continue
@@ -270,6 +271,8 @@ profiles use their declared capabilities. See the
 for current coverage.
 
 ## 11. Review proposed changes
+
+In the workspace assistant, open **Permissions**. **Ask for approval** reviews each proposed change and is the default. **Approve for me** allows simple edits in private lists you own. Choose **Custom** to select lists across apps and **Use Custom** to activate your selection. Switching modes keeps those choices. **Full access** allows the assistant to create or edit records across all apps where you can make that change. Separate actions such as deleting records, sharing or calling a connector still follow their review rules. These modes apply to both typed and spoken requests in this workspace.
 
 Read the proposed scope and change before approving it. Confirm the target resource, important values, and any dependent steps. Human-friendly names should let you understand the proposal without interpreting opaque graph IDs.
 
