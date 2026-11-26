@@ -6,6 +6,8 @@ import type { Entry } from '../../types';
 
 interface DateDraft {
   entryId: string;
+  /** The values on screen when editing began, from the same revision. */
+  base: Record<string, unknown>;
   values: Record<string, unknown>;
   recordRevision: number;
   schemaRevision: number;
@@ -43,11 +45,12 @@ export function useDetailDateDraft(
   const draft = stored && stored.entryId === entryId ? stored : null;
   const saving = Boolean(entryId && savingIds.includes(entryId));
 
-  function change(patch: Record<string, unknown>) {
+  function change(patch: Record<string, unknown>, shown: Record<string, unknown>) {
     if (saving || !entry?.record_revision || !entry.schema_revision) return;
     setFailure(null);
     setDraft({
       entryId: entry.id,
+      base: draft?.base ?? shown,
       recordRevision: draft?.recordRevision ?? entry.record_revision,
       schemaRevision: draft?.schemaRevision ?? entry.schema_revision,
       values: { ...draft?.values, ...patch },
@@ -112,6 +115,7 @@ export function useDetailDateDraft(
   }
 
   return {
+    base: draft?.base,
     values: draft?.values,
     saving,
     error: failure && failure.entryId === entryId ? failure.message : null,

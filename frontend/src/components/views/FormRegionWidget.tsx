@@ -4,6 +4,7 @@ import { findEntryTypeBySlug } from '../../utils/entryMetaFields';
 import { SeamlessField } from '../entries/SeamlessField';
 import { canInlineEditField } from '../entries/EntryInlineFields';
 import { useDetailDateDraft } from './useDetailDateDraft';
+import { isOlderRevision } from '../entries/savedEntryRead';
 import type { RelationChoice } from '../entries/EntryFormExpanded';
 import { appsApi, entriesApi, entryTypesApi } from '../../api';
 import { extensionsApi, requireOperationOutput } from '../../api/extensions';
@@ -25,6 +26,14 @@ import {
 } from './regionConditions';
 import type { ViewWidgetProps } from './types';
 import type { OperationalModelFieldSpec, Entry, EntryTypeNode } from '../../types';
+
+/** Read-time values of a record; one that could not be checked is unknown. */
+function projectedValues(entry: Entry): Record<string, unknown> {
+  const unknown = Object.entries(entry.read_time_fields?.status || {})
+    .filter(([, status]) => status === 'unavailable')
+    .map(([key]) => [key, null]);
+  return { ...entry.read_time_fields?.values, ...Object.fromEntries(unknown) };
+}
 
 /**
  * Config-driven subset-of-fields form region — the reusable Oracle-APEX-
@@ -426,11 +435,17 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
   const dateDraft = useDetailDateDraft(
     targetEntry && targetEntry.id === hostEntryId ? targetEntry : null,
     ({ entry: saved, stillShown }) => {
-      if (stillShown) setTargetEntry(saved);
-      detailEdit?.onSaved(saved);
+      if (stillShown) {
+        setTargetEntry(prev => (prev && isOlderRevision(saved, prev) ? prev : saved));
+      }
+      detailEdit?.onSaved(saved, { current: stillShown });
     },
   );
-  // A newer revision of the record on screen wins over values shared between
+  // A record's reading view shows its own snapshot, so what is on screen and
+  // the revision a save is checked against always belong together.
+  const snapshotBound =
+    !draftBound && lifecycle?.mode === 'detail' && bindMode === 'self';
+  // That snapshot, and any newer revision, also replaces values shared between
   // regions, both for what was saved here and for what changed elsewhere.
   const syncLive = live?.sync;
   const seenRevision = useRef<{ entryId: string; revision: number } | null>(null);
@@ -440,13 +455,12 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     const sameRecord = seen?.entryId === targetEntry.id;
     if (sameRecord && targetEntry.record_revision <= seen!.revision) return;
     seenRevision.current = { entryId: targetEntry.id, revision: targetEntry.record_revision };
-    if (!sameRecord) return;
+    if (!sameRecord && !snapshotBound) return;
+    const current = { ...targetEntry.custom_fields, ...projectedValues(targetEntry) };
     for (const field of allFields) {
-      if (targetEntry.custom_fields && field.key in targetEntry.custom_fields) {
-        syncLive?.(field.key, targetEntry.custom_fields[field.key]);
-      }
+      if (field.key in current) syncLive?.(field.key, current[field.key]);
     }
-  }, [draftBound, targetEntry, allFields, syncLive]);
+  }, [draftBound, snapshotBound, targetEntry, allFields, syncLive]);
 
   // Re-reading the record already on screen (after a save) keeps it there.
   const awaitingTarget =
@@ -467,21 +481,45 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     return null;
   }
 
-  // Merge the shared channel on top of this region's own entry snapshot —
-  // a sibling region's more-recent commit wins for visible_if purposes,
-  // while fields this region itself owns still read from its own state.
+  // Fields show this region's snapshot with its live projections; every
+  // sibling commit still counts for visible_if.
   const draftValues = draftBound
     ? { ...(lifecycle?.customFields || {}), ...(targetEntry?.custom_fields || {}) }
     : { ...(targetEntry?.custom_fields || {}) };
-  const values = {
-    ...draftValues,
+  const projected = !draftBound && targetEntry ? projectedValues(targetEntry) : {};
+  // Dates come only from the snapshot there; other fields still follow a
+  // sibling region's more-recent commit.
+  const shared = Object.fromEntries(
+    Object.entries(live?.values || {}).filter(([key]) => {
+      const type = fieldByKey.get(key)?.type;
+      return !(snapshotBound && (type === 'date' || type === 'datetime'));
+    }),
+  );
+  // While a date is being edited, keep the values its revision token belongs to.
+  const values: Record<string, unknown> = {
+    ...(dateDraft.base || {
+      ...draftValues,
+      ...shared,
+      ...projected,
+    }),
+    ...(dateDraft.values || {}),
+  };
+  const visibilityValues = {
+    ...values,
     ...(live?.values || {}),
     ...(dateDraft.values || {}),
   };
+  const projectedStatus = (!draftBound && targetEntry?.read_time_fields?.status) || {};
+  // Locked here too, whether or not the host took the latest record.
+  const protectedKeys = [
+    ...(detailEdit?.readOnlyKeys || []),
+    ...Object.keys(projected),
+    ...Object.keys(projectedStatus),
+  ];
   const visibleFields = displayFields.filter(
     f =>
       !(lifecycle?.mode === 'create' && f.hide_on_create) &&
-      isVisible(fieldVisibleIfByKey.get(f.key), values)
+      isVisible(fieldVisibleIfByKey.get(f.key), visibilityValues)
   );
   // Entry detail passes mode="detail" without onDraftPatch (view-only until
   // pencil → edit). FormRegion used to treat that as self-bind + editable,
@@ -512,11 +550,12 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
               targetEntry?.record_revision &&
               targetEntry.schema_revision &&
               (field.type === 'date' || field.type === 'datetime') &&
-              canInlineEditField(field, values, detailEdit.readOnlyKeys)
+              canInlineEditField(field, values, protectedKeys)
           );
           const fieldLocked =
             (readOnly && !detailEditable && !explicitDate) ||
-            autoLockedKeys.has(field.key);
+            autoLockedKeys.has(field.key) ||
+            projectedStatus[field.key] === 'unavailable';
           return (
             <div key={field.key} data-field-key={field.key}>
               {config.show_labels === true && <Text as="div" variant="label" className="mb-1.5">{field.name}{field.required ? ' *' : ''}</Text>}
@@ -534,7 +573,7 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
                 dateDraft.change({
                   [field.key]: next,
                   ...(deriveAutoOffsetPatch(allFields, { ...values, [field.key]: next }, field.key) || {}),
-                });
+                }, values);
               }}
               entryId={targetEntry?.id || lifecycle?.entryId || undefined}
               relationChoices={relationChoices[field.key]}
@@ -550,6 +589,11 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
           );
         })}
       </div>
+      {visibleFields.some(field => projectedStatus[field.key] === 'unavailable') ? (
+        <div role="status" className="mt-3">
+          <Text as="p" variant="body-sm" tone="muted">Some live fields could not be checked. Their values are unknown.</Text>
+        </div>
+      ) : null}
       {dateDraft.values ? (
         <div className="mt-3 space-y-2">
           {dateDraft.error ? (

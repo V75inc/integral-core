@@ -367,7 +367,7 @@ describe('FormRegionWidget', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved, { current: true }));
     expect(mockUpdate).toHaveBeenCalledWith('entry-1', {
       custom_fields: { start_date: '2026-03-20' },
       expected_record_revision: 3,
@@ -489,6 +489,7 @@ describe('FormRegionWidget saving dates on the reading view', () => {
       <LiveValuesContext.Provider value={live}>
         <span data-testid="shown">{shown.id}</span>
         {canSwitchTo && <button type="button" onClick={() => setShown(canSwitchTo)}>Open next</button>}
+        {canSwitchTo && <button type="button" onClick={() => setShown(entry)}>Open first</button>}
         {newer && <button type="button" onClick={() => setShown(newer)}>Host refreshed</button>}
         <ContributionLifecycleContext.Provider
           value={{
@@ -517,6 +518,93 @@ describe('FormRegionWidget saving dates on the reading view', () => {
     fireEvent.click(start);
     fireEvent.click(await screen.findByRole('button', { name: day }));
   }
+
+  /** The picker shows "10th April, 2026", or 10/04/2026 for a date just picked. */
+  const shownDate = (day: number, month = 3) => new RegExp(
+    `^(${day}(st|nd|rd|th) ${['March', 'April'][month - 3]}, 2026|${day}/0${month}/2026)$`,
+  );
+
+  it('shows and saves against the same revision when the shared snapshot is older', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const older = record('entry-a', '2026-03-10', '2026-03-11', 3);
+    const current = record('entry-a', '2026-04-10', '2026-04-11', 4);
+    mockGet.mockResolvedValue(current);
+    mockUpdate.mockResolvedValue(record('entry-a', '2026-04-22', '2026-04-11', 5));
+    mount(<Host entry={older} />);
+
+    await waitFor(() => expect(screen.getByDisplayValue(shownDate(10, 4))).toBeInTheDocument());
+    expect(screen.queryByDisplayValue(shownDate(10))).toBeNull();
+    await pickStart(/April 22nd, 2026/);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith('entry-a', {
+      custom_fields: { start_date: '2026-04-22' },
+      expected_record_revision: 4,
+      expected_schema_revision: 2,
+    }));
+  });
+
+  /** Starts a save of entry A that finishes only when the test says so. */
+  async function saveHeld(a: Entry) {
+    let finish: (entry: Entry) => void = () => {};
+    mockUpdate.mockImplementation(() => new Promise<Entry>(resolve => { finish = resolve; }));
+    await pickStart(/March 20th, 2026/);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    return async (saved: Entry) => {
+      mockGet.mockImplementation(async () => saved);
+      await act(async () => { finish(saved); });
+      mockGet.mockResolvedValue(a);
+    };
+  }
+
+  it('ignores a save older than the record now shown', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const first = record('entry-a', '2026-03-10', '2026-03-11', 3);
+    const newer = record('entry-a', '2026-03-25', '2026-03-28', 5);
+    mockGet.mockResolvedValue(first);
+    const onUpdate = vi.fn();
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    render(<QueryClientProvider client={client}>
+      <Host entry={first} newer={newer} onUpdate={onUpdate} />
+    </QueryClientProvider>);
+
+    const finish = await saveHeld(newer);
+    mockGet.mockResolvedValue(newer);
+    fireEvent.click(screen.getByRole('button', { name: 'Host refreshed' }));
+    await act(async () => {});
+    await finish(record('entry-a', '2026-03-20', '2026-03-11', 4));
+
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(screen.getByDisplayValue(shownDate(25))).toBeInTheDocument();
+    expect(screen.getByDisplayValue(shownDate(28))).toBeInTheDocument();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['entry', 'entry-a'] });
+  });
+
+  it('ignores a save from before the person left and returned to the record', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const a = record('entry-a', '2026-03-10', '2026-03-11', 3);
+    const b = record('entry-b', '2026-04-10', '2026-04-11', 3);
+    mockGet.mockImplementation(async (id: string) => (id === 'entry-b' ? b : a));
+    const onUpdate = vi.fn();
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    render(<QueryClientProvider client={client}>
+      <Host entry={a} canSwitchTo={b} onUpdate={onUpdate} />
+    </QueryClientProvider>);
+
+    const finish = await saveHeld(a);
+    fireEvent.click(screen.getByRole('button', { name: 'Open next' }));
+    await waitFor(() => expect(screen.getByDisplayValue(shownDate(10, 4))).toBeInTheDocument());
+    mockGet.mockImplementation(async () => a);
+    fireEvent.click(screen.getByRole('button', { name: 'Open first' }));
+    // Back on A with its save still under way.
+    await waitFor(() => expect(screen.getByDisplayValue(shownDate(11))).toBeInTheDocument());
+    await finish(record('entry-a', '2026-03-20', '2026-03-11', 4));
+
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(screen.getByDisplayValue(shownDate(10))).toBeInTheDocument();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['entry', 'entry-a'] });
+  });
 
   it('a save finishing late leaves the next record and its draft alone', async () => {
     mockEntryTypesList.mockResolvedValue([dateType]);
@@ -628,12 +716,18 @@ describe('FormRegionWidget saving dates on the reading view', () => {
     const retry = await screen.findByRole('button', { name: 'Refresh entry' });
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
     expect(screen.getAllByRole('button', { name: 'Open calendar' })[1]).toBeDisabled();
-    // The saved date stays on screen while the full record cannot be read.
-    expect(screen.getByDisplayValue(/(March|Mar) 20|20 (Mar|March)|2026-03-20|20\/0?3\/|0?3\/20\//)).toBeInTheDocument();
+    // The saved date stays on screen; the live one is unknown, not the stored one.
+    expect(screen.getByDisplayValue(shownDate(20))).toBeInTheDocument();
+    expect(screen.queryByDisplayValue(shownDate(11))).toBeNull();
+    expect(screen.getByText(/could not be checked/)).toBeInTheDocument();
 
-    mockGet.mockResolvedValue(saved);
+    mockGet.mockResolvedValue({ ...saved, read_time_fields: {
+      values: { end_date: '2026-03-29' }, status: {},
+    } });
     fireEvent.click(retry);
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Refresh entry' })).toBeNull());
+    await waitFor(() => expect(screen.getByDisplayValue(shownDate(29))).toBeInTheDocument());
+    expect(screen.queryByText(/could not be checked/)).toBeNull();
     expect(mockUpdate).toHaveBeenCalledTimes(1);
   });
 });

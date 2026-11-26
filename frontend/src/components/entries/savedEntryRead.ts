@@ -7,6 +7,11 @@ export function hasRevisions(entry: Entry): boolean {
     Number.isSafeInteger(entry.schema_revision) && (entry.schema_revision ?? 0) > 0;
 }
 
+/** True when ``next`` is an earlier revision of the record than ``shown``. */
+export function isOlderRevision(next: Entry, shown: Entry): boolean {
+  return (next.record_revision ?? 0) < (shown.record_revision ?? 0);
+}
+
 /**
  * Read a record back after a successful write. A successful write must never be
  * reported as a failed save or offered for blind replay: when the full read

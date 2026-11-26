@@ -33,7 +33,8 @@ export type ContributionLifecycleHandle = {
 export type ContributionDetailEdit = {
   /** Fields projected at read time; never writable. */
   readOnlyKeys: string[];
-  onSaved: (entry: Entry) => void;
+  /** ``current`` is false when the save began in a record session since left. */
+  onSaved: (entry: Entry, session: { current: boolean }) => void;
 };
 
 export type ContributionLifecycleApi = {
