@@ -174,8 +174,8 @@ export function ResourceTransferDialog({ open, kind, workspaceId, appId, onClose
         <Text>{preview.mode === 'full' ? 'Configuration and data' : 'Configuration only'}</Text>
         <ul className="max-h-40 list-inside list-disc overflow-y-auto">{preview.names.map((name, index) => <li key={index}>{name}</li>)}</ul>
         <Text variant="body-sm">{countLabel(preview.apps, 'App')} · {countLabel(preview.tracks, 'Track')} · {countLabel(preview.entries, 'record')} · {countLabel(preview.attachments, 'attachment')}</Text>
-        {previewPackages.length === 1 && <Text variant="body-sm">Uses admitted package <Text as="span" weight="medium">{previewPackages[0].slug}{previewPackages[0].version ? ` ${previewPackages[0].version}` : ''}</Text> to create new Apps. The destination must already have the matching packages.</Text>}
-        {previewPackages.length > 1 && <Text variant="body-sm">Uses admitted packages <Text as="span" weight="medium">{previewPackages.map(pkg => `${pkg.slug}${pkg.version ? ` ${pkg.version}` : ''}`).join(', ')}</Text> to create new Apps. The destination must already have the matching packages.</Text>}
+        {previewPackages.length === 1 && <Text variant="body-sm">Uses package <Text as="span" weight="medium">{previewPackages[0].slug}{previewPackages[0].version ? ` ${previewPackages[0].version}` : ''}</Text>. Missing packages are admitted from the archive onto the host package root (`INTEGRAL_PACKAGE_PATHS` or `integral up --apps`).</Text>}
+        {previewPackages.length > 1 && <Text variant="body-sm">Uses packages <Text as="span" weight="medium">{previewPackages.map(pkg => `${pkg.slug}${pkg.version ? ` ${pkg.version}` : ''}`).join(', ')}</Text>. Missing packages are admitted from the archive onto the host package root (`INTEGRAL_PACKAGE_PATHS` or `integral up --apps`).</Text>}
         <Text variant="body-sm" tone="muted">Existing content stays in place. Sharing permissions, credentials and activity history are not imported.</Text>
       </Surface>}
     </div>}

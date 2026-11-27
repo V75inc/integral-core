@@ -48,19 +48,40 @@ Ordinary v1 exports retain the original strict wire shape: no package or setting
 fields are added. V2 includes only declared non-secret settings; `writeOnly` and
 password fields are omitted recursively, as are undeclared settings.
 
+### Writable package root (required for packaged import)
+
+Packaged App import needs a **writable** host package root. Set one of:
+
+- `INTEGRAL_PACKAGE_PATHS=<dir>` — comma-separated parents; each App lands as
+  `<dir>/<slug>/` with `operational-model.yaml` (any package slug from the
+  archive — not App-specific).
+- `integral up --apps <dir>` — same idea for managed local installs.
+
 When the destination already has one visible library package for a slug,
 restore binds to that artifact and never rewrites it. When none is admitted,
-import materializes `package/<slug>/` onto a configured writable package root
-(`INTEGRAL_PACKAGE_PATHS` or `integral up --apps`) and seeds the library catalog,
-then installs Apps against that admission. Archive-driven admission is not gated
-by `INTEGRAL_CORE_ONLY` (ambient library discovery on boot still is). Ambiguous
-admissions or a host package with a different fingerprint fail closed without
-overwriting shared host files. Package fingerprints ignore the same local
-cache/VCS junk for install, admit, and export (for example `__pycache__`,
-`.pytest_cache`, `.DS_Store`), so source checkouts remain exportable. Signature
-and trust checks still apply after materialize. Run immutable signed Python
-packages with `PYTHONDONTWRITEBYTECODE=1` so runtime imports do not add bytes to
-the signed artifact.
+import materializes `package/<slug>/` onto that writable root and seeds the
+library catalog, then installs Apps against that admission.
+
+Without a writable root (common under Docker Compose when the image package
+tree is read-only and `INTEGRAL_PACKAGE_PATHS` is unset), import fails with:
+
+`Import requires a writable host package path (configure INTEGRAL_PACKAGE_PATHS or integral up --apps)`
+
+**Docker:** point the env at a path inside the API container that sits on a
+writable volume, for example `INTEGRAL_PACKAGE_PATHS=/data/integral-apps` when
+the API mounts `/data`. Create the directory once (`mkdir -p` in the container)
+and restart `api` so the process loads the env. Host-only folders that are not
+mounted into the container do not count.
+
+Archive-driven admission is not gated by `INTEGRAL_CORE_ONLY` (ambient library
+discovery on boot still is). Ambiguous admissions or a host package with a
+different fingerprint fail closed without overwriting shared host files.
+Package fingerprints ignore the same local cache/VCS junk for install, admit,
+and export (for example `__pycache__`, `.pytest_cache`, `.DS_Store`), so source
+checkouts remain exportable. Signature and trust checks still apply after
+materialize. Run immutable signed Python packages with
+`PYTHONDONTWRITEBYTECODE=1` so runtime imports do not add bytes to the signed
+artifact.
 
 Apps with protected state import through Core portable restore: reserved import
 finalization may rewrite protected fields. Ordinary creates and edits outside
@@ -87,10 +108,12 @@ required relation/file are **skipped** and reported as `skipped_entry_count` /
 ### New host / new folder
 
 1. **Source:** Manage Apps → Export (select related Apps; configuration or full) →
-   download `.integral.zip`. Packaged Apps carry `package/<slug>/`.
-2. **Destination:** install/run Core (`integral up`, with a writable package root via
-   `--apps` / `INTEGRAL_PACKAGE_PATHS`), sign in → Manage Apps → Import → preview →
-   import. Missing packages are admitted from the archive onto that root.
+   download `.integral.zip`. Packaged Apps carry `package/<slug>/` for every
+   selected packaged App.
+2. **Destination:** install/run Core with a **writable package root**
+   (`INTEGRAL_PACKAGE_PATHS` or `integral up --apps` — see above; required before
+   packaged import). Sign in → Manage Apps → Import → preview → import. Missing
+   packages for **any** archive slug are admitted onto that root from the ZIP.
 3. **Result:** new private App copies in that workspace; runtime uses the admitted
    package (pre-existing match or newly materialized). Sharing, credentials, and
    history are not copied. You need App-create permission and package trust still

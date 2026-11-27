@@ -85,15 +85,16 @@ describe('portable resource dialog', () => {
   it('shows admitted package intent for packaged archives', async () => {
     vi.mocked(portableApi.preview).mockResolvedValue({
       ...summary,
-      package: { slug: 'tcs-crm', version: '1.3.0', installs_package: true },
+      package: { slug: 'demo-crm', version: '1.3.0', installs_package: true },
     });
     render(<ResourceTransferDialog {...props} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Import' }));
     const file = new File(['zip'], 'crm.integral.zip', { type: 'application/zip' });
     fireEvent.change(screen.getByLabelText('Integral archive'), { target: { files: [file] } });
     fireEvent.click(screen.getByText('Preview import'));
-    expect(await screen.findByText(/Uses admitted package/)).toBeInTheDocument();
-    expect(screen.getByText(/tcs-crm 1.3.0/)).toBeInTheDocument();
+    expect(await screen.findByText(/Uses package/)).toBeInTheDocument();
+    expect(screen.getByText(/demo-crm 1.3.0/)).toBeInTheDocument();
+    expect(screen.getByText(/INTEGRAL_PACKAGE_PATHS/)).toBeInTheDocument();
     fireEvent.click(screen.getByText('Install and import'));
     await waitFor(() => expect(portableApi.import).toHaveBeenCalledWith(file, undefined));
   });
@@ -104,8 +105,8 @@ describe('portable resource dialog', () => {
       apps: 2,
       names: ['CRM', 'Inventory'],
       packages: [
-        { slug: 'tcs-crm', version: '1.3.0', installs_package: true },
-        { slug: 'tcs-inventory', version: '2.0.0', installs_package: true },
+        { slug: 'demo-crm', version: '1.3.0', installs_package: true },
+        { slug: 'demo-inventory', version: '2.0.0', installs_package: true },
       ],
     });
     render(<ResourceTransferDialog {...props} />);
@@ -113,8 +114,9 @@ describe('portable resource dialog', () => {
     const file = new File(['zip'], 'apps.integral.zip', { type: 'application/zip' });
     fireEvent.change(screen.getByLabelText('Integral archive'), { target: { files: [file] } });
     fireEvent.click(screen.getByText('Preview import'));
-    expect(await screen.findByText(/Uses admitted packages/)).toBeInTheDocument();
-    expect(screen.getByText(/tcs-crm 1.3.0, tcs-inventory 2.0.0/)).toBeInTheDocument();
+    expect(await screen.findByText(/Uses packages/)).toBeInTheDocument();
+    expect(screen.getByText(/demo-crm 1.3.0, demo-inventory 2.0.0/)).toBeInTheDocument();
+    expect(screen.getByText(/admitted from the archive/)).toBeInTheDocument();
     expect(screen.getByText('Install and import')).toBeInTheDocument();
   });
 
