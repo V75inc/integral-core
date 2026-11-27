@@ -45,6 +45,33 @@ class _FakeUpstream:
         await self._events.put(event)
 
 
+async def _deliver_intent(upstream: _FakeUpstream) -> None:
+    """Echo the provider acknowledgment the handoff gate requires."""
+    cue = next(
+        item["response"]
+        for item in reversed(upstream.sent)
+        if item.get("type") == "response.create"
+        and (item.get("response") or {}).get("metadata", {}).get("integral_intent_ack")
+        == "1"
+    )
+    await upstream.push(
+        {
+            "type": "response.created",
+            "response": {"id": "intent", "metadata": cue["metadata"]},
+        }
+    )
+    await upstream.push(
+        {
+            "type": "response.output_audio.delta",
+            "response_id": "intent",
+            "delta": "AAE=",
+        }
+    )
+    await upstream.push(
+        {"type": "response.done", "response": {"id": "intent", "status": "completed"}}
+    )
+
+
 def _scope() -> VoiceScope:
     return VoiceScope("user-1", "ws-1", "", "")
 
@@ -280,6 +307,7 @@ async def test_spoken_yes_does_not_decide_or_match_confirmation(monkeypatch):
     )
     relay.ready = True
     relay.response_generation = "response"
+    task = asyncio.create_task(relay._read_provider())
     await relay._completed_response(
         {
             "response": {
@@ -296,9 +324,9 @@ async def test_spoken_yes_does_not_decide_or_match_confirmation(monkeypatch):
             }
         }
     )
+    await _deliver_intent(upstream)
     if relay.pending is not None:
         await relay.pending
-    task = asyncio.create_task(relay._read_provider())
     await upstream.push(
         {
             "type": "conversation.item.input_audio_transcription.completed",
@@ -379,6 +407,7 @@ async def test_phone_scope_uses_existing_whatsapp_thread_once(monkeypatch):
     )
     relay.ready = True
     relay.response_generation = "response"
+    reader = asyncio.create_task(relay._read_provider())
     event = {
         "response": {
             "id": "response",
@@ -393,12 +422,17 @@ async def test_phone_scope_uses_existing_whatsapp_thread_once(monkeypatch):
             ],
         }
     }
-    await relay._completed_response(event)
-    assert relay.pending is not None
-    await relay.pending
-    relay.response_generation = "response"
-    await relay._completed_response(event)
-    assert submitted == [thread.id]
+    try:
+        await relay._completed_response(event)
+        await _deliver_intent(upstream)
+        assert relay.pending is not None
+        await relay.pending
+        relay.response_generation = "response"
+        await relay._completed_response(event)
+        assert submitted == [thread.id]
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
 
 
 def _restore_active_calls(saved: set[str]) -> None:

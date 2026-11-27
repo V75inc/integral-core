@@ -1519,6 +1519,9 @@ class VoiceRelay:
         self.progress_at: dict[str, float] = {}
         self.progress_counts: Counter[str] = Counter()
         self.workspace_tool_generation: int | None = None
+        # A response.created after a workspace tool is withheld until its
+        # completed output shows a function call. Audio-only extras stay silent.
+        self.deferred_response_id: str | None = None
         self.last_spoken_response: str | None = None
         self.speaking = False
         self.microphone_muted = False
@@ -1726,6 +1729,7 @@ class VoiceRelay:
         self.end_intent_response = None
         self.generation += 1
         self.response_generation = None
+        self.deferred_response_id = None
         self.speech_only_response_id = None
         self._clear_capability_offer()
         self.opening_response_id = None
@@ -1847,14 +1851,7 @@ class VoiceRelay:
             or generation != self.generation
             or self.response_generation is not None
             or self.delegate_token
-            or (
-                (
-                    result is not None
-                    or handoff_intent is not None
-                    or handoff_request is not None
-                )
-                and self.speaking
-            )
+            or (result is not None and self.speaking)
         ):
             return
         review = (
@@ -2072,7 +2069,9 @@ class VoiceRelay:
         self.handoff_gate = gate
         self.handoff_waiters[call_id] = gate
         self.protocol_counts["handoff_requested"] += 1
-        if self.speaking or self.review_confirmation or self.delegate_token:
+        # A completed tool response can arrive before speech_stopped. The
+        # caller flag must not release this gate without the acknowledgment.
+        if self.review_confirmation or self.delegate_token:
             gate.ready.set()
             return
         if intent:
@@ -4351,9 +4350,10 @@ class VoiceRelay:
                         self.opening_response_id = response_id
                     self.opening_token = None
                 elif self.workspace_tool_generation == self.generation:
-                    # The caller has already delegated this utterance. An
-                    # unsolicited response must not displace a pending readout.
+                    # An unsolicited audio response must not displace a readout.
+                    # A later function call on this id is adopted in response.done.
                     self.protocol_counts["suppressed_post_delegate_response"] += 1
+                    self.deferred_response_id = response_id
                 else:
                     self.opening_response_id = None
                     self.opening_token = None
@@ -4718,6 +4718,23 @@ class VoiceRelay:
                         )
                     self._discard_silent_readout()
                     continue
+                # The created event was withheld so an audio-only extra stays
+                # silent. A completed function call is the next caller turn.
+                if (
+                    response_id
+                    and response_id == self.deferred_response_id
+                    and self.response_generation is None
+                    and not self.speech_only_response_id
+                    and not self.delegate_token
+                    and response.get("status") == "completed"
+                    and any(
+                        isinstance(item, dict) and item.get("type") == "function_call"
+                        for item in response.get("output") or ()
+                    )
+                ):
+                    self.response_generation = response_id
+                if response_id and response_id == self.deferred_response_id:
+                    self.deferred_response_id = None
                 self.processing_tool_response = True
                 try:
                     await self._completed_response(event)
