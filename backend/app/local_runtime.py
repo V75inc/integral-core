@@ -37,6 +37,7 @@ from app.local_permissions import private_directory
 CONTRACT_VERSION = 1
 PGSERVER_VERSION = "0.1.4"
 DEPLOYMENT_PROFILES = {"server", "desktop_single_user"}
+ADMIN_KEYS = ("ADMIN_EMAIL", "ADMIN_PASSWORD", "ADMIN_NAME")
 
 
 class RuntimeErrorDetail(RuntimeError):
@@ -308,6 +309,92 @@ def free_port(preferred: int) -> int:
         return sock.getsockname()[1]
 
 
+def _admin_source(admin_env: Path | None) -> Path | None:
+    if admin_env is not None:
+        path = Path(admin_env).expanduser().resolve()
+        if not path.is_file():
+            raise RuntimeErrorDetail(
+                f"Admin env file not found: {path}. Pass --admin-env with an existing .env."
+            )
+        return path
+    core_env = Path(__file__).resolve().parents[2] / ".env"
+    return core_env if core_env.is_file() else None
+
+
+def _seed_admin_settings(
+    home: Path,
+    admin_env: Path | None,
+    *,
+    fresh: bool,
+    no_admin: bool,
+) -> str:
+    """Seed settings.env ADMIN_* from the selected env; never overwrite a configured admin."""
+    if no_admin:
+        return "skipped"
+    settings = home / "settings.env"
+    existing = _operator_settings(home) if settings.exists() else {}
+    email = str(existing.get("ADMIN_EMAIL") or "").strip()
+    password = str(existing.get("ADMIN_PASSWORD") or "")
+    if email or password:
+        if not (email and password):
+            raise RuntimeErrorDetail(
+                "settings.env has only one of ADMIN_EMAIL/ADMIN_PASSWORD; add both or remove both."
+            )
+        return "existing"
+    if not fresh and admin_env is None:
+        return "existing"
+    source = _admin_source(admin_env)
+    if source is None:
+        if fresh:
+            raise RuntimeErrorDetail(
+                "No admin credentials found. Set ADMIN_EMAIL and ADMIN_PASSWORD in the Core .env, "
+                "pass --admin-env, or use --no-admin for a no-login test instance."
+            )
+        return "none"
+
+    from dotenv import dotenv_values
+
+    raw = dotenv_values(source)
+    email = str(raw.get("ADMIN_EMAIL") or "").strip()
+    password = str(raw.get("ADMIN_PASSWORD") or "")
+    name = str(raw.get("ADMIN_NAME") or "Admin").strip() or "Admin"
+    if not email or not password:
+        raise RuntimeErrorDetail(
+            f"{source} must set both ADMIN_EMAIL and ADMIN_PASSWORD for admin bootstrap."
+        )
+    if "@" not in email:
+        raise RuntimeErrorDetail(f"{source} ADMIN_EMAIL is not a valid email address.")
+    if len(password) < 12:
+        raise RuntimeErrorDetail(
+            f"{source} ADMIN_PASSWORD must be at least 12 characters; admin bootstrap cannot complete."
+        )
+
+    values = {"ADMIN_EMAIL": email, "ADMIN_PASSWORD": password, "ADMIN_NAME": name}
+    if settings.exists():
+        lines = settings.read_text(encoding="utf-8").splitlines()
+    else:
+        lines = [
+            "# Admin bootstrap generated from the selected .env. Keep this file private.",
+            "",
+        ]
+    for key, value in values.items():
+        pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+        replaced = False
+        for index, line in enumerate(lines):
+            if not pattern.match(line):
+                continue
+            if not line.split("=", 1)[1].strip():
+                lines[index] = f"{key}={value}"
+            replaced = True
+            break
+        if not replaced:
+            lines.append(f"{key}={value}")
+    settings.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    settings.chmod(0o600)
+    print(f"admin seed: {email} -> {settings}", file=sys.stderr)
+    return "seeded"
+
+
 def start(
     home: Path,
     *,
@@ -317,12 +404,16 @@ def start(
     apps: Path | None = None,
     timeout: float | None = None,
     on_progress: Callable[[str], None] | None = None,
+    admin_env: Path | None = None,
+    no_admin: bool = False,
 ) -> dict[str, Any]:
     """Start once and wait for actual readiness, or attach to the same instance."""
     if timeout is None:
         timeout = 330 if profile == "desktop_single_user" else 180
+    fresh = not (home / "installation.json").exists()
     initialize(home, profile=profile)
     _require_recovery_review(home)
+    _seed_admin_settings(home, admin_env, fresh=fresh, no_admin=no_admin)
     _operator_settings(home)
     lock = FileLock(str(home / "command.lock"))
     try:

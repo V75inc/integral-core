@@ -15,7 +15,9 @@ bump does not establish that a release is available on a package index.
 - Allow per-form plain-text confirmation copy and optional hiding of the repeat-response button without implying duplicate prevention.
 - Report unavailable retrieval explicitly instead of treating failed search as empty evidence; retain scoped degraded retrieval and separately verified direct-record recovery.
 
-- Require exact destination-admitted packages and fresh App destinations for portable restores; leave shared package files and catalog rows unchanged.
+- Portable restore may rewrite App-protected fields under reserved import; ordinary creates/edits stay blocked. Packaged protected Apps are no longer refused at preflight.
+- Full-data App export omits records that would lose required relations/files and reports them via response headers/UI; live out-of-selection links still fail closed.
+- Portable packaged restores bind to an exact host-admitted package when present; when missing, materialize `package/<slug>/` onto a configured writable package root and seed the library. Never overwrite a conflicting host package. Fresh App destinations only.
 - Fail closed for protected App restores pending an App-owned validation contract. Preserve the original v1 export wire shape and redact secret settings in v2.
 - Preserve App tags, Track/View presentation and shared-template snapshots; report record loss explicitly and account only for retained attachments, with thumbnail/runtime cleanup on failure.
 - Export shared-template entry types from their per-Track materializations, preserving shell-bound records without duplicate schema keys.

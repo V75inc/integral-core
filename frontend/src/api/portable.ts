@@ -26,8 +26,24 @@ export const portableApi = {
     };
   },
   export: async (kind: ResourceKind, ids: string[], mode: ExportMode) => {
-    const { data } = await apiClient.post('/portable/export', { kind, ids, mode }, { responseType: 'blob', timeout: 120000 });
-    return data as Blob;
+    const response = await apiClient.post('/portable/export', { kind, ids, mode }, { responseType: 'blob', timeout: 120000 });
+    const countHeader = response.headers?.['x-integral-skipped-entry-count'];
+    const labelsHeader = response.headers?.['x-integral-skipped-entries'];
+    let skippedEntries: string[] = [];
+    if (typeof labelsHeader === 'string' && labelsHeader.trim()) {
+      try {
+        const parsed = JSON.parse(labelsHeader);
+        if (Array.isArray(parsed)) skippedEntries = parsed.map(String);
+      } catch {
+        skippedEntries = [];
+      }
+    }
+    const skippedEntryCount = Number.parseInt(String(countHeader ?? skippedEntries.length), 10);
+    return {
+      blob: response.data as Blob,
+      skipped_entry_count: Number.isFinite(skippedEntryCount) ? skippedEntryCount : skippedEntries.length,
+      skipped_entries: skippedEntries,
+    };
   },
   preview: async (file: File): Promise<TransferSummary> => {
     const { data } = await apiClient.post('/portable/preview', file, { headers: { 'Content-Type': 'application/zip' }, timeout: 120000 });

@@ -480,10 +480,20 @@ async def _export_app_package(app: App) -> tuple[PackagePayload, dict[str, bytes
         attached = await get_app_attached_operational_model(app)
         pkg = ((attached.manifest if attached else {}) or {}).get("package") or {}
         slug = str(pkg.get("slug") or pkg.get("name") or root.name).strip()
+    from app.services.operational_model_loader import compute_bundle_fingerprint
+
     meta = package_meta_from_bundle(root, slug)
     packed, fingerprint = pack_bundle_dir(root, slug)
+    current = compute_bundle_fingerprint(root)
+    if current != fingerprint:
+        raise BadRequestError(
+            message="Installed package provenance does not match its export artifact"
+        )
     expected = str(getattr(app, "installed_artifact_fingerprint", "") or "")
-    if not expected or fingerprint != expected:
+    # Accept empty stamps, current aligned stamps, or pre-alignment stamps that
+    # included local cache/VCS junk (.pytest_cache, .DS_Store, …).
+    legacy = compute_bundle_fingerprint(root, legacy=True)
+    if expected and expected not in (current, legacy):
         raise BadRequestError(
             message="Installed package provenance does not match its export artifact"
         )
@@ -500,8 +510,13 @@ async def _export_app_package(app: App) -> tuple[PackagePayload, dict[str, bytes
 
 async def export_resources(
     *, user_id: str, workspace_id: str, selection: ExportSelection
-) -> bytes:
-    """Export the selected authorized resources as a complete portable archive."""
+) -> tuple[bytes, list[str]]:
+    """Export the selected authorized resources as a complete portable archive.
+
+    Returns ``(zip_bytes, skipped_entries)`` where ``skipped_entries`` lists
+    labels for full-data App records omitted because a required relation/file
+    could not be kept in the archive.
+    """
     if len(set(selection.ids)) != len(selection.ids):
         raise BadRequestError(message="Select each resource only once")
     walker = ExportWalker(
@@ -782,10 +797,12 @@ async def export_resources(
         configurations.append(t.manifest)
         configurations.extend(et.form_schema for et in t.entry_types)
     await asyncio.to_thread(_pin_app_relations, configurations, apps=list(walker.apps))
+    skipped_entries: list[str] = []
     if archive.mode == "full" and archive.kind == "app":
-        archive = await _sanitize_dangling_export_refs(archive, files)
+        archive, skipped_entries = await _sanitize_dangling_export_refs(archive, files)
     validate_archive(archive, files)
-    return await asyncio.to_thread(encode_archive, archive.wire_dict(), files)
+    content = await asyncio.to_thread(encode_archive, archive.wire_dict(), files)
+    return content, skipped_entries
 
 
 def _tracks(archive: PortableArchive) -> list[PortableTrack]:
@@ -934,10 +951,15 @@ def _collect_incomplete_import_refs(
 
 async def _sanitize_dangling_export_refs(
     archive: PortableArchive, files: dict[str, bytes]
-) -> PortableArchive:
-    """Drop deleted relation/file ids; omit rows that lose required links; refuse live outs."""
+) -> tuple[PortableArchive, list[str]]:
+    """Drop deleted relation/file ids; omit rows that lose required links; refuse live outs.
+
+    Incomplete required-link rows are omitted and returned as labels for the
+    caller to report. Live targets outside the selection still fail closed.
+    """
     track_refs = {track.ref for track in _tracks(archive)}
     omitted: set[str] = set()
+    omitted_labels: dict[str, str] = {}
 
     async def clean_entry(
         entry: PortableEntry,
@@ -1033,6 +1055,7 @@ async def _sanitize_dangling_export_refs(
                     cleaned = await clean_entry(entry, track, entry_refs)
                     if cleaned is None:
                         newly_omitted.add(entry.ref)
+                        omitted_labels[entry.ref] = _record_label(entry)
                         for attachment in entry.attachments:
                             if attachment.member:
                                 files.pop(attachment.member, None)
@@ -1044,11 +1067,11 @@ async def _sanitize_dangling_export_refs(
         if not newly_omitted:
             break
         omitted.update(newly_omitted)
-    if omitted:
-        raise BadRequestError(
-            message=f"Export cannot include {len(omitted)} record(s) with missing required relations or files; repair those records before retrying"
-        )
-    return working
+    labels = [
+        omitted_labels[ref]
+        for ref in sorted(omitted, key=lambda r: omitted_labels.get(r, r))
+    ]
+    return working, labels
 
 
 def validate_archive(archive: PortableArchive, files: dict[str, bytes]) -> None:
@@ -1875,6 +1898,8 @@ async def _import_packaged_archive(
     files: dict[str, bytes],
 ) -> dict:
     """Resolve admitted packages, install fresh Apps in dependency order, restore data."""
+    from pathlib import Path
+
     from app.models.nodes import View
     from app.services.app_home_override import validate_home_composition
     from app.services.app_lifecycle import install_app
@@ -1896,10 +1921,18 @@ async def _import_packaged_archive(
 
     if not archive.packages or not archive.apps:
         raise BadRequestError(message="Packaged archive is invalid")
+    # Bundles materialized from the archive for this attempt. Successful
+    # admission is durable host state (retries reuse it); App/graph cleanup
+    # does not remove shared package trees.
+    created_bundle_dirs: list[Path] = []
     libraries: dict[str, Any] = {}
     for payload in archive.packages:
         libraries[payload.slug] = await resolve_admitted_package(
-            payload, files, user_id=user_id, workspace_id=workspace_id
+            payload,
+            files,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            created_bundle_dirs=created_bundle_dirs,
         )
     ordered_apps = _order_archive_apps(
         [
@@ -2191,34 +2224,36 @@ async def _import_packaged_archive(
                             attachment_ids=attachment_ids,
                             change_event_sink=events.append,
                         )
-                    from app.services.app_invariant_guards import (
-                        enforce_protected_field_write,
-                    )
-                    from app.services.operational_model_compile import slug_manifest_key
+                        from app.services.app_invariant_guards import (
+                            enforce_protected_field_write,
+                        )
+                        from app.services.operational_model_compile import (
+                            slug_manifest_key,
+                        )
 
-                    await enforce_protected_field_write(
-                        workspace_id=workspace_id,
-                        entry_type_key=slug_manifest_key(
-                            str(
-                                et.form_schema.get("_manifest_entry_type_key")
-                                or et.name
-                            )
-                        ),
-                        proposed_custom_fields={},
-                        proposed_fields={"status": item.status},
-                        track_id=track.id,
-                        entry_id=restored.id,
-                        principal_id=user_id,
-                    )
-                    restored.status = item.status
-                    if item.created_at is not None:
-                        restored.created_at = item.created_at
-                    if item.updated_at is not None:
-                        restored.updated_at = item.updated_at
-                    await restored.save()
-                    from app.services.retrieval.indexing import enqueue_entry
+                        await enforce_protected_field_write(
+                            workspace_id=workspace_id,
+                            entry_type_key=slug_manifest_key(
+                                str(
+                                    et.form_schema.get("_manifest_entry_type_key")
+                                    or et.name
+                                )
+                            ),
+                            proposed_custom_fields={},
+                            proposed_fields={"status": item.status},
+                            track_id=track.id,
+                            entry_id=restored.id,
+                            principal_id=user_id,
+                        )
+                        restored.status = item.status
+                        if item.created_at is not None:
+                            restored.created_at = item.created_at
+                        if item.updated_at is not None:
+                            restored.updated_at = item.updated_at
+                        await restored.save()
+                        from app.services.retrieval.indexing import enqueue_entry
 
-                    await enqueue_entry(restored)
+                        await enqueue_entry(restored)
             for spec, app in app_pairs:
                 if spec.home_composition is not None:
                     app.home_composition = await validate_home_composition(
@@ -2542,34 +2577,36 @@ async def import_resources(
                             attachment_ids=attachment_ids,
                             change_event_sink=events.append,
                         )
-                    from app.services.app_invariant_guards import (
-                        enforce_protected_field_write,
-                    )
-                    from app.services.operational_model_compile import slug_manifest_key
+                        from app.services.app_invariant_guards import (
+                            enforce_protected_field_write,
+                        )
+                        from app.services.operational_model_compile import (
+                            slug_manifest_key,
+                        )
 
-                    await enforce_protected_field_write(
-                        workspace_id=workspace_id,
-                        entry_type_key=slug_manifest_key(
-                            str(
-                                et.form_schema.get("_manifest_entry_type_key")
-                                or et.name
-                            )
-                        ),
-                        proposed_custom_fields={},
-                        proposed_fields={"status": item.status},
-                        track_id=track.id,
-                        entry_id=restored.id,
-                        principal_id=user_id,
-                    )
-                    restored.status = item.status
-                    if item.created_at is not None:
-                        restored.created_at = item.created_at
-                    if item.updated_at is not None:
-                        restored.updated_at = item.updated_at
-                    await restored.save()
-                    from app.services.retrieval.indexing import enqueue_entry
+                        await enforce_protected_field_write(
+                            workspace_id=workspace_id,
+                            entry_type_key=slug_manifest_key(
+                                str(
+                                    et.form_schema.get("_manifest_entry_type_key")
+                                    or et.name
+                                )
+                            ),
+                            proposed_custom_fields={},
+                            proposed_fields={"status": item.status},
+                            track_id=track.id,
+                            entry_id=restored.id,
+                            principal_id=user_id,
+                        )
+                        restored.status = item.status
+                        if item.created_at is not None:
+                            restored.created_at = item.created_at
+                        if item.updated_at is not None:
+                            restored.updated_at = item.updated_at
+                        await restored.save()
+                        from app.services.retrieval.indexing import enqueue_entry
 
-                    await enqueue_entry(restored)
+                        await enqueue_entry(restored)
             for spec, app in app_pairs:
                 from app.services.app_home_override import validate_home_composition
                 from app.services.dashboard_service import create_dashboard

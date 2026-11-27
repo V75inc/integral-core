@@ -1,5 +1,7 @@
 """Shared App/Track archive transport; all graph work stays in services."""
 
+import json
+
 from fastapi import Request
 from fastapi.responses import Response
 from jvspatial.api import endpoint
@@ -16,6 +18,10 @@ from app.services.portable_transfer import (
     read_archive,
 )
 from app.services.request_scope import resolve_workspace_id_from_request
+
+# Keep skipped-entry labels readable in headers without blowing past proxy limits.
+_SKIPPED_ENTRIES_HEADER_MAX = 48
+_SKIPPED_ENTRIES_HEADER_CHARS = 3500
 
 
 async def _scope(request: Request) -> tuple[str, str]:
@@ -49,15 +55,23 @@ async def export_portable_resources(request: Request) -> Response:
         raise BadRequestError(
             message="Select Apps or Tracks and a valid export option"
         ) from exc
-    content = await export_resources(
+    content, skipped_entries = await export_resources(
         user_id=user_id, workspace_id=workspace_id, selection=body
     )
+    labels = list(skipped_entries or [])
+    header_labels = labels[:_SKIPPED_ENTRIES_HEADER_MAX]
+    encoded = json.dumps(header_labels, ensure_ascii=False)
+    while len(encoded) > _SKIPPED_ENTRIES_HEADER_CHARS and header_labels:
+        header_labels.pop()
+        encoded = json.dumps(header_labels, ensure_ascii=False)
     return Response(
         content=content,
         media_type="application/zip",
         headers={
             "Content-Disposition": f'attachment; filename="integral-{body.kind}s-{body.mode}.integral.zip"',
             "Cache-Control": "no-store",
+            "X-Integral-Skipped-Entry-Count": str(len(labels)),
+            "X-Integral-Skipped-Entries": encoded,
         },
     )
 

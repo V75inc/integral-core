@@ -19,7 +19,7 @@ The launcher validates its saved installation identity before starting. A missin
 | `DEBUG` | false | Explicit development behavior; production keeps it false |
 | `WORKERS` | 1 | Conservative worker count |
 | `INTEGRAL_CORE_ONLY` | false | Filter library loading to Core packages; root Compose sets true |
-| `INTEGRAL_PACKAGE_PATHS` | empty | Package roots; empty uses configured default discovery locations |
+| `INTEGRAL_PACKAGE_PATHS` | empty | Package roots; empty uses configured default discovery locations. **Required and must be writable** for packaged App portable import when packages are not already admitted (Docker: e.g. `/data/integral-apps` on a volume). Same root accepts any archive package slug. |
 | `INTEGRAL_HOST_EXTENSION_MODULE` | empty | Explicit host-owned extension module |
 | `MAX_CONCURRENT_TURNS_PER_USER` | 5 | Ordinary per-worker turn ceiling; not universal shared admission |
 

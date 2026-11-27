@@ -15,7 +15,11 @@ beforeEach(() => {
   vi.mocked(portableApi.list).mockResolvedValue({ items: [{ id: 'a', name: 'Projects' }, { id: 'b', name: 'People' }], cursor: undefined });
   vi.mocked(portableApi.preview).mockResolvedValue(summary);
   vi.mocked(portableApi.import).mockResolvedValue(summary);
-  vi.mocked(portableApi.export).mockResolvedValue(new Blob(['zip']));
+  vi.mocked(portableApi.export).mockResolvedValue({
+    blob: new Blob(['zip']),
+    skipped_entry_count: 0,
+    skipped_entries: [],
+  });
   URL.createObjectURL = vi.fn(() => 'blob:export');
   URL.revokeObjectURL = vi.fn();
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
@@ -34,6 +38,22 @@ describe('portable resource dialog', () => {
     await waitFor(() => expect(click).toHaveBeenCalled());
     await waitFor(() => expect(props.onClose).toHaveBeenCalled());
     expect(toast).toHaveBeenCalledWith('Export downloaded.', 'success');
+  });
+
+  it('reports omitted records after a full-data export', async () => {
+    vi.mocked(portableApi.export).mockResolvedValue({
+      blob: new Blob(['zip']),
+      skipped_entry_count: 11,
+      skipped_entries: ['Broken milestone'],
+    });
+    render(<ResourceTransferDialog {...props} />);
+    fireEvent.click(await screen.findByText('People'));
+    fireEvent.click(screen.getByText('Configuration and data'));
+    fireEvent.click(screen.getByText('Download export'));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(
+      'Export downloaded. Omitted 11 records with missing required links.',
+      'success',
+    ));
   });
 
   it('exports multiple Apps in one call', async () => {
@@ -65,15 +85,16 @@ describe('portable resource dialog', () => {
   it('shows admitted package intent for packaged archives', async () => {
     vi.mocked(portableApi.preview).mockResolvedValue({
       ...summary,
-      package: { slug: 'tcs-crm', version: '1.3.0', installs_package: true },
+      package: { slug: 'demo-crm', version: '1.3.0', installs_package: true },
     });
     render(<ResourceTransferDialog {...props} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Import' }));
     const file = new File(['zip'], 'crm.integral.zip', { type: 'application/zip' });
     fireEvent.change(screen.getByLabelText('Integral archive'), { target: { files: [file] } });
     fireEvent.click(screen.getByText('Preview import'));
-    expect(await screen.findByText(/Uses admitted package/)).toBeInTheDocument();
-    expect(screen.getByText(/tcs-crm 1.3.0/)).toBeInTheDocument();
+    expect(await screen.findByText(/Uses package/)).toBeInTheDocument();
+    expect(screen.getByText(/demo-crm 1.3.0/)).toBeInTheDocument();
+    expect(screen.getByText(/INTEGRAL_PACKAGE_PATHS/)).toBeInTheDocument();
     fireEvent.click(screen.getByText('Install and import'));
     await waitFor(() => expect(portableApi.import).toHaveBeenCalledWith(file, undefined));
   });
@@ -84,8 +105,8 @@ describe('portable resource dialog', () => {
       apps: 2,
       names: ['CRM', 'Inventory'],
       packages: [
-        { slug: 'tcs-crm', version: '1.3.0', installs_package: true },
-        { slug: 'tcs-inventory', version: '2.0.0', installs_package: true },
+        { slug: 'demo-crm', version: '1.3.0', installs_package: true },
+        { slug: 'demo-inventory', version: '2.0.0', installs_package: true },
       ],
     });
     render(<ResourceTransferDialog {...props} />);
@@ -93,8 +114,9 @@ describe('portable resource dialog', () => {
     const file = new File(['zip'], 'apps.integral.zip', { type: 'application/zip' });
     fireEvent.change(screen.getByLabelText('Integral archive'), { target: { files: [file] } });
     fireEvent.click(screen.getByText('Preview import'));
-    expect(await screen.findByText(/Uses admitted packages/)).toBeInTheDocument();
-    expect(screen.getByText(/tcs-crm 1.3.0, tcs-inventory 2.0.0/)).toBeInTheDocument();
+    expect(await screen.findByText(/Uses packages/)).toBeInTheDocument();
+    expect(screen.getByText(/demo-crm 1.3.0, demo-inventory 2.0.0/)).toBeInTheDocument();
+    expect(screen.getByText(/admitted from the archive/)).toBeInTheDocument();
     expect(screen.getByText('Install and import')).toBeInTheDocument();
   });
 

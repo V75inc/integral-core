@@ -1617,6 +1617,8 @@ for middleware in list(app.user_middleware):
                     "X-Trace-ID",
                     "X-DB-Round-Trip-Count",
                     "X-DB-Duration-Ms",
+                    "X-Integral-Skipped-Entry-Count",
+                    "X-Integral-Skipped-Entries",
                 ],
             ),
         ):
