@@ -23,6 +23,9 @@ _VOICE_CAPABILITIES = {
     "update_entry": "integral_update_entry",
     "batch": "integral_commit_batch",
     "routine_task_create": "integral_schedule_task",
+    "update_app": "integral_update_app",
+    "create_dashboard": "integral_create_dashboard",
+    "update_dashboard": "integral_update_dashboard",
 }
 
 
@@ -84,6 +87,7 @@ class VoiceReviewReadout:
     creation: dict | None = field(default=None, repr=False)
     creation_date_keys: tuple[str, ...] = field(default=(), repr=False)
     reminder: dict | None = field(default=None, repr=False)
+    presentation: dict | None = field(default=None, repr=False)
     creation_text_keys: tuple[str, ...] = field(default=(), repr=False)
 
     destination_label: str = field(default="", repr=False)
@@ -99,6 +103,11 @@ class VoiceReviewReadout:
             return all(child.matches_focus(focus) for child in self.children)
         return (
             self.reminder is not None
+            or (
+                self.presentation is not None
+                and focus is not None
+                and focus.id == self.target_id
+            )
             or focus is None
             or (
                 focus.kind == ("track" if self.creation else "entry")
@@ -191,7 +200,14 @@ def _simple_field_text(spec, value, *, previous=False):
 
 
 async def read_entry_review(
-    *, principal, workspace, thread, work_id, run_id, replacement=None
+    *,
+    principal,
+    workspace,
+    thread,
+    work_id,
+    run_id,
+    replacement=None,
+    allow_description_update=False,
 ):
     """Read one exact pending record change or one-time reminder for this work attempt."""
     with isolated_permissions_cache():
@@ -205,6 +221,13 @@ async def read_entry_review(
         )
         if item is None:
             return None
+        if (
+            item.kind in {"update_app", "create_dashboard", "update_dashboard"}
+            and replacement is None
+        ):
+            from app.services.native_voice_presentation import presentation_review
+
+            return await presentation_review(item, work_id, run_id)
         if item.kind == "batch" and replacement is None:
             from app.services.native_voice_batch import read_batch_review
 
@@ -231,6 +254,8 @@ async def read_entry_review(
         }
         if replacement is not None:
             allowed_keys.update(("body", "tags"))
+        elif allow_description_update:
+            allowed_keys.add("body")
         if item.kind != "update_entry" or set(item.payload) - allowed_keys:
             return None
         proposal = proposal_from_staged(item)
@@ -312,6 +337,22 @@ async def read_entry_review(
                 return None
             changes.append(f"{label} from {before or 'empty'} to {after}")
             spoken_fields.append((key, label))
+        if (
+            allow_description_update
+            and replacement is None
+            and "body" in item.payload
+            and (entry.get("body") or "") != (item.payload["body"] or "")
+        ):
+            from app.services.native_voice_creation import spoken_description
+
+            body = item.payload["body"]
+            spoken = spoken_description(body)
+            if spoken is None:
+                return None
+            changes.append(
+                f"description to “{spoken}”" if spoken else "clear the description"
+            )
+            spoken_fields.append(("body", "Description"))
         update_field_types = []
         if fields:
             from app.contracts.information import schema_revision_from_profile_version
@@ -405,6 +446,10 @@ class VoiceAppliedReadout:
 
 async def read_applied_values(review, *, principal, workspace, expected_creation=None):
     """Read the actual saved fields following a consumed canonical decision."""
+    if review.presentation:
+        from app.services.native_voice_presentation import read_saved_presentation
+
+        return await read_saved_presentation(review, principal, workspace)
     if review.children:
         verified = set()
         for child in review.children:
@@ -506,6 +551,14 @@ async def read_applied_values(review, *, principal, workspace, expected_creation
                 if key.startswith("fields.")
                 else entry.get(key)
             )
+            if key == "body":
+                from app.services.native_voice_creation import spoken_description
+
+                spoken = spoken_description(value)
+                if spoken is None:
+                    return None
+                values.append(f"{label}: {spoken or 'empty'}.")
+                continue
             if value is not None and (
                 type(value) not in (str, bool, int, float) or len(str(value)) > 200
             ):

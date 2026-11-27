@@ -108,6 +108,7 @@ export interface WorkspaceSummary {
 }
 
 export interface App {
+  resident_presentation_permission_eligible?: boolean;
   /** Built-in icon key or inline raster logo. */
   icon?: string;
   installed_package_slug?: string;

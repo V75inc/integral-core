@@ -191,6 +191,7 @@ class ResidentWritePermission(Edge):
 
     mode: str = "ask"
     custom_track_ids: list[str] = Field(default_factory=list)
+    custom_app_ids: list[str] = Field(default_factory=list)
     track_id: str = ""
     track_ids: list[str] = Field(default_factory=list)
     revision: str = ""

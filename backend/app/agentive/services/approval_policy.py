@@ -133,3 +133,35 @@ def effect_class(
     }:
         return ApprovalEffectClass.MATERIAL_EXTERNAL
     return ApprovalEffectClass.PRIVATE_REVERSIBLE
+
+
+PRESENTATION_KINDS = {"update_app", "create_dashboard", "update_dashboard"}
+
+
+def is_presentation_effect(kind: str, payload: Mapping[str, Any]) -> bool:
+    """Admit only the three narrowly defined presentation effects."""
+    if effect_class(kind, payload) != ApprovalEffectClass.PRIVATE_REVERSIBLE:
+        return False
+    if kind == "update_app":
+        return set(payload) == {"app_id", "home", "expected_home_revision"}
+    if kind == "create_dashboard":
+        return (
+            {"app_id", "name"}
+            <= set(payload)
+            <= {"app_id", "name", "layout", "widgets", "is_default"}
+        )
+    if kind == "update_dashboard":
+        return (
+            {"app_id", "dashboard_id", "expected_dashboard_updated_at"}
+            <= set(payload)
+            <= {
+                "app_id",
+                "dashboard_id",
+                "expected_dashboard_updated_at",
+                "name",
+                "layout",
+                "widgets",
+                "is_default",
+            }
+        )
+    return False

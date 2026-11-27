@@ -80,12 +80,21 @@ Open **Permissions** in the workspace assistant’s composer. The setting applie
 | --- | --- |
 | Ask for approval (default) | Read. Every proposed change waits for a decision. |
 | Approve for me | Make supported simple record additions and edits in private lists you own. Changes involving hooks, assignments or more complex fields still need review. |
-| Custom | Make the same simple edits only in the private lists you select. Checking an app selects its currently eligible lists. |
+| Custom | Make the same simple edits in selected private lists and changes to Home and dashboards in explicitly selected eligible private Apps. Checking an App selects both eligible categories; each can be adjusted individually. |
 | Full access | Create and edit records across apps where you have write access, including shared lists. The canonical writer enforces current access, app rules, record revisions and normal save hooks. |
 
-Choose **Custom** to view or edit your saved selection. Switching to **Ask for approval**, **Approve for me** or **Full access** keeps those selections. Returning to Custom shows the previous choices. A list that loses eligibility cannot authorize an edit.
+Choose **Custom** to view or edit your saved selection. Switching to **Ask for approval**, **Approve for me** or **Full access** keeps those selections. Returning to Custom shows the previous choices. A list or App that loses eligibility cannot authorize an edit. Existing list-only selections remain list-only until the new App layout selection is explicitly saved.
 
-Mode changes take effect on new turns. Previously pending proposals retain their review. Deletion, sharing, connector actions, batches and other effects outside record creation and update keep their existing review requirements. The previous single-list and multi-list settings read back as Custom when nonempty and Ask for approval when empty.
+Mode changes take effect on new turns. Previously pending proposals retain their review. Deletion, sharing, connector actions, batches and other effects outside record creation, update, and explicitly selected private App presentation changes keep their existing review requirements. Without a standing grant, independently confirmed bounded Home label edits and dashboard rename/layout/default edits can be approved by voice. Complex queries, native content, widget replacement and actions retain visual review unless the explicit App presentation grant covers the canonical change. The previous single-list and multi-list settings read back as Custom when nonempty and Ask for approval when empty.
+
+### Turn detection
+
+The OpenAI realtime voice session uses semantic voice activity detection with
+balanced (`auto`) eagerness. It waits for a more complete spoken thought rather
+than treating every short pause as a finished request. The provider still
+supports interruption, and the relay retains generation fences and current
+authority checks. Independent confirmation capture is unchanged. This affects
+turn detection only, not the member's selected model or resident model routing.
 
 ### When the caller cannot see chat
 
@@ -249,7 +258,7 @@ to them.
 
 A current-review read can speak the exact supported fields of one pending
 record edit tied to the accepted voice work and run, if the target is still
-readable and its recorded revision is current. This covers title, status and schema-declared bounded literal text, select, number, boolean and date edits. The same field projection qualifies an eligible standing private-list grant; both typed and spoken turns use it. Composite, reference, file, computed and other unsupported fields retain review. Voice projects the current record and the actual
+readable and its recorded revision is current. This covers title, status and schema-declared bounded literal text, select, number, boolean and date edits. Conversational review also supports a bounded literal record description replacement, including plain paragraphs and flat bullet lists; this does not expand Auto or Custom list permissions. The same field projection qualifies an eligible standing private-list grant; both typed and spoken turns use it. Composite, reference, file, computed and other unsupported fields retain review. Voice projects the current record and the actual
 staged payload. The same projection must still match when playback begins.
 Simple creation also uses the existing proposal form and canonical field
 validator to present the Track, type, title and effective scalar values.

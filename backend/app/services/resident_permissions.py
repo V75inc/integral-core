@@ -9,7 +9,7 @@ from jvspatial.core.context import get_default_context
 
 from app.api.errors import BadRequestError, ResourceConflictError, ResourceNotFoundError
 from app.models.edges import ResidentWritePermission
-from app.models.nodes import Track, Workspace
+from app.models.nodes import App, Track, Workspace
 from app.schemas.agent_preferences import ResidentPermissionValue
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
 from app.services.permissions import get_user_node
@@ -50,11 +50,11 @@ async def read_permission(principal, workspace):
 
 
 async def set_permission(
-    principal, workspace, track_id, revision, *, track_ids=None, mode=None
+    principal, workspace, track_id, revision, *, track_ids=None, app_ids=None, mode=None
 ):
     """Validate the selected scope and update the workspace grant at the expected revision."""
     if mode is None:
-        if (track_id is None) == (track_ids is None):
+        if app_ids is not None or (track_id is None) == (track_ids is None):
             raise BadRequestError(
                 message="Supply one list selection or an approval mode."
             )
@@ -62,7 +62,7 @@ async def set_permission(
     elif (
         mode not in {"ask", "auto", "custom", "full"}
         or track_id is not None
-        or (mode != "custom" and track_ids is not None)
+        or (mode != "custom" and (track_ids is not None or app_ids is not None))
     ):
         raise BadRequestError(
             message="Choose a valid approval mode. Lists belong to Custom."
@@ -119,10 +119,26 @@ async def set_permission(
                 raise BadRequestError(
                     message="Choose only private lists you own in this workspace."
                 )
-        if mode == previous.mode and selection == sorted(previous.custom_track_ids):
+        apps = sorted(set(app_ids)) if app_ids is not None else previous.custom_app_ids
+        if mode == "custom" and apps:
+            if len(apps) > 200:
+                raise BadRequestError(message="Choose at most 200 Apps.")
+            for app_id in apps:
+                if not await _presentation_app(principal, workspace, app_id):
+                    raise BadRequestError(
+                        message="Choose only private Apps you own and may configure in this workspace."
+                    )
+        if (
+            mode == previous.mode
+            and selection == sorted(previous.custom_track_ids)
+            and apps == sorted(previous.custom_app_ids)
+        ):
             return previous
         value = ResidentPermissionValue(
-            mode=mode, custom_track_ids=selection, revision=secrets.token_hex(16)
+            mode=mode,
+            custom_track_ids=selection,
+            custom_app_ids=apps,
+            revision=secrets.token_hex(16),
         )
         if rows:
             await db.find_one_and_update(
@@ -133,6 +149,7 @@ async def set_permission(
                         "context.track_id": value.track_id,
                         "context.track_ids": value.track_ids,
                         "context.custom_track_ids": value.custom_track_ids,
+                        "context.custom_app_ids": value.custom_app_ids,
                         "context.mode": mode,
                         "context.revision": value.revision,
                     }
@@ -143,6 +160,124 @@ async def set_permission(
                 target, edge=ResidentWritePermission, **value.model_dump()
             )
         return value
+
+
+async def _presentation_app(principal, workspace, app_id):
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.schemas.policy import Resource, Subject
+    from app.services.policy_engine import evaluate
+    from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
+
+    with isolated_permissions_cache():
+        location = await locate_resource(
+            "app", app_id, allowed_app_states=MANAGEMENT_APP_STATES
+        )
+        app = (
+            await App.get(app_id)
+            if location and location.workspace_id == workspace
+            else None
+        )
+        if not app or not app.allows_resident_presentation_permission(
+            principal, workspace
+        ):
+            return None
+        decision = await evaluate(
+            subject=Subject(kind="human", id=principal),
+            action="app.update",
+            resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+        )
+        return app if decision.allowed else None
+
+
+async def _apply_presentation_permission(staged, ctx, policy, db):
+    from app.agentive.services.approval_decisions import decide_staged_write
+    from app.agentive.services.approval_policy import is_presentation_effect
+    from app.models.nodes import Dashboard
+    from app.services.app_home import home_revision_token
+    from app.services.native_voice_review import pending_work_proposal
+    from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
+
+    exact = await pending_work_proposal(
+        principal=ctx.principal_id,
+        workspace=ctx.workspace_id,
+        thread=ctx.thread_id,
+        work_id=ctx.work_item_id,
+        run_id=ctx.run_id,
+    )
+    if not exact or exact.token != staged.token:
+        return None
+    payload = staged.payload
+    app_id = payload.get("app_id")
+    if (
+        policy.mode != "custom"
+        or app_id not in policy.custom_app_ids
+        or not is_presentation_effect(staged.kind, payload)
+    ):
+        return None
+    # The standing grant is narrower than ordinary App editing, and cannot
+    # change ACLs, publish code or grant access. Lock the exact App and check
+    # current role, scope and revision before using the canonical writer.
+    if not await db.find_one_and_update(
+        "node",
+        {
+            "entity": App._entity_name(),
+            "id": app_id,
+            "context.workspace_id": ctx.workspace_id,
+            "context.owner_user_id": ctx.principal_id,
+            "context.visibility": "private",
+        },
+        {"$set": {}},
+    ):
+        return None
+    app = await _presentation_app(ctx.principal_id, ctx.workspace_id, app_id)
+    if app is None:
+        return None
+    if (
+        staged.kind == "update_app"
+        and home_revision_token(app) != payload["expected_home_revision"]
+    ):
+        return None
+    if staged.kind == "update_dashboard":
+        identifier = payload["dashboard_id"]
+        location = await locate_resource(
+            "dashboard", identifier, allowed_app_states=MANAGEMENT_APP_STATES
+        )
+        if not location or (location.workspace_id, location.app_id) != (
+            ctx.workspace_id,
+            app_id,
+        ):
+            return None
+        if not await db.find_one_and_update(
+            "node",
+            {
+                "entity": Dashboard._entity_name(),
+                "id": identifier,
+                "context.updated_at": payload["expected_dashboard_updated_at"],
+            },
+            {"$set": {}},
+        ):
+            return None
+    binding = _decision.set(
+        (
+            asyncio.current_task(),
+            staged.token,
+            ctx.principal_id,
+            ctx.workspace_id,
+            ctx.thread_id,
+        )
+    )
+    try:
+        return await decide_staged_write(
+            principal_id=ctx.principal_id,
+            workspace_id=ctx.workspace_id,
+            thread_id=ctx.thread_id,
+            conversation_id=ctx.thread_id,
+            proposal_id=staged.token,
+            decision="approve",
+            source="resident_permission",
+        )
+    finally:
+        _decision.reset(binding)
 
 
 async def apply_resident_permission(item, ctx, token):
@@ -208,7 +343,14 @@ async def apply_resident_permission(item, ctx, token):
         if (
             not staged
             or staged.state != "pending"
-            or staged.kind not in {"create_entry", "update_entry"}
+            or staged.kind
+            not in {
+                "create_entry",
+                "update_entry",
+                "update_app",
+                "create_dashboard",
+                "update_dashboard",
+            }
         ):
             return None
         proof = staged.origin_proof or {}
@@ -217,6 +359,8 @@ async def apply_resident_permission(item, ctx, token):
             ctx.effect_key,
         ):
             return None
+        if staged.kind in {"update_app", "create_dashboard", "update_dashboard"}:
+            return await _apply_presentation_permission(staged, ctx, policy, db)
         if staged.kind == "create_entry":
             track_id = staged.payload.get("track_id")
         else:

@@ -79,6 +79,19 @@ export interface AppSettingsResponse {
 const appListFlight = createSingleFlight<App[]>(2000);
 
 export const appsApi = {
+  listPermissionChoices: async (): Promise<App[]> => {
+    const rows: App[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const { data } = await apiClient.get<{ apps: App[]; next_cursor?: string }>("/apps", { params: { limit: 100, cursor } });
+      rows.push(...data.apps);
+      cursor = data.next_cursor;
+      if (cursor && cursors.has(cursor)) throw new Error("Repeated App page");
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
+    return rows;
+  },
   list: (): Promise<App[]> =>
     appListFlight.run('all', async () => {
       const { data } = await apiClient.get('/apps');

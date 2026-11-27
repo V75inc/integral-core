@@ -784,6 +784,8 @@ async def test_spoken_review_of_canonical_entry_proposal(
     "edit",
     [
         "title",
+        "body_manual",
+        "body_manual_reject",
         "date",
         "reject",
         "create",
@@ -1113,6 +1115,12 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         payload["title"] = "Acme Georgetown"
     if edit == "full_edit":
         payload["body"] = "Updated notes for the whole project."
+    if edit in {"body_manual", "body_manual_reject"}:
+        payload.pop("title", None)
+        payload["body"] = (
+            "Prepare the specimen inspection.\n\n- Confirm the sample count.\n- Record the condition."
+        )
+
     long_body = (
         "At noon local time, review the requirements with the team and confirm the delivery plan.\n\n"
         "- Verify the work completed against the previous report and identify the outstanding items.\n"
@@ -1219,7 +1227,12 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     after = await ChatThread.get(thread.id)
     assert before.updated_at == after.updated_at
     assert [message.id for message in await list_messages(after)] == before_ids
-    relay = native_voice.VoiceRelay(browser, provider, scope)
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        scope,
+        conversational_review=edit in {"body_manual", "body_manual_reject"},
+    )
     relay.accepted = native_voice._AcceptedVoiceTurn(
         receipt.work_item_id, receipt.message_id, "Rename Acme to Georgetown"
     )
@@ -1236,6 +1249,9 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         )  # A body replacement is outside the simple spoken projection.
     else:
         assert review is not None
+    if edit in {"body_manual", "body_manual_reject"}:
+        assert "Confirm the sample count" in review.text
+        assert "Record the condition" in review.text
     if edit == "create":
         assert "Verify the work completed" in review.text
         assert "Prepare the summary" in review.text
@@ -1478,7 +1494,8 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     async def recognize(*args, **kwargs):
         return (
             "No thanks"
-            if edit in {"reject", "batch_reject", "scalar_manual_reject"}
+            if edit
+            in {"reject", "batch_reject", "scalar_manual_reject", "body_manual_reject"}
             else "Yes, please"
         )
 
@@ -1487,6 +1504,14 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     relay.review_confirmation = confirmation
     await relay._capture_review_confirmation(confirmation)
     assert (await event(browser.outbox))["type"] == "review_confirmation_ended"
+    if edit in {"body_manual", "body_manual_reject"}:
+        from app.models.nodes import Entry
+
+        saved = await Entry.get(entry["id"])
+        assert (saved.body or "") == (
+            (entry.get("body") or "") if edit.endswith("reject") else payload["body"]
+        )
+        return
     if edit in {"scalar_manual", "scalar_manual_reject"}:
         from app.models.nodes import Entry
 

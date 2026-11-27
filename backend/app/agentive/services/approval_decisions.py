@@ -134,6 +134,7 @@ async def decide_staged_write(
     from app.services.native_voice_creation import (
         permits_creation,
     )
+    from app.services.native_voice_presentation import permits_presentation
     from app.services.native_voice_reminder import permits_reminder
 
     if source == "resident_permission":
@@ -147,6 +148,7 @@ async def decide_staged_write(
         source == "voice"
         and not permits_reminder(staged)
         and not permits_batch(staged)
+        and not permits_presentation(staged)
         and (
             proposal.effect_class != ApprovalEffectClass.PRIVATE_REVERSIBLE
             or (

@@ -962,6 +962,14 @@ scalar edits may be evaluated against the actual effective field schema and
 record revision; reference, file, composite and computed fields and hooks
 are not silently treated as simple edits. A change to the grant cannot authorize
 a proposal from an earlier turn. Voice presents the same decision as chat.
+Custom can separately authorize Home and dashboard presentation changes in an
+owned private App. The App selection is explicit; legacy Track-only selections
+never silently acquire this authority. Scope, current App authority, the exact
+proposal and the relevant Home or dashboard revision are rechecked at the
+canonical writer. This grant does not authorize visibility, schema, deletion,
+sharing or security changes. Complex presentation effects without an explicit
+standing grant retain their review requirements; literal bounded presentation
+label/layout edits can be described and independently confirmed in voice.
 
 For legacy staged workspace tools, an explicit dictionary result `ok: false`
 is a refused outcome, even when dispatch returned normally. The approval must

@@ -6,6 +6,9 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Give Custom permissions an explicit Home and dashboard selection for eligible owned private Apps, with exact proposal and revision checks. Existing list-only grants do not silently expand. Independently confirm bounded record descriptions, Home labels and dashboard metadata edits in voice; retain review for complex effects without an App grant.
+- Reuse a completed, task-specific navigation acknowledgment rather than voicing it twice; speak the verified route outcome without recap. Use semantic turn detection in the native OpenAI realtime session to reduce interruptions on natural pauses while retaining barge-in.
+
 - Stabilize live voice navigation acknowledgments across route transitions and concurrent result observers, retaining authorization and stale-route checks. Preserve the full qualified destination request when delegating named navigation.
 
 - Honor Auto and Custom permissions for schema-declared simple scalar edits (including text registrations), preserving canonical validation, revision fences and review for unsupported effects.

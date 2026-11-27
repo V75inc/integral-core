@@ -316,6 +316,121 @@ def _normalized_spoken_line(text: str) -> str:
     return " ".join(re.findall(r"\w+", text.casefold()))
 
 
+def _forward_intent(spoken: str) -> bool:
+    """Only a bounded forward-looking first-person utterance can count as a cue."""
+    actual = _normalized_spoken_line(spoken)
+    if (
+        not actual
+        or len(actual) > 200
+        or "?" in spoken
+        or re.search(
+            r"\b(?:not|never|cannot|can t|couldn t|already|done|finished)\b", actual
+        )
+    ):
+        return False
+    return bool(
+        re.match(
+            r"^(?:(?:sure|okay|ok|of course|yes|absolutely|got it) )?(?:i ll|i will|let me|i m|i am) ",
+            actual,
+        )
+    )
+
+
+def _named_lookup_ack_matches(spoken: str, question: str) -> bool:
+    """Recognize the spoken subject of a redirected named lookup."""
+    subject = _normalized_spoken_line(_location_subject(question))
+    subject = re.sub(r"^(?:my|our|the|your|a|an) ", "", subject)
+    return bool(
+        subject
+        and _forward_intent(spoken)
+        and f" {subject} " in f" {_normalized_spoken_line(spoken)} "
+    )
+
+
+def _navigation_ack_matches(spoken: str, cue: str, destination: str | int) -> bool:
+    """Reuse a completed cue matching the exact named destination, not a result."""
+    actual = _normalized_spoken_line(spoken)
+    suggested = _normalized_spoken_line(cue)
+    if not actual or len(actual) > 200 or not suggested:
+        return False
+    if actual == suggested:
+        return True
+    if not isinstance(destination, str) or not _forward_intent(spoken):
+        return False
+    subject = _normalized_spoken_line(destination)
+    return bool(
+        subject and all(f" {subject} " in f" {line} " for line in (actual, suggested))
+    )
+
+
+def _delegated_ack_matches(spoken: str, cue: str, request: str) -> bool:
+    """Accept a completed paraphrase only when it shares grounded task details.
+
+    The caller's original request remains the sole request to the resident.
+    This conservative lexical check changes only whether an extra cue is
+    spoken; it cannot grant authority or decide an effect.
+    """
+    actual = _normalized_spoken_line(spoken)
+    suggested = _normalized_spoken_line(cue)
+    if not actual or len(actual) > 200 or not suggested:
+        return False
+    if actual == suggested:
+        return True
+    if not _forward_intent(spoken) or not _forward_intent(cue):
+        return False
+    # Exclude generic conversational and operation vocabulary, so matching
+    # 'I will update' alone never establishes a task-specific acknowledgment.
+    generic = {
+        "that",
+        "this",
+        "your",
+        "with",
+        "will",
+        "next",
+        "request",
+        "requested",
+        "please",
+        "workspace",
+        "integral",
+        "update",
+        "change",
+        "check",
+        "open",
+        "look",
+        "find",
+        "make",
+        "doing",
+        "going",
+        "about",
+        "from",
+        "into",
+        "what",
+        "then",
+        "sure",
+        "okay",
+        "confirm",
+        "once",
+        "when",
+        "after",
+        "before",
+        "verify",
+        "help",
+        "review",
+        "pull",
+        "prepare",
+    }
+
+    def details(line):
+        return {
+            word
+            for word in _normalized_spoken_line(line).split()
+            if len(word) >= 4 and word not in generic
+        }
+
+    grounded = details(spoken) & details(cue) & details(request)
+    return len(grounded) >= 2
+
+
 def _explicit_end_call(request: str) -> bool:
     # The realtime model supplies the caller's ending clause, not a command
     # invented by the model. Reject ambiguous, negated and conditional wording.
@@ -377,7 +492,7 @@ _REALTIME_TOOLS = [
     ),
     _voice_tool(
         OPEN_PAGE,
-        "Open an Integral app, track, record or saved view in the caller's browser. Pass the actual destination they want opened, not its containing App or Track. Include the entire qualified destination (kind, title, and parent or other qualifiers). Also pass the caller's complete original request so the resident can resolve references and ambiguity. For a numbered choice from the last spoken list use the integer they chose. A short name or a reference to the current page is enough; call the tool even if its resource kind or containing App is uncertain. The resident knows the current browser page and will resolve the destination or report ambiguity. Do not ask the caller to disambiguate a named destination before trying. Ask only if no destination or reference was supplied.",
+        "Open an Integral app, track, record or saved view in the caller's browser. Pass the actual destination they want opened, not its containing App or Track. Include the entire qualified destination (kind, title, and parent or other qualifiers). Also pass the caller's complete original request so the resident can resolve references and ambiguity. For a numbered choice from the last spoken list use the integer they chose. A short name or a reference to the current page is enough; call the tool even if its resource kind or containing App is uncertain. The resident knows the current browser page and will resolve the destination or report ambiguity. Do not ask the caller to disambiguate a named destination before trying. Ask only if no destination or reference was supplied. Call the tool immediately without speaking separately; the relay will say the intent once.",
         {
             "destination": {
                 "anyOf": [
@@ -387,6 +502,12 @@ _REALTIME_TOOLS = [
                 "description": "The requested leaf destination, with its kind and any containing App, Track or other qualification. Do not substitute a parent for a child. Or the explicit numbered choice.",
             },
             "request": _CHAT_REQUEST,
+            "intent_summary": {
+                "type": "string",
+                "maxLength": 160,
+                "description": "One natural first-person acknowledgment of the actual requested destination; not a claim of completion. If you already spoke an exact acknowledgment, repeat its exact wording here so the host can recognize it without speaking it again. "
+                + _ACKNOWLEDGMENT_PERSPECTIVE,
+            },
         },
     ),
     _voice_tool(
@@ -1219,7 +1340,8 @@ def session_update(
                 "input": {
                     "format": pcm,
                     "turn_detection": {
-                        "type": "server_vad",
+                        "type": "semantic_vad",
+                        "eagerness": "auto",
                         "create_response": True,
                         "interrupt_response": True,
                     },
@@ -1308,6 +1430,9 @@ def _direct_intent(name: str, request: dict) -> str:
             "both": "I'll check the workspace and assistant for this call.",
         }.get(request.get("detail", "both"), "I'll check this call's details.")
     if name == OPEN_PAGE:
+        cue = request.get("intent_summary")
+        if isinstance(cue, str) and cue.strip() and len(cue) <= 160:
+            return cue.strip()
         if request.get("request"):
             # Let the request-based synthesis produce a first-person intent;
             # the caller's imperative is not itself a spoken acknowledgment.
@@ -1527,6 +1652,8 @@ class VoiceRelay:
         self.playback_handle: int | None = None
         self.audio_delivery_lock = asyncio.Lock()
         self.ordinary_tool_response: str | None = None
+        self.suppressed_ordinary_audio: str | None = None
+        self.suppressed_ordinary_items: set[str] = set()
         self.processing_tool_response = False
         self.priority_cut_response: tuple[str, int] | None = None
         self.priority_cut_deadline: float | None = None
@@ -1723,6 +1850,8 @@ class VoiceRelay:
         self.priority_cut_deadline = None
         self.priority_bridge = False
         self.ordinary_tool_response = None
+        self.suppressed_ordinary_audio = None
+        self.suppressed_ordinary_items.clear()
         self.caller_turn_open = False
         self.end_intent_response = None
         self.generation += 1
@@ -1962,7 +2091,7 @@ class VoiceRelay:
         elif handoff_intent is not None:
             response.update(
                 instructions=(
-                    "Speak one brief, natural acknowledgment of the intended action, then stop. "
+                    "Speak one brief, natural first-person statement of what you will do next, then stop. Do not restate what the person asked or describe their intention. "
                     + _ACKNOWLEDGMENT_PERSPECTIVE
                     + _direct_address_context(self.caller_name)
                     + "Use the suggested acknowledgment as a semantic guide, not a verbatim script. "
@@ -2146,18 +2275,20 @@ class VoiceRelay:
         *args: object,
         batch_recap="",
         cue_context="",
+        acknowledged=False,
     ):
         generation = self.generation
-        if name == CALL_CONTEXT:
+        if name in {CALL_CONTEXT, OPEN_PAGE}:
             self.workspace_tool_generation = generation
-        async with self.audio_delivery_lock:
-            if self.playback_items:
-                await self._flush_playback(ordinary_only=True)
-        await self._start_handoff(
-            call_id,
-            "" if batch_recap else _direct_intent(name, request),
-            batch_recap or cue_context or request.get("request", ""),
-        )
+        if not acknowledged:
+            async with self.audio_delivery_lock:
+                if self.playback_items:
+                    await self._flush_playback(ordinary_only=True)
+            await self._start_handoff(
+                call_id,
+                "" if batch_recap else _direct_intent(name, request),
+                batch_recap or cue_context or request.get("request", ""),
+            )
         self.live_read = asyncio.create_task(
             self._run_live_intent(call_id, generation, execute, args)
         )
@@ -2314,6 +2445,11 @@ class VoiceRelay:
                 generation,
                 result=result,
                 work_id=immediate_terminal,
+                read_back=bool(
+                    admitted
+                    and admitted.open_only
+                    and admitted.work_item_id in self.navigation_outcomes
+                ),
                 navigation_readout=(
                     _PendingReviewNotice(admitted, review)
                     if pending_review and admitted
@@ -3264,11 +3400,15 @@ class VoiceRelay:
                         from app.services.native_voice_creation import (
                             confirmed_creation,
                         )
+                        from app.services.native_voice_presentation import (
+                            confirmed_presentation,
+                        )
                         from app.services.native_voice_reminder import (
                             confirmed_reminder,
                         )
 
                         with (
+                            confirmed_presentation(current),
                             confirmed_batch(current),
                             confirmed_creation(current),
                             confirmed_reminder(current),
@@ -3329,6 +3469,7 @@ class VoiceRelay:
                                     not current.children
                                     and not current.creation
                                     and not current.reminder
+                                    and not current.presentation
                                     and self.navigation.focus
                                     and self.navigation.focus.id == current.target_id
                                 ):
@@ -3540,6 +3681,7 @@ class VoiceRelay:
             thread=self.scope.thread,
             work_id=item.work_item_id,
             run_id=run_id,
+            allow_description_update=self.conversational_review,
         )
         if recovered_token and (
             review is None or review.proposal_id != recovered_token
@@ -3761,16 +3903,66 @@ class VoiceRelay:
             ):
                 self.protocol_counts["ignored_uncorrelated"] += 1
             return
-        already_spoke = self.last_spoken_response == self.response_generation
-        spoken_transcript = " ".join(
-            content.get("transcript", "")
+        # A provider can send a complete spoken cue before a function call,
+        # then generate a separate speculative message after it. Only match
+        # the transcript of the audio items actually delivered in this turn.
+        had_audio = self.last_spoken_response == self.response_generation
+        delivered_ids = {
+            part.item_id
+            for part in self.playback_items.values()
+            if part.response_id == self.response_generation
+            and part.samples
+            and part.item_id not in self.suppressed_ordinary_items
+        }
+        messages = [
+            item
             for item in response.get("output") or []
             if isinstance(item, dict) and item.get("type") == "message"
+        ]
+        delivered_messages = [
+            item for item in messages if item.get("id") in delivered_ids
+        ]
+        if (
+            not delivered_messages
+            and self.last_spoken_response == self.response_generation
+            and self.suppressed_ordinary_audio != self.response_generation
+        ):
+            # Older provider event variants do not always provide item IDs.
+            delivered_messages = messages
+        spoken_transcript = " ".join(
+            content.get("transcript", "")
+            for item in delivered_messages
             for content in item.get("content") or []
             if isinstance(content, dict) and isinstance(content.get("transcript"), str)
         )
+        already_spoke = bool(spoken_transcript)
         self.response_generation = None
         batch_recap = _batch_intent(response.get("output") or [], self.seen)
+
+        def direct_ack(name, request):
+            if not already_spoke or batch_recap:
+                return False
+            cue = _direct_intent(name, request)
+            if not cue:
+                return False
+            subject = ""
+            if name == NAVIGATE and request.get("action") in {
+                "apps",
+                "tracks",
+                "views",
+                "workspaces",
+            }:
+                subject = request["action"]
+            elif name == CALL_CONTEXT and request.get("detail") in {
+                "workspace",
+                "assistant",
+            }:
+                subject = request["detail"]
+            if _navigation_ack_matches(spoken_transcript, cue, subject):
+                self.protocol_counts["handoff_already_spoken"] += 1
+                return True
+            return False
+
         if not any(
             isinstance(item, dict) and item.get("type") == "function_call"
             for item in response.get("output") or []
@@ -3918,11 +4110,24 @@ class VoiceRelay:
                 if _identity_object_request(request):
                     self.protocol_counts["identity_object_redirected"] += 1
                     self.workspace_tool_generation = self.generation
+                    acknowledged = bool(
+                        already_spoke
+                        and not batch_recap
+                        and _named_lookup_ack_matches(
+                            spoken_transcript, request["request"]
+                        )
+                    )
+                    if acknowledged:
+                        self.protocol_counts["handoff_already_spoken"] += 1
                     await self._start_requested_work(
                         call_id,
                         request["request"].strip(),
                         "request",
-                        recap_request=batch_recap or request["request"].strip(),
+                        recap_request=(
+                            ""
+                            if acknowledged
+                            else batch_recap or request["request"].strip()
+                        ),
                     )
                     continue
                 if self.live_read and not self.live_read.done():
@@ -3939,6 +4144,7 @@ class VoiceRelay:
                         detail,
                         self.generation,
                         batch_recap=batch_recap,
+                        acknowledged=direct_ack(name, request),
                     )
                 continue
             if name == WRITE_CHAT_NOTE:
@@ -3975,6 +4181,7 @@ class VoiceRelay:
                         text,
                         self.generation,
                         batch_recap=batch_recap,
+                        acknowledged=direct_ack(name, request),
                     )
                 continue
             if name == REVISE_REVIEW:
@@ -4015,6 +4222,7 @@ class VoiceRelay:
                         request,
                         self.generation,
                         batch_recap=batch_recap,
+                        acknowledged=direct_ack(name, request),
                     )
                 return
             if name == REQUEST_REVIEW:
@@ -4042,6 +4250,7 @@ class VoiceRelay:
                         request["decision"],
                         self.generation,
                         batch_recap=batch_recap,
+                        acknowledged=direct_ack(name, request),
                     )
                 return
             if name == CANCEL_WORK:
@@ -4064,6 +4273,7 @@ class VoiceRelay:
                         self.generation,
                         self.accepted,
                         batch_recap=batch_recap,
+                        acknowledged=direct_ack(name, request),
                     )
                 continue
             if name == FIND_RECORDS:
@@ -4092,13 +4302,19 @@ class VoiceRelay:
                         {"action": "records", "query": request["query"]},
                         self.generation,
                         batch_recap=batch_recap,
+                        acknowledged=direct_ack(name, request),
                     )
                 continue
             if name == OPEN_PAGE:
                 destination = request.get("destination")
                 original = request.get("request", "")
+                intent = request.get("intent_summary", "")
                 if (
-                    not {"destination"} <= set(request) <= {"destination", "request"}
+                    not {"destination"}
+                    <= set(request)
+                    <= {"destination", "request", "intent_summary"}
+                    or not isinstance(intent, str)
+                    or len(intent) > 160
                     or not isinstance(original, str)
                     or len(original) > 2000
                     or not (
@@ -4112,6 +4328,16 @@ class VoiceRelay:
                 if self.scope.profile:
                     continue
                 self.protocol_counts["navigation_open_requested"] += 1
+                self.workspace_tool_generation = self.generation
+                cue = _direct_intent(name, request)
+                acknowledged = bool(
+                    already_spoke
+                    and cue
+                    and not batch_recap
+                    and _navigation_ack_matches(spoken_transcript, cue, destination)
+                )
+                if acknowledged:
+                    self.protocol_counts["handoff_already_spoken"] += 1
                 if self.live_read and not self.live_read.done():
                     answer = "I’m still checking your last request. Please ask me to open the page once it finishes."
                     await self._function_output(call_id, answer)
@@ -4127,6 +4353,7 @@ class VoiceRelay:
                         self.generation,
                         original,
                         batch_recap=batch_recap,
+                        acknowledged=acknowledged,
                     )
                 continue
             if name == NAVIGATE:
@@ -4164,11 +4391,20 @@ class VoiceRelay:
                 ):
                     self.protocol_counts["directory_object_redirected"] += 1
                     self.workspace_tool_generation = self.generation
+                    acknowledged = bool(
+                        already_spoke
+                        and not batch_recap
+                        and _named_lookup_ack_matches(spoken_transcript, original)
+                    )
+                    if acknowledged:
+                        self.protocol_counts["handoff_already_spoken"] += 1
                     await self._start_requested_work(
                         call_id,
                         original.strip(),
                         "request",
-                        recap_request=batch_recap or original.strip(),
+                        recap_request=(
+                            "" if acknowledged else batch_recap or original.strip()
+                        ),
                     )
                     continue
                 request.pop("request", None)
@@ -4193,6 +4429,7 @@ class VoiceRelay:
                         request,
                         self.generation,
                         batch_recap=batch_recap,
+                        acknowledged=direct_ack(name, request),
                         cue_context=original,
                     )
                 continue
@@ -4224,6 +4461,7 @@ class VoiceRelay:
                     request,
                     self.generation,
                     batch_recap=batch_recap,
+                    acknowledged=direct_ack(name, request),
                 )
                 continue
             if name in _READ_TOOLS:
@@ -4260,6 +4498,7 @@ class VoiceRelay:
                         request.get("view", request.get("query")),
                         self.generation,
                         batch_recap=batch_recap,
+                        acknowledged=direct_ack(name, request),
                     )
                 continue
             intent = request.pop("intent_summary", "") if name == DELEGATE else ""
@@ -4307,20 +4546,20 @@ class VoiceRelay:
                 self.protocol_counts[f"delegate_operation_{operation}"] += 1
             self.workspace_tool_generation = self.generation
             # Any audio before the function call is not proof of a task recap.
-            # The provider's returned transcript may establish the exact cue;
+            # The provider's returned transcript may establish a grounded completed cue;
             # otherwise speak the intended recap explicitly before admission.
             confirmed_recap = bool(
                 already_spoke
                 and intent.strip()
-                and _normalized_spoken_line(intent)
-                == _normalized_spoken_line(spoken_transcript)
+                and _delegated_ack_matches(
+                    spoken_transcript, intent, request["request"]
+                )
             )
-            if name == DELEGATE and confirmed_recap:
+            if confirmed_recap:
                 self.protocol_counts["handoff_already_spoken"] += 1
-            if name == DELEGATE and already_spoke and not confirmed_recap:
-                # Quick lookup answers come from the resident. Discard any
-                # buffered speculative prelude instead of playing it over a
-                # newer verified answer. Preserve the current turn and work.
+            if had_audio and not confirmed_recap:
+                # Discard a speculative prelude instead of overlapping it
+                # with the verified cue. Preserve the current turn and work.
                 async with self.audio_delivery_lock:
                     if self.playback_items:
                         await self._flush_playback(ordinary_only=True)
@@ -4442,6 +4681,8 @@ class VoiceRelay:
                     )
                     self.caller_turn_open = False
                     self.ordinary_tool_response = None
+                    self.suppressed_ordinary_audio = None
+                    self.suppressed_ordinary_items.clear()
                     self.speech_only_response_id = None
                     self.waiting_for_response = False
                     self.user_reply_deadline = None
@@ -4518,6 +4759,10 @@ class VoiceRelay:
                     and response_id != self.speech_only_response_id
                     and response_id != self.opening_response_id
                 ):
+                    if response_id == self.response_generation:
+                        self.suppressed_ordinary_audio = response_id
+                        if isinstance(event.get("item_id"), str):
+                            self.suppressed_ordinary_items.add(event["item_id"])
                     continue
                 if response_id and response_id in (
                     self.response_generation,
@@ -5818,6 +6063,9 @@ class VoiceRelay:
                             )
                         ),
                         navigation_readout=review or receipt.expected_destination,
+                        read_back=bool(
+                            receipt.open_only and key in self.navigation_outcomes
+                        ),
                         work_id=key,
                         queued_follow_up=receipt.queued_follow_up,
                         priority_transition=interrupted,

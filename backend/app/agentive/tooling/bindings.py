@@ -3300,6 +3300,16 @@ async def _stage_update_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
         validated.model_dump(mode="json", exclude_none=True, exclude_unset=True)
     )
     principal = _propose_principal.get()
+    if principal:
+        from app.services.dashboard_service import get_dashboard
+
+        dashboard = await get_dashboard(
+            user_id=principal, app_id=app_id, dashboard_id=dashboard_id
+        )
+        if dashboard is None:
+            raise ValueError("Dashboard not found")
+        if dashboard.updated_at:
+            payload["expected_dashboard_updated_at"] = dashboard.updated_at
     if principal and "widgets" in payload:
         from app.services.dashboard_service import validate_dashboard_field_bindings
 

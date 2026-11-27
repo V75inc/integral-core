@@ -414,7 +414,10 @@ async def submit_chat_turn(
             permission = await read_permission(
                 request.principal_id, request.workspace_id
             )
-            if permission.mode in {"auto", "full"} or permission.track_ids:
+            if permission.mode in {"auto", "full"} or (
+                permission.mode == "custom"
+                and (permission.track_ids or permission.custom_app_ids)
+            ):
                 input_payload["resident_permission_revision"] = permission.revision
         from app.services.performance import capture_trace_context
 
