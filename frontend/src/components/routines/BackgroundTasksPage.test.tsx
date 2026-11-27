@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { BackgroundTasksPage } from './BackgroundTasksPage';
 
@@ -14,13 +14,22 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe('Background Tasks navigation', () => {
   it('places the standard page separator between the heading and task sections', async () => {
+    let finishLoading!: () => void;
+    list.mockImplementationOnce(() => new Promise<{ routines: [] }>(resolve => {
+      finishLoading = () => resolve({ routines: [] });
+    }));
     render(<MemoryRouter><BackgroundTasksPage /></MemoryRouter>);
     const heading = screen.getByRole('heading', { name: 'Background Tasks' });
     const separator = screen.getByRole('separator', { hidden: true });
     const tasks = screen.getByRole('region', { name: 'Scheduled routines' });
     expect(heading.compareDocumentPosition(separator) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(separator.compareDocumentPosition(tasks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(await screen.findByRole('button', { name: 'Refresh scheduled routines' })).toBeEnabled();
+    const refresh = screen.getByRole('button', { name: 'Refresh scheduled routines' });
+    expect(refresh).toBeDisabled();
+    expect(refresh).toHaveAttribute('aria-busy', 'true');
+    finishLoading();
+    await waitFor(() => expect(refresh).toBeEnabled());
+    expect(refresh).not.toHaveAttribute('aria-busy', 'true');
   });
 
   it('resolves the scheduled-routines link on client navigation', async () => {
