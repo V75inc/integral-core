@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import secrets
+from typing import Any
 
 from app.agentive.services.whatsapp_call_admission import CallerAdmission
 from app.agentive.services.whatsapp_chat_bridge import _session_id
 from app.services.native_voice import VoiceCallActions, VoiceScope
 
+logger = logging.getLogger(__name__)
+
 # Live phone relays and call ids already hung up, in this process only.
 _phone_relays: dict[str, "_PhoneRelay"] = {}
 _hung_up_calls: set[str] = set()
+# Meta tokens for accepted calls, so hangup can end the provider leg.
+_call_api_keys: dict[str, str] = {}
 # One-call relay bearers. The token is not a jvvoice key, Meta token, or JWT.
 _relay_bearers: dict[str, dict[str, str]] = {}
 
@@ -38,32 +45,68 @@ def attach_phone_relay(
     return relay
 
 
+def remember_call_token(call_id: str, token: str) -> None:
+    """Keep the Meta token so a later hangup can end the provider call.
+
+    The socket that owns the model does not see the token. Without this
+    copy, closing the model leaves the WhatsApp leg up.
+    """
+    if call_id and token:
+        _call_api_keys[call_id] = token
+
+
+async def close_model_socket(upstream: Any) -> None:
+    """End the model socket. Abort it when a polite close does not finish."""
+    if upstream is None:
+        return
+    close = getattr(upstream, "close", None)
+    try:
+        if close is not None:
+            await asyncio.wait_for(close(), timeout=2)
+            return
+    except Exception:
+        logger.info("model socket close timed out; aborting it")
+    abort = getattr(upstream, "abort", None)
+    if abort is None:
+        return
+    try:
+        abort()
+    except Exception:
+        return
+
+
 async def hang_up_phone_call(
     call_id: str,
     *,
     whatsapp_api_key: str = "",
     client=None,
 ) -> None:
-    """Close the relay and ask jvvoice to disconnect once. Does not submit chat."""
+    """Close the model and ask jvvoice to disconnect once. Does not submit chat."""
     if not call_id or call_id in _hung_up_calls:
         return
     _hung_up_calls.add(call_id)
     discard_relay_bearer(call_id)
+    token = whatsapp_api_key or _call_api_keys.pop(call_id, "")
+    _call_api_keys.pop(call_id, None)
     relay = _phone_relays.pop(call_id, None)
     if relay is not None:
         upstream = relay.upstream
         relay.bearer = ""
         relay.upstream = None
-        close = getattr(upstream, "close", None)
-        if close is not None:
-            await close()
+        await close_model_socket(upstream)
     from app.agentive.services.whatsapp_call_control import disconnect_jvvoice_call
 
-    await disconnect_jvvoice_call(
-        whatsapp_call_id=call_id,
-        whatsapp_api_key=whatsapp_api_key,
-        client=client,
-    )
+    try:
+        await disconnect_jvvoice_call(
+            whatsapp_call_id=call_id,
+            whatsapp_api_key=token,
+            client=client,
+        )
+    except Exception:
+        _hung_up_calls.discard(call_id)
+        if token:
+            _call_api_keys[call_id] = token
+        raise
 
 
 async def phone_voice_scope(admission: CallerAdmission) -> VoiceScope:

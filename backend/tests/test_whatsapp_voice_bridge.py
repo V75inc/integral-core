@@ -600,6 +600,9 @@ def _reset_phone_hangups() -> None:
 
     bridge._phone_relays.clear()
     bridge._hung_up_calls.clear()
+    keys = getattr(bridge, "_call_api_keys", None)
+    if keys is not None:
+        keys.clear()
     bearers = getattr(bridge, "_relay_bearers", None)
     if bearers is not None:
         bearers.clear()
@@ -652,6 +655,74 @@ async def test_hangup_closes_upstream_discards_bearer_and_disconnects_once(
     assert relay.bearer == ""
     assert submitted == []
     assert urls == ["https://voice.example.test/api/calls/disconnect"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_hangup_uses_the_token_saved_when_the_call_was_accepted(monkeypatch):
+    """A socket hangup has no Meta token of its own. The saved one ends the call."""
+    import httpx
+
+    from app.agentive.services import whatsapp_voice_bridge as bridge
+    from app.config import settings
+
+    _reset_phone_hangups()
+    upstream = _CloseableUpstream()
+    bridge.attach_phone_relay(call_id="wacid.1", upstream=upstream, bearer="secret")
+    bridge.remember_call_token("wacid.1", "meta-saved-token")
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content.decode()))
+        return httpx.Response(200, json={"status": "disconnected"})
+
+    monkeypatch.setattr(settings, "JVVOICE_BASE_URL", "https://voice.example.test")
+    monkeypatch.setattr(settings, "JVVOICE_API_KEY", "jvv_test_key")
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            await bridge.hang_up_phone_call("wacid.1", client=client)
+    finally:
+        _reset_phone_hangups()
+    assert upstream.closed is True
+    assert bodies[0]["whatsapp_api_key"] == "meta-saved-token"
+    assert bodies[0]["whatsapp_call_id"] == "wacid.1"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_hangup_aborts_the_model_when_close_times_out(monkeypatch):
+    """A polite close that does not finish still drops the model socket."""
+    import httpx
+
+    from app.agentive.services import whatsapp_voice_bridge as bridge
+    from app.config import settings
+
+    class _StuckUpstream:
+        def __init__(self) -> None:
+            self.aborted = False
+
+        async def close(self) -> None:
+            raise TimeoutError("timed out while closing connection")
+
+        def abort(self) -> None:
+            self.aborted = True
+
+    _reset_phone_hangups()
+    upstream = _StuckUpstream()
+    bridge.attach_phone_relay(call_id="wacid.1", upstream=upstream, bearer="secret")
+    bridge.remember_call_token("wacid.1", "meta-saved-token")
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "disconnected"})
+
+    monkeypatch.setattr(settings, "JVVOICE_BASE_URL", "https://voice.example.test")
+    monkeypatch.setattr(settings, "JVVOICE_API_KEY", "jvv_test_key")
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            await bridge.hang_up_phone_call("wacid.1", client=client)
+    finally:
+        _reset_phone_hangups()
+    assert upstream.aborted is True
 
 
 @pytest.mark.unit

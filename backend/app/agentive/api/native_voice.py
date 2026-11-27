@@ -235,16 +235,16 @@ async def _hang_up_phone_quietly(call_id: str, upstream=None) -> None:
     ``hang_up_phone_call`` already closes its stored upstream once. A later
     close here runs only when that helper raises before the close.
     """
-    from app.agentive.services.whatsapp_voice_bridge import hang_up_phone_call
+    from app.agentive.services.whatsapp_voice_bridge import (
+        close_model_socket,
+        hang_up_phone_call,
+    )
 
     try:
         await hang_up_phone_call(call_id)
     except Exception:
         logger.warning("phone voice hangup failed")
-        close = getattr(upstream, "close", None)
-        if close is not None:
-            with suppress(Exception):
-                await close()
+        await close_model_socket(upstream)
 
 
 # deviation: jvspatial @endpoint has no WebSocket primitive.

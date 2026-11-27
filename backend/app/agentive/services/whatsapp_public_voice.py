@@ -78,6 +78,7 @@ class PublicPhoneRelay:
         self.upstream = upstream
         self.persona = persona
         self.still_allowed = still_allowed
+        self.session_ready = False
 
     async def run(self) -> None:
         if not await self._allowed():
@@ -86,12 +87,12 @@ class PublicPhoneRelay:
         peer = asyncio.create_task(self._read_peer())
         model = asyncio.create_task(self._read_model())
         watch = asyncio.create_task(self._watch())
-        _done, pending = await asyncio.wait(
+        done, pending = await asyncio.wait(
             {peer, model, watch}, return_when=asyncio.FIRST_COMPLETED
         )
         for task in pending:
             task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        await asyncio.gather(*done, *pending, return_exceptions=True)
 
     async def _allowed(self) -> bool:
         try:
@@ -110,46 +111,68 @@ class PublicPhoneRelay:
             if message.get("type") == "websocket.disconnect":
                 return
             audio = message.get("bytes")
-            if not audio or len(audio) > MAX_AUDIO_CHUNK or len(audio) % 2:
+            if (
+                not self.session_ready
+                or not audio
+                or len(audio) > MAX_AUDIO_CHUNK
+                or len(audio) % 2
+            ):
                 continue
-            if not await self._allowed():
-                return
-            await self.upstream.send(
-                json.dumps(
-                    {
-                        "type": "input_audio_buffer.append",
-                        "audio": base64.b64encode(audio).decode("ascii"),
-                    }
+            try:
+                await self.upstream.send(
+                    json.dumps(
+                        {
+                            "type": "input_audio_buffer.append",
+                            "audio": base64.b64encode(audio).decode("ascii"),
+                        }
+                    )
                 )
-            )
+            except Exception:
+                return
 
     async def _read_model(self) -> None:
         greeted = False
-        async for raw in self.upstream:
-            if isinstance(raw, bytes):
-                raw = raw.decode("utf-8", "ignore")
-            if not isinstance(raw, str) or not raw:
-                continue
-            try:
-                event = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            kind = event.get("type")
-            if kind == "session.updated" and not greeted:
-                if not await self._allowed():
+        try:
+            async for raw in self.upstream:
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8", "ignore")
+                if not isinstance(raw, str) or not raw:
+                    continue
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                kind = event.get("type")
+                if kind == "error":
+                    err = (
+                        event.get("error")
+                        if isinstance(event.get("error"), dict)
+                        else {}
+                    )
+                    logger.info(
+                        "public phone model ended the session type=%s code=%s",
+                        err.get("type") or "",
+                        err.get("code") or "",
+                    )
                     return
-                greeted = True
-                await self.upstream.send(json.dumps(public_greeting()))
-                await self.peer.send_json({"type": "ready"})
-                continue
-            if kind != "response.output_audio.delta":
-                continue
-            delta = event.get("delta")
-            if not isinstance(delta, str):
-                continue
-            try:
-                audio = base64.b64decode(delta, validate=True)
-            except ValueError:
-                continue
-            if audio and len(audio) <= _MAX_PLAYBACK and not len(audio) % 2:
-                await self.peer.send_bytes(audio)
+                if kind == "session.updated" and not greeted:
+                    if not await self._allowed():
+                        return
+                    greeted = True
+                    await self.upstream.send(json.dumps(public_greeting()))
+                    self.session_ready = True
+                    await self.peer.send_json({"type": "ready"})
+                    continue
+                if kind != "response.output_audio.delta":
+                    continue
+                delta = event.get("delta")
+                if not isinstance(delta, str):
+                    continue
+                try:
+                    audio = base64.b64decode(delta, validate=True)
+                except ValueError:
+                    continue
+                if audio and len(audio) <= _MAX_PLAYBACK and not len(audio) % 2:
+                    await self.peer.send_bytes(audio)
+        except Exception:
+            return

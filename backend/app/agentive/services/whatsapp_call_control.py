@@ -663,6 +663,7 @@ async def _accept_public_profile_call(
         discard_relay_bearer,
         mint_public_relay_bearer,
         public_phone_relay_url,
+        remember_call_token,
     )
 
     grant = await public_call_grant(binding, workspace_id)
@@ -732,6 +733,7 @@ async def _accept_public_profile_call(
         await _record_call(store, binding, parsed, "failed", "not_connected")
         logger.warning("whatsapp call accept failed status=%s", accepted.status_code)
         return
+    remember_call_token(parsed.call_id, token)
     await _record_call(store, binding, parsed, "accepted", "")
     logger.info("whatsapp public call accepted")
 
@@ -845,6 +847,7 @@ async def handle_whatsapp_call(
     from app.agentive.services.whatsapp_voice_bridge import (
         bind_phone_accept,
         discard_relay_bearer,
+        remember_call_token,
         start_phone_relay,
     )
 
@@ -910,6 +913,7 @@ async def handle_whatsapp_call(
         await _record_call(store, binding, parsed, "failed", "not_connected")
         logger.warning("whatsapp call accept failed status=%s", accepted.status_code)
         return {"ok": True}
+    remember_call_token(parsed.call_id, token)
     await _record_call(store, binding, parsed, "accepted", "")
     logger.info("whatsapp call accepted")
     return {"ok": True}

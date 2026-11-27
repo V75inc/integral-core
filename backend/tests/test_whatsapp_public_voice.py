@@ -19,6 +19,7 @@ def _reset_hangups() -> None:
     bridge._hung_up_calls.clear()
     bridge._phone_relays.clear()
     bridge._relay_bearers.clear()
+    bridge._call_api_keys.clear()
 
 
 @pytest.mark.unit
@@ -294,3 +295,38 @@ async def test_public_socket_sends_an_empty_tool_session(monkeypatch):
     finally:
         _reset_hangups()
         native_voice._active_calls.clear()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_caller_audio_does_not_wait_on_the_grant_check():
+    """Microphone audio is forwarded while the grant check is still running."""
+    from app.agentive.services.whatsapp_public_voice import PublicPhoneRelay
+
+    class _Peer:
+        def __init__(self) -> None:
+            self._messages: asyncio.Queue = asyncio.Queue()
+
+        async def receive(self):
+            return await self._messages.get()
+
+    class _Upstream:
+        def __init__(self) -> None:
+            self.sent: list[dict] = []
+
+        async def send(self, event: str) -> None:
+            self.sent.append(json.loads(event))
+
+    async def stuck():
+        await asyncio.Event().wait()
+
+    peer = _Peer()
+    upstream = _Upstream()
+    relay = PublicPhoneRelay(peer, upstream, "", stuck)
+    relay.session_ready = True
+    audio = b"\x00\x01" * 20
+    await peer._messages.put({"bytes": audio})
+    await peer._messages.put({"type": "websocket.disconnect"})
+    await asyncio.wait_for(relay._read_peer(), timeout=1)
+    assert upstream.sent[0]["type"] == "input_audio_buffer.append"
+    assert base64.b64decode(upstream.sent[0]["audio"]) == audio
