@@ -1,3 +1,5 @@
+import { useVoiceDepartureGuard } from "./useVoiceDepartureGuard";
+import { peekVoiceSession, type VoiceSession } from "./nativeVoiceSession";
 import apiClient from "../../api/client";
 import { randomUUID } from "../../utils/randomUUID";
 import { friendlyAssistantText, friendlyChatFailure, friendlyToolFailure } from "./components/assistantMessagePresentation";
@@ -982,16 +984,21 @@ export function useAIChatRuntime(
     rememberActiveChatThreadId(activeThreadId, workspaceIdRef.current);
   }, [activeThreadId, handoffEnabled]);
 
+  const { confirmDeparture, guardDeparture } = useVoiceDepartureGuard();
+  const ownsVoice = useCallback((voice: VoiceSession) =>
+    voice.surface === (handoffEnabled ? "dock" : "home") &&
+    voice.workspaceId === workspaceIdRef.current, [handoffEnabled]);
+
   // Companion handoff from /agent Created links — switch to the originating thread.
   useEffect(() => {
     if (!selectionScopeReady || !handoffEnabled) return;
     const apply = (threadId?: string | null) => {
       if (!threadId || threadId.startsWith("local-")) return;
-      selectThread(threadId);
+      guardDeparture(() => selectThread(threadId), voice => ownsVoice(voice) && voice.threadId !== threadId);
     };
     // Prefer event/handoff thread; fall back to last-active (survives handoff consume).
     const pending = peekChatHandoff();
-    apply(pending?.threadId ?? (
+    if (pending || !peekVoiceSession()) apply(pending?.threadId ?? (
       prefersFreshChat(freshChatScope) ? null : peekLastActiveChatThreadId(workspaceIdRef.current)
     ));
 
@@ -1001,7 +1008,7 @@ export function useAIChatRuntime(
     };
     window.addEventListener(OPEN_AI_CHAT_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_AI_CHAT_EVENT, onOpen);
-  }, [freshChatScope, selectThread, selectionScopeReady, handoffEnabled]);
+  }, [freshChatScope, selectThread, selectionScopeReady, handoffEnabled, guardDeparture, ownsVoice]);
 
   // Guards concurrent callers (onNew + any in-flight attachment upload) from
   // creating two threads for the same first message — see ensureThreadId.
@@ -2290,12 +2297,13 @@ export function useAIChatRuntime(
     )) {
       throw new Error("This profile could not be opened");
     }
+    if (peekVoiceSession() && !await confirmDeparture(ownsVoice)) return;
     const selection = { scope: selectionKey, key };
     draftFilterRef.current = selection;
     setDraftFilter(selection);
     resetComposerEntityRefs?.();
     switchToNewThread();
-  }, [provider.id, selectionReady, profileChoices, selectionKey, resetComposerEntityRefs, switchToNewThread]);
+  }, [provider.id, selectionReady, profileChoices, selectionKey, resetComposerEntityRefs, switchToNewThread, confirmDeparture, ownsVoice]);
 
   const threadListAdapter = useMemo<ExternalStoreThreadListAdapter>(() => {
     const regular = threads.filter((t) => !t.archived);
@@ -2317,9 +2325,11 @@ export function useAIChatRuntime(
         // has not committed yet in that case, while ``ensureThreadId`` reads
         // this ref synchronously; leaving it set sends the first message of a
         // supposedly new conversation into the previous provider session.
+        if (peekVoiceSession() && !await confirmDeparture(ownsVoice)) return;
         switchToNewThread();
       },
       onSwitchToThread: async (threadId: string) => {
+        if (peekVoiceSession() && !await confirmDeparture(voice => ownsVoice(voice) && voice.threadId !== threadId)) return;
         selectThread(threadId);
       },
       onRename: async (threadId: string, newTitle: string) => {
@@ -2332,6 +2342,7 @@ export function useAIChatRuntime(
         }
       },
       onArchive: async (threadId: string) => {
+        if (peekVoiceSession() && !await confirmDeparture(voice => ownsVoice(voice) && voice.threadId === threadId)) return;
         try {
           await aiChatApi.archiveThread(threadId);
           if (activeThreadId === threadId) setActiveThreadId(null);
@@ -2341,6 +2352,7 @@ export function useAIChatRuntime(
         }
       },
       onDelete: async (threadId: string) => {
+        if (peekVoiceSession() && !await confirmDeparture(voice => ownsVoice(voice) && voice.threadId === threadId)) return;
         try {
           await aiChatApi.deleteThread(threadId);
           if (activeThreadId === threadId) setActiveThreadId(null);
@@ -2350,7 +2362,7 @@ export function useAIChatRuntime(
         }
       },
     };
-  }, [threads, activeThreadId, refreshThreads, switchToNewThread, selectThread]);
+  }, [threads, activeThreadId, refreshThreads, switchToNewThread, selectThread, confirmDeparture, ownsVoice]);
 
   // Composite: images retain vision content plus a persisted file identity; general
   // file branch (Slice B — uploads to the chat-upload endpoint at send()

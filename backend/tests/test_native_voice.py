@@ -8,6 +8,7 @@ from app.services.native_voice import (
     BROWSER_CALL_ACTIONS,
     CHECK_CHAT,
     DELEGATE,
+    DELEGATE_ACTION,
     VoiceCallActions,
     VoiceRelay,
     VoiceScope,
@@ -26,13 +27,19 @@ class Browser:
         await self.outbox.put(message)
 
     async def send_bytes(self, message):
-        await self.outbox.put(message)
+        # Many relay tests qualify the subsequent result, not the intent
+        # synthesis. The fake provider's automatic cue is delivered through
+        # the real relay audio path, but kept out of their result assertions.
+        if message != b"QA-intent!":
+            await self.outbox.put(message)
 
 
 class Provider:
-    def __init__(self):
+    def __init__(self, *, manual_intent=False):
         self.inbox = asyncio.Queue()
         self.outbox = asyncio.Queue()
+        self.manual_intent = manual_intent
+        self.intent_responses = []
 
     def __aiter__(self):
         return self
@@ -41,7 +48,36 @@ class Provider:
         return json.dumps(await self.inbox.get())
 
     async def send(self, event):
-        await self.outbox.put(json.loads(event))
+        frame = json.loads(event)
+        metadata = frame.get("response", {}).get("metadata", {})
+        if (
+            frame.get("type") == "response.create"
+            and metadata.get("integral_intent_ack") == "1"
+        ):
+            self.intent_responses.append(frame)
+            if not self.manual_intent:
+                response_id = f"fixture-intent-{len(self.intent_responses)}"
+                await self.inbox.put(
+                    {
+                        "type": "response.created",
+                        "response": {"id": response_id, "metadata": metadata},
+                    }
+                )
+                await self.inbox.put(
+                    {
+                        "type": "response.output_audio.delta",
+                        "response_id": response_id,
+                        "delta": base64.b64encode(b"QA-intent!").decode(),
+                    }
+                )
+                await self.inbox.put(
+                    {
+                        "type": "response.done",
+                        "response": {"id": response_id, "status": "completed"},
+                    }
+                )
+                return
+        await self.outbox.put(frame)
 
 
 async def event(queue):
@@ -103,9 +139,11 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once(actio
     )
     assert [tool["name"] for tool in event_config["session"]["tools"]] == [
         DELEGATE,
+        DELEGATE_ACTION,
         "check_integral_chat",
         *(["write_note_to_current_chat"] if actions.post_note else []),
         "cancel_integral_voice_work",
+        *(["end_current_voice_call"] if actions.end_call else []),
     ]
     await provider.inbox.put({"type": "session.updated"})
     assert await event(browser.outbox) == {"type": "ready", "thread_id": "thread"}
@@ -165,6 +203,18 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once(actio
         }
     )
     assert await event(browser.outbox) == audio
+    await provider.inbox.put(
+        {"type": "response.done", "response": {"id": "r2", "status": "completed"}}
+    )
+    # A provider-generated unsolicited continuation after completion cannot
+    # replay a lookup, speak stale context or steal the next user turn.
+    await provider.inbox.put({"type": "response.created", "response": {"id": "late"}})
+    await provider.inbox.put(
+        {"type": "response.output_audio.delta", "response_id": "late", "delta": "AAE="}
+    )
+    await provider.inbox.put(request("spurious", "late", "Repeat the lookup"))
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(browser.outbox.get(), 0.03)
     await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
     assert await event(browser.outbox) == {"type": "flush"}
     await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})

@@ -1,3 +1,4 @@
+import { guardAppDeparture } from "../../features/ai-chat/useVoiceDepartureGuard";
 /**
  * Soft stale-tab detection: compare the SPA's baked asset version to the
  * API's ``/api/meta/build`` payload. On mismatch, auto-reload once; if that
@@ -38,10 +39,7 @@ async function probeBuildVersion(): Promise<void> {
     const server = (body.asset_version || '').trim();
     if (!server || server === CLIENT_WEB_ASSET_VERSION) return;
 
-    if (!hasAutoReloadedForStaleBuild()) {
-      autoReloadOnceForStaleBuild();
-      return;
-    }
+    if (!hasAutoReloadedForStaleBuild() && autoReloadOnceForStaleBuild()) return;
 
     const api = getSystemNotificationsApi();
     if (!api) return;
@@ -51,7 +49,7 @@ async function probeBuildVersion(): Promise<void> {
       title: 'A new version of Integral is available',
       body: 'Reload to finish updating.',
       dismissible: true,
-      actions: [{ label: 'Reload', onClick: () => window.location.reload() }],
+      actions: [{ label: 'Reload', onClick: () => guardAppDeparture(() => window.location.reload()) }],
     });
   } catch {
     /* offline / API down — leave the session alone */

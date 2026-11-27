@@ -46,10 +46,10 @@ class VoiceStart(BaseModel):
 
 
 class VoicePlaybackInterrupted(BaseModel):
-    """Queued PCM samples discarded for relay-issued playback handles."""
+    """Queued PCM samples discarded for relay-issued playback handles (zero if fully played)."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
     type: Literal["playback_interrupted"]
-    items: list[tuple[Annotated[int, Field(gt=0)], Annotated[int, Field(gt=0)]]] = (
+    items: list[tuple[Annotated[int, Field(gt=0)], Annotated[int, Field(ge=0)]]] = (
         Field(min_length=1, max_length=64)
     )

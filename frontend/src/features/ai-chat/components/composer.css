@@ -31,6 +31,12 @@
     padding-inline: 0;
   }
 
+  .composer-toolbar .voice-call-control {
+    width: 2.25rem;
+    min-width: 2.25rem;
+    height: 2.25rem;
+  }
+
   .composer-call-status {
     padding-inline: 3px;
   }

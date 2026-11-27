@@ -23,9 +23,35 @@ conversational surface, not another worker, database, or source of authority.
   steering, cancellation and approval paths remain the same.
   The shared chat carries the request in the caller’s voice. For example,
   “Can you put ‘Send the revised quote’ on my list for Friday?” keeps the title
-  and date intact. While that work is starting, the realtime voice can say
-  “Sure, I’ll add that to your Friday list.” A quick result can speak for itself.
-  For a workspace lookup the voice model calls the resident first and speaks its answer. After the delegation, only a requested acknowledgment or authorized readout can speak until the caller speaks again. The acknowledgment is a short line to voice. It is never replayed to the model as a new user request. A denial is reported when the authorized lookup returns one.
+  and date intact. For a new action or substantial task, the voice model
+  supplies a short task-specific plan, e.g. “I’ll add the revised quote to
+  your Friday list.” The relay requests that private spoken recap before
+  starting the resident task. It waits for synthesis completion, with a
+  bounded fallback if synthesis is unavailable or the caller interrupts;
+  playback alone does not determine whether already requested work runs.
+  Quick lookups and clarification replies do not require an extra speech turn.
+  For verified queued or running work, the relay offers a brief status update
+  after 15 seconds, then after another 30 and 60 seconds if still active.
+  It checks the exact receipt again before audio, waits for a conversational
+  pause, and gives completed results and review precedence over progress.
+  It never resubmits or automatically cancels work to provide an update. A verified terminal result or committed typed assistant reply has priority
+  over ordinary small talk. The relay observes completion even during speech,
+  cuts only the ordinary response and flushes its queued PCM. The browser keeps
+  earlier verified readout audio queued; it reports discarded or already-played
+  samples for the exact relay-issued playback handles so unheard provider
+  history can be trimmed. A natural transition is optional. User speech,
+  tool-bearing responses, confirmations and other verified readouts retain
+  precedence. A tool call that completed while an ordinary response was being
+  cut is processed through the original turn after the readout; partial tool
+  calls are never executed. Cancellation here targets speech synthesis by
+  response ID, never the resident task.
+  For a workspace lookup the voice model calls the resident first and speaks its answer. After the delegation, only a requested acknowledgment or authorized readout can speak until the caller speaks again, including after the readout completes. Buffered speculative lookup speech is discarded. The acknowledgment is a short line to voice. It is never replayed to the model as a new user request. A denial is reported when the authorized lookup returns one.
+  When speaking record details, the same renderer shapes structured values
+  into conversational sentences, rather than reading schema keys, JSON or
+  punctuation. Preserve requested facts, exact dates, amounts, names, status,
+  significant digits and missing/unknown information. The original saved
+  result is unchanged; an explicit quotation or exact review readback uses
+  the existing verbatim path instead.
   A clarification such as “Friday afternoon” goes to the resident as a short reply.
   Confirmation and the receipt still depend on the actual proposal and outcome.
 - **Attachments:** a submitted, visible attachment can be acknowledged by named
@@ -82,7 +108,27 @@ The same conversation holds the task, its receipts and the caller's place.
 Typing, uploading or clicking a card may change that state. React to the
 meaningful outcome at a pause. Avoid echoing the user's input, narrating
 interface events, or resubmitting completed work. Interrupting speech stops
-playback. Ending the call ends spoken delivery. Neither cancels admitted work.
+playback. Ending the call ends spoken delivery. Neither cancels admitted work. A temporary microphone mute, suspended audio context or stalled
+capture in the browser shows an interruption notice and fences uncommitted
+input. The same call resumes capture when the audio route returns; a deliberate
+microphone mute remains effective. A permanently ended track requires a new call.
+The connection retains its ten-minute safety limit and reports that limit when
+reached. Completion of one resident task is not a signal to terminate a call.
+A transport that advertises end-call support exposes `end_current_voice_call`
+for an explicit current-call instruction (“Please hang up now”). Its protected
+control is bound to the current authenticated socket and a completed response
+to the latest caller speech, with a conservative explicit-clause check. The
+realtime model interprets the utterance and supplies the literal ending clause
+(in English translation if needed); an ambiguous goodbye, conditional request,
+negation or work cancellation is not a hang-up. An explicit end during captured
+review speech leaves the proposal undecided. The relay stops forwarding microphone input,
+may speak one short tool-free farewell, signals the browser to drain that
+farewell and closes with a bounded fallback even if synthesis or playback fails.
+The browser releases its media tracks, worklet, audio context and socket through
+normal call cleanup. This control remains available after the workspace tool
+budget is exhausted. It never cancels admitted work, changes a review decision,
+or removes chat receipts. Automatic inactivity prompting and disconnection
+remain a separate requirement.
 
 An explicitly written lookup carries its delivery choice on that request
 through queue promotion. On successful completion the call speaks a receipt.
@@ -300,8 +346,72 @@ the first-audio boundary, not on each audio chunk or ordinary response.
 The sidebar and full-page native chat share one mounted runtime and composer.
 Changing between these layouts preserves the bound WebSocket, microphone,
 playback, mute state and any in-progress connection. This is a presentation
-change within the same conversation. Closing the chat, switching conversations
-or leaving the document still releases its call resources.
+change within the same conversation. Ordinary internal workspace navigation
+from full-page chat pins the same runtime in the sidebar, with no new
+ticket, media stream or provider session. An open voice call belongs to one
+workspace/profile/conversation; the browser cannot start a second call in
+another composer. Closing the dock, opening Inbox, choosing a different
+conversation or profile, switching workspace, or leaving the separate Home
+composer requires explicit confirmation. Staying preserves the call; leaving
+releases local media, playback, socket and call-only review state, without
+cancelling admitted resident work. Involuntary authorization loss still
+fails closed. Internal navigation that preserves the call never prompts.
+
+The browser plays quiet local ringback only while a user-initiated call is
+connecting. It stops on provider readiness, setup failure, cancellation or
+interruption. Capture is gated before readiness and through the brief output
+tail; ringback is never sent to the provider. Native document refresh, close
+and cross-document navigation use the browser's own conditional leave prompt
+while a call is active. Browsers may suppress that prompt; its text and style
+are not controlled by Integral. Integral-owned Reload and external-navigation controls use the same styled
+confirmation and suppress automatic stale-build reload during a call.
+Actual pagehide closes the transport without
+waiting for a final fetch, including BFCache departure. Provider-side socket
+closure and bounded session expiry provide fallback when the document cannot
+run cleanup. Durable chat receipts remain authoritative across reconnects.
+
+On every directive requiring work, including quick reads, direct navigation,
+capability discovery, chat readback, and resident delegation, the relay
+sends one short task-specific spoken intent before execution. Ordinary
+conversation without tools is immediate. The call-identity tool is for the
+currently bound identity, not locating named workspace objects; if its supplied
+original question concerns an object, the relay sends that question through
+the normal resident lookup rather than returning the workspace name. Directory browsing also carries
+the original request; a request to locate a particular object is routed to the
+resident rather than reading the entire directory. The general lookup and substantive
+action tools share the same authorization and admission boundary. Missing
+model cues use tool-free realtime synthesis of the caller's request. Spoken
+intent uses the assistant's viewpoint: first person for its intended action,
+second person for the caller's belongings or tasks, and the actual ownership
+for shared or third-party things. The same guidance applies to supplied cues
+and fallback synthesis. A cue is a semantic guide, not a script; preserve
+literal names and quotations and keep the resident's caller-authored request
+unchanged. Direct
+tools use concise grounded cues. A provider response with several tool
+calls shares one combined cue. Arbitrary pre-tool speech does not establish
+a task recap; only verified matching spoken intent avoids replay. Once a tool is known,
+ordinary speculative audio is suppressed; queued ordinary audio is discarded
+before the direct-tool cue. Audio already played cannot be recalled. The
+gate is released after the authorized cue audio is sent and synthesis
+completes. If no cue audio is delivered, the operation is not silently
+admitted; the caller can retry. Barge-in after the cue has begun preserves
+already accepted durable work and fences stale direct reads. A verbal
+review decision retains its independent confirmation, and an explicit
+hang-up uses its bounded farewell and teardown.
+A short explicit
+instruction to implement the current chat plan is delegated as a new
+request referencing the shared thread; it is neither a chat readback nor
+authorization to bypass a staged effect. When an explicitly referenced, verified
+plan is followed by a durably admitted build request, suppress only that
+plan’s pending spoken replay; its saved chat remains available. When a verified result arrives
+during ordinary conversation, stop stale playback immediately. Do not
+cancel a still-forming caller response that may contain a tool decision:
+wait for its bounded completion, dispatch a correlated completed tool once,
+then deliver the verified result. A stalled provider is reported as a
+retryable conversational failure without inventing task completion.
+An explicit authenticated hang-up has a short bounded provider tool-output
+acknowledgment and a browser teardown fallback after the relay confirms the
+ending, so missing farewell or final control frames cannot strand a call.
 
 For browser calls, set the API's `FRONTEND_ORIGIN` to the exact staff web
 origin, including scheme, hostname and port. For example, a local preview

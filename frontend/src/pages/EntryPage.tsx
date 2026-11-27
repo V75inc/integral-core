@@ -65,9 +65,9 @@ export function EntryPage() {
 
   useEffect(() => {
     if (setScope && entryWorkspaceId && scope?.workspaceId !== entryWorkspaceId) {
-      setScope({ workspaceId: entryWorkspaceId });
+      setScope({ workspaceId: entryWorkspaceId }, undefined, () => navigate(-1));
     }
-  }, [entryWorkspaceId, scope?.workspaceId, setScope]);
+  }, [entryWorkspaceId, scope?.workspaceId, setScope, navigate]);
 
   useEffect(() => {
     if (!entryId) return;

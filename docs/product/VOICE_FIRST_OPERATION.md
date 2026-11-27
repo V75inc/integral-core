@@ -18,7 +18,11 @@ During a call, the call controls take the place of dictation in the chat compose
 
 The voice model phrases ordinary answers and tool results for the listener. A directory lookup supplies the names in their authorized order, the current workspace when relevant, and whether more results are available. The caller can refer to a choice by position even when the model reads the names in a sentence. Routine answers lead with the result and skip tool headings and filler. Requested note readbacks preserve the saved wording. Proposed changes retain the exact values and separate human confirmation.
 
-The call already has its authenticated workspace and assistant names. It can answer directly or verify the requested name against the binding without starting resident work.
+The call already has its authenticated workspace and assistant names. It verifies and speaks the requested name against that binding without starting resident work.
+
+For substantial requests, expect a brief spoken plan before work starts. A short lookup can return directly; slower work receives occasional verified progress updates at pauses. Completed work is announced once and the call remains available for another turn. If Integral is making small talk when a completed result arrives, it can cut its own ordinary speech and go straight to the useful answer. It waits if you are speaking, receiving a verified result, or confirming a change. If your microphone temporarily loses its audio route, the call reports the interruption and resumes listening when capture returns. A disconnected microphone requires a fresh call; the call also reports its ten-minute connection limit.
+
+Say “Hang up now” or “Please end this call” to finish without using the screen. Integral may say a brief farewell, then releases the call. A conversational goodbye alone does not end it. Already accepted work continues and its results remain in chat. Asking to cancel a task is a separate action. While describing your entries, Integral should speak the relevant values naturally, preserve requested details and avoid reading a field schema aloud; ask for the exact saved wording when you need it.
 
 A separate spoken lookup can join the same chat queue while the first lookup runs. A correction targets the current request. An explicit question about progress reads its status. If a separate follow-up arrives after its preceding voice request has verifiably succeeded, the workspace assistant can submit it to the same conversation. Selected profiles retain their own continuation limits. A second call for the same signed-in user reports that the first call is still open.
 
@@ -106,7 +110,21 @@ receipt alone only establishes that the chat received it.
 
 Check both chat layouts, a protected draft, barge-in, a muted microphone and
 a second tab. Move the active call between sidebar and full page and verify
-both audio directions survive. Check the physical microphone, speakers,
+both audio directions survive. From full-page chat navigate to Home and an
+App, then return and collapse: verify the same call and mute state, with no
+leave warning. Verify that closing the dock or selecting a different
+conversation offers Stay in call or End call and leave; cancel keeps the
+call, confirm releases it without cancelling resident work. Check document
+refresh/close with the browser-native prompt (where supported), and verify
+the quiet connecting ring stops before the greeting or any captured audio.
+Check the app-owned Reload warning separately from the browser-native
+warning, and interrupt a plan readout with “go ahead and build it”: verify
+the existing plan becomes the resident's next task and its actual outcome
+is spoken. Verify an actionable request with a missing model-produced
+recap still uses one natural spoken paraphrase before the resident begins,
+including a quick read or navigation request, before execution; pure conversation remains immediate. During a completed-result interruption, verify that a late
+valid tool call is not cancelled with ordinary playback.
+Check the physical microphone, speakers,
 mobile viewport and assistive technology independently of synthetic Chrome
 audio. The [conversation contract](../backend/voice-chat-conversation-contract.md)
 defines the supported routes, review types and receipt behavior.

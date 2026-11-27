@@ -24,7 +24,23 @@ bump does not establish that a release is available on a package index.
   Chat keeps the review details and the saved outcome.
 - Mute, end call and composer actions share one row in narrow chat. Dictation
   returns when the call ends. The attachment hint stays inside the composer
-  on hover and keyboard focus.
+  on hover and keyboard focus. In-call controls retain their pill shape at
+  constrained widths; a quiet local ringback sounds during setup only.
+- A call started in full-page native chat stays active in the sidebar when
+  navigating inside its workspace. Explicit conversation departure offers
+  a confirmation; accepted work continues after hang-up. Document departure
+  uses the browser-native warning and best-effort media/transport cleanup.
+- Voice no longer treats arbitrary pre-tool speech as a task recap, or cancels
+  an undecided caller tool response when a completed result interrupts speech.
+  Every actionable voice request, including quick reads and direct navigation,
+  is gated on one brief spoken intent before execution. Spoken intent keeps
+  the assistant and caller viewpoints distinct without rewriting the resident
+  request or changing third-party ownership and quoted titles.
+  Substantive work uses a distinct action tool and a recap synthesized from
+  the original request if the model omits its cue; explicit plan follow-through
+  keeps the saved plan but avoids a redundant pending spoken replay.
+  App-owned reload uses the Integral leave dialog; explicit spoken hang-up
+  has bounded acknowledgment and teardown recovery.
 
 - Live calls give results and review status aloud while chat remains available for optional written answers, file uploads and approvals. Voice can read more of a saved answer on request.
 
@@ -59,6 +75,12 @@ bump does not establish that a release is available on a package index.
 - Confirm agent-requested voice navigation from the originating browser, preserve drafts and handle thread deep links. Retain scoped terminal decision correlation for rapid card actions and distinguish application errors. Add independently confirmed scalar record creation with schema/value checks, date correction and saved-value readback.
 
 - Route live voice App and Track requests through native browser navigation; observe durable review outcomes across chat and voice. Reduce repeated typed-message acknowledgments and offer concise review prompts for supported record edits.
+
+- End a live voice call by explicitly asking to hang up; release the browser and provider connection after a short, bounded farewell without cancelling admitted work. Present structured record details as natural speech while preserving exact requested values and verbatim review readbacks.
+
+- Give verified task results priority over ordinary voice small talk: stop stale synthesis and discard its buffered speech, keeping caller speech, review and other committed readouts protected.
+
+- Speak a concise task plan before substantial delegated work, offer bounded verified progress at quiet pauses, and suppress unsolicited repeated replies after a lookup. Report temporary microphone interruption and resume capture without closing the call; distinguish the connection time limit from normal task completion.
 
 - Keep a live voice call connected when expanding chat from the sidebar or moving full-page chat back to the sidebar. The microphone keeps its mute setting across both transitions.
 

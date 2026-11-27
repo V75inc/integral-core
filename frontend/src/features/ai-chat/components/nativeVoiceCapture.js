@@ -1,11 +1,11 @@
 /* global AudioWorkletProcessor, registerProcessor */
 
 class NativeVoiceCapture extends AudioWorkletProcessor {
-  constructor() {
-    super();
+  constructor(options) {
+    super(options);
     this.buffer = new Int16Array(480);
     this.offset = 0;
-    this.muted = false;
+    this.muted = options?.processorOptions?.muted === true;
     this.generation = 0;
     this.port.onmessage = ({ data: { muted, generation } }) => {
       this.offset = 0;

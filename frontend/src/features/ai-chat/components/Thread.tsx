@@ -1541,7 +1541,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
       <div className="composer-controls ml-auto flex max-w-full flex-wrap items-center justify-end gap-1">
         <ResidentPermissions />
         <ComposerMicButton />
-        <NativeVoiceCall />
+        <NativeVoiceCall home={home} />
         <AuiIf condition={(s) => !s.thread.isRunning || (!home && steeringRunning)}>
           <ComposerSendWithRefs
             aria-label={home ? "Ask Integral" : steeringRunning ? "Queue message" : "Send message"}

@@ -339,9 +339,9 @@ export function TrackDetailPage() {
       detailTrackWorkspaceId &&
       scope?.workspaceId !== detailTrackWorkspaceId
     ) {
-      setScope({ workspaceId: detailTrackWorkspaceId });
+      setScope({ workspaceId: detailTrackWorkspaceId }, undefined, () => navigate(-1));
     }
-  }, [detailTrackWorkspaceId, scope?.workspaceId, setScope]);
+  }, [detailTrackWorkspaceId, scope?.workspaceId, setScope, navigate]);
 
   useEffect(() => {
     if (!id || !trackDetailQuery.data) return;
