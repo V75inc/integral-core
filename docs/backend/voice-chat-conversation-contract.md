@@ -449,3 +449,11 @@ conversation text, user content, filenames, tokens, or provider payloads.
 Automated provider-frame and disposable data tests validate the integration
 contracts. A real signed-in browser/microphone test is a separate gate for
 provider routing, perceived latency, audio playback, and concurrent UX.
+
+
+Explicit historical caller recall may use the source-linked working-memory
+index without a new resident turn. The spoken-intent gate remains mandatory.
+Only a verified, dated caller quotation is eligible for the direct voice
+path; stale, missing or competing sources delegate the original question to
+the resident. Current workspace facts always use current authorized reads.
+See [ADR 020](adr/020-source-linked-working-memory.md).

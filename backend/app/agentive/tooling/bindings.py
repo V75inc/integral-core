@@ -3927,6 +3927,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         ),
         service_param_map=_pick(),
     ),
+    "integral_recall_prior_conversation": ToolBinding(
+        service_ref=_h("app.services.working_memory", "recall_for_dispatch"),
+        service_param_map=_pick("query"),
+    ),
     "integral_get_page_context": ToolBinding(
         service_ref=_h(
             "app.services.chat_page_context", "get_page_context_for_dispatch"

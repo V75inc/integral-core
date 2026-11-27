@@ -491,6 +491,16 @@ async def submit_chat_turn(
         )
 
     wake_chat_worker()
+    # Only after the acceptance transaction commits; memory is a disposable
+    # projection, not an admission dependency.
+    from app.services.working_memory import remember_committed_message
+
+    await remember_committed_message(
+        principal=request.principal_id,
+        workspace=request.workspace_id,
+        thread_id=request.thread_id,
+        message_id=receipt.message_id,
+    )
     return receipt
 
 

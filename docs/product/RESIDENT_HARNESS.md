@@ -63,3 +63,12 @@ selected model's usable budget. Expired procedures can be rediscovered. Existing
 sessions normalize on valid resume; no chat deletion is required. See the
 [working-context contract](../backend/ai-chat.md#working-context-and-long-conversations) and the
 [qualification report](../ops/qualification/harness-context-lifecycle.md).
+
+
+### Source-linked working memory
+
+The resident and native voice can explicitly recall dated caller statements
+from a bounded source-linked index. Current graph and conversation authority
+remain decisive; a prior assistant result is not current knowledge. See
+[ADR 020](../backend/adr/020-source-linked-working-memory.md) for scope,
+retrieval, retention and fallback boundaries.

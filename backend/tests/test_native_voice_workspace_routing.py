@@ -104,6 +104,7 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
         assert [tool["name"] for tool in config["tools"]] == [
             native_voice.DELEGATE,
             native_voice.DELEGATE_ACTION,
+            native_voice.RECALL_MEMORY,
             native_voice.CHECK_CHAT,
             *(
                 [

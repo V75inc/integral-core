@@ -6,6 +6,11 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Add bounded encrypted, source-linked native conversation working memory.
+  Voice can recall verified dated caller statements without a resident turn;
+  ambiguous or stale recall falls back to the resident’s scoped memory tool
+  and fresh authorized retrieval. No new physical PostgreSQL indexes.
+
 - Local Docker setup provisions the reviewed PostgreSQL index catalog in a
   separate one-time maintenance container before serving. The API and native
   launcher disable automatic index creation, verify the catalog and use

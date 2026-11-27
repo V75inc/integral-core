@@ -1112,19 +1112,20 @@
     }
   ],
   "counts": {
-    "advertised": 135,
+    "advertised": 136,
     "apps": 6,
     "by_op_class": {
       "execute": 1,
       "propose": 73,
-      "read": 61
+      "read": 62
     },
     "core_skills": 19,
-    "tools": 137
+    "tools": 138
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
       "integral_delete_skill",
+      "integral_recall_prior_conversation",
       "integral_set_focus",
       "integral_update_skill"
     ],
@@ -1180,6 +1181,23 @@
       "skills": [
         "integral-workspace"
       ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.working_memory.recall_for_dispatch"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_recall_prior_conversation",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [],
       "status": "existing"
     },
     {

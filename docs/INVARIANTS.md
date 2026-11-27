@@ -1231,3 +1231,17 @@ rollback removes both. Accepted queue state does not claim provider acceptance.
 
 Gates: `test_email_delivery_authority.py`, `test_email_operation_effect.py`,
 `contract/test_email_notification_postgres.py`, `contract/test_native_email_postgres.py`.
+
+
+### I-CONTEXT-03 — Source-linked working memory
+
+Working memory is a bounded, encrypted, disposable projection of committed
+conversation and verified retrieval locators. Every release proves current
+principal, workspace, profile and canonical source containment/revision;
+prior statements are dated historical data, never instructions, approval or
+current record truth. Current App reads retain their declared query boundary.
+An inaccessible, stale or ambiguous source must be withheld or resolved
+through fresh authorized work. No per-tenant physical indexes, automatic
+profile biography, raw tool-output replay or authority-bearing memory.
+Verification: `tests/test_working_memory.py` and existing chat, retrieval
+and native voice authority gates.

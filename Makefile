@@ -205,7 +205,7 @@ test-postgres-ci:
 		$(PY) -m pytest -q --tb=short $(POSTGRES_TEST_ARGS) \
 		--junitxml="$(TEST_REPORT_DIR)/postgres-storage.xml" \
 		tests/test_storage_index_lifecycle.py tests/test_storage_index_proposals.py tests/test_model_credentials_service.py \
-		tests/test_native_storage_upgrade_postgres.py
+		tests/test_native_storage_upgrade_postgres.py tests/test_working_memory.py
 	@cd backend && $(POSTGRES_TEST_ENV) $(PY) -m pytest -q --tb=short \
 		$(POSTGRES_TEST_ARGS) --junitxml="$(TEST_REPORT_DIR)/postgres-spikes.xml" tests/spikes/ -m postgres
 	@cd backend && $(POSTGRES_TEST_ENV) $(PY) -m pytest -q --tb=short \

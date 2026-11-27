@@ -27,6 +27,8 @@ from app.agentive.tooling import build_tool_catalogue
 #     dedicated SOP skill yet.
 #   * integral_get_page_context — injected by the host from current UI state;
 #     models do not select it as part of an SOP.
+#   * integral_recall_prior_conversation — conversation-bound historical recall,
+#     always supplied by the resident broker rather than a domain SOP.
 # Add a tool here (with a reason) only when it genuinely belongs to no SOP.
 # (``integral_list_agents`` was removed with the A2A discovery surface — ADR-003.)
 _UNSURFACED_BY_DESIGN = {
@@ -35,6 +37,7 @@ _UNSURFACED_BY_DESIGN = {
     "integral_update_skill",
     "integral_delete_skill",
     "integral_get_page_context",
+    "integral_recall_prior_conversation",
 }
 
 from tests.integral_agent_paths import EMBEDDED_INTEGRAL_SKILLS_GLOB

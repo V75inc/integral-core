@@ -462,9 +462,21 @@ async def _handle_chat_turn(
 ) -> WorkItem:
     """Settle cancellation even when it races with a final public output write."""
     from app.services.chat_turn_worker import terminalize_chat_turn
+    from app.services.working_memory import (
+        MemoryCapture,
+        active_capture,
+        remember_committed_message,
+    )
 
+    capture = MemoryCapture(
+        item.principal_id,
+        item.workspace_id,
+        item.thread_id,
+        str((item.input_payload or {}).get("accepted_message_id") or ""),
+    )
+    token = active_capture.set(capture)
     try:
-        return await _execute_chat_turn(
+        result = await _execute_chat_turn(
             item, worker_id=worker_id, lease_seconds=lease_seconds
         )
     except WorkError as exc:
@@ -474,11 +486,31 @@ async def _handle_chat_turn(
             work_item=item,
             logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),
         )
-        return await terminalize_chat_turn(
+        result = await terminalize_chat_turn(
             context,
             status="cancelled",
             failure={"code": exc.code, "message": exc.message},
         )
+    finally:
+        active_capture.reset(token)
+    if result.status == "succeeded":
+        from app.services.chat_turn_transcript import _message_id
+
+        if capture.accepted_message:
+            await remember_committed_message(
+                principal=result.principal_id,
+                workspace=result.workspace_id,
+                thread_id=result.thread_id,
+                message_id=capture.accepted_message,
+            )
+        await remember_committed_message(
+            principal=result.principal_id,
+            workspace=result.workspace_id,
+            thread_id=result.thread_id,
+            message_id=_message_id(result.work_item_id),
+            evidence=tuple(capture.evidence.values()),
+        )
+    return result
 
 
 async def _execute_chat_turn(
