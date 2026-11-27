@@ -73,12 +73,20 @@ it("opens from a thread deep link and acknowledges only the rendered destination
     navigation: { path, thread_id: "thread", workspace_id: "workspace" } };
   act(() => socket.onmessage?.({ data: JSON.stringify(event) }));
   expect(navigate).toHaveBeenCalledWith(path, "thread");
+  act(() => socket.onmessage?.({ data: JSON.stringify(event) }));
+  expect(navigate).toHaveBeenCalledTimes(1);
   expect(socket.send).not.toHaveBeenCalledWith(expect.stringContaining("navigation_result"));
   rendered = true;
   view.rerender(<NativeVoiceControls {...props} pageRoute={path} />);
   await waitFor(() => expect(socket.send).toHaveBeenCalledWith(JSON.stringify({
     type: "navigation_result", id: "one-use", status: "rendered",
   })));
+  const frames = socket.send.mock.calls.map(([raw]) => typeof raw === "string" ? JSON.parse(raw) : {});
+  const contextIndex = frames.findIndex(frame => frame.type === "page_context" && frame.page.url === path);
+  const ackIndex = frames.findIndex(frame => frame.type === "navigation_result" && frame.id === "one-use");
+  expect(contextIndex).toBeGreaterThan(0);
+  expect(ackIndex).toBeGreaterThan(contextIndex);
+  expect(frames.filter(frame => frame.type === "page_context")).toHaveLength(2);
   expect(screen.getByRole("button", { name: "End call" })).toBeVisible();
   act(() => socket.onmessage?.({ data: JSON.stringify({ ...event, id: "late" }) }));
   expect(socket.send).toHaveBeenLastCalledWith(JSON.stringify({

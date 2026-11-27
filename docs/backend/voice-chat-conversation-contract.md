@@ -151,9 +151,13 @@ during admission, the relay can submit the additional question once after
 verifying the preceding successful result and idle thread. A correction in that
 state requires a fresh instruction. A pending approval keeps its own controls.
 
-For a numbered choice or unique exact name from the current spoken directory,
-the relay verifies the selection and supplies the existing navigation tool with
-the canonical destination IDs. The resident can request the route directly.
+For a numbered choice from the current spoken directory, the relay verifies the
+selection and supplies the existing navigation tool with the canonical destination
+IDs. Legacy name-only requests may use a unique exact directory match. For named
+navigation with the complete caller request, resource kind, leaf title and parent
+qualifications are retained; the resident resolves the actual destination, not its
+containing App, and seeks clarification for an ambiguous or unavailable match.
+The resident can request the route directly.
 Resource labels stay in the data portion of the prompt. The browser confirms a
 successful render before voice announces arrival.
 
@@ -166,7 +170,15 @@ follow-ups before navigating. Navigation is limited to the local paths
 covered by the existing native tool. Recovered events do not navigate.
 The originating browser echoes a one-use request identity after its loaded
 page context matches the exact route and focused resource. A page revision
-correlates origin without retaining unsafe URL queries. A preserved page or
+correlates origin without retaining unsafe URL queries. The browser publishes
+its changed route before acknowledging a render and does not resend identical
+route snapshots. A reordered acknowledgment waits for the exact next context
+transition; unrelated route changes or interrupted requests cannot confirm it.
+Immediate and durable result observers share a single navigation delivery.
+A verified arrival contributes a quiet navigation receipt to the voice model's
+conversation so a subsequent short named destination goes to the resident
+with the current browser context; the voice model does not preemptively ask
+for a parent or resource kind. A preserved page or
 an arrival timeout produces a distinct result. Rechecking browser feedback
 does not confer resource authority.
 

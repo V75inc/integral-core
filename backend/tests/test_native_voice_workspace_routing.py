@@ -205,7 +205,9 @@ async def test_open_page_submits_a_read_only_native_turn(monkeypatch, kind):
         "page_context"
     ] == {"url": "/agent"}
     if focus is None:
-        assert "integral_open_view" not in ctx.system_context
+        assert "Do not open a containing resource" in ctx.system_context
+        assert "ambiguous or unavailable" in ctx.system_context
+        assert '"target_id"' not in ctx.system_context
         verify.assert_not_awaited()
     else:
         verify.assert_awaited_once_with(
@@ -359,7 +361,12 @@ async def test_voice_and_typed_use_same_heavy_dashboard_broker(monkeypatch):
     assert brokered[0][1] == brokered[1][1]
 
 
-async def test_live_navigation_delivery_is_exact_and_not_replayed(monkeypatch):
+@pytest.mark.parametrize(
+    "ordering", ["context-first", "ack-first", "superseded", "revoked", "interrupted"]
+)
+async def test_live_navigation_delivery_is_exact_and_not_replayed(
+    monkeypatch, ordering
+):
     """Only a successful current-call result can move the bound browser."""
     from app.schemas.agentive.chat_events import ChatEventReplayPage
     from app.services import agent_navigation, chat_turn_events, native_voice
@@ -377,9 +384,8 @@ async def test_live_navigation_delivery_is_exact_and_not_replayed(monkeypatch):
         return_value=ChatEventReplayPage(events=[destination], work_status="succeeded")
     )
     monkeypatch.setattr(chat_turn_events, "replay_work_item_chat_events", replay)
-    monkeypatch.setattr(
-        agent_navigation, "verify_voice_navigation", AsyncMock(return_value=True)
-    )
+    verify = AsyncMock(return_value=True)
+    monkeypatch.setattr(agent_navigation, "verify_voice_navigation", verify)
     browser = Browser()
     relay = native_voice.VoiceRelay(browser, Provider(), scope, check=AsyncMock())
     accepted = native_voice._AcceptedVoiceTurn(
@@ -405,14 +411,56 @@ async def test_live_navigation_delivery_is_exact_and_not_replayed(monkeypatch):
         )
     )
     assert not delivery.done()
-    scope.page_context = {"url": destination["path"], "route_path": destination["path"]}
-    await relay._navigation_result(
-        __import__("json").dumps(
-            {"type": "navigation_result", "id": event["id"], "status": "rendered"}
+    # Both terminal observers may see the same work while its page is loading.
+    concurrent = asyncio.create_task(relay._deliver_navigation(accepted))
+    await asyncio.sleep(0)
+    assert not concurrent.done()
+    import json
+
+    relay.ready = True
+    reader = asyncio.create_task(relay._read_browser())
+
+    async def send(frame):
+        await browser.inbox.put(
+            {
+                "type": "websocket.receive",
+                "text": json.dumps(frame, separators=(",", ":")),
+            }
         )
-    )
-    assert await delivery == "The requested page is open."
-    assert await relay._deliver_navigation(accepted) == "The requested page is open."
+        await asyncio.sleep(0)
+
+    ack = {"type": "navigation_result", "id": event["id"], "status": "rendered"}
+    next_path = "/other" if ordering == "superseded" else destination["path"]
+    context = {
+        "type": "page_context",
+        "page": {"url": next_path, "route_path": next_path},
+    }
+    if ordering != "context-first":
+        await send(ack)
+        assert not delivery.done()
+        assert not concurrent.done()
+    if ordering == "revoked":
+        verify.return_value = False
+    if ordering == "interrupted":
+        relay.generation += 1
+    await send(context)
+    if ordering == "context-first":
+        assert not delivery.done()
+        await send(ack)
+    await browser.inbox.put({"type": "websocket.disconnect"})
+    await reader
+    result = await asyncio.wait_for(delivery, 1)
+    duplicate = await asyncio.wait_for(concurrent, 1)
+    if ordering in {"ack-first", "context-first"}:
+        assert result == duplicate == "The requested page is open."
+        context = await asyncio.wait_for(relay.upstream.outbox.get(), 1)
+        assert context["type"] == "conversation.item.create"
+        assert "current page context" in context["item"]["content"][0]["text"]
+        assert relay.upstream.outbox.empty()
+    else:
+        assert result != "The requested page is open."
+        assert duplicate != "The requested page is open."
+        assert relay.upstream.outbox.empty()
     assert browser.outbox.empty()
     scope.page_revision += 1
     from dataclasses import replace

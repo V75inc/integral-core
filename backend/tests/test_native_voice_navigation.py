@@ -81,6 +81,7 @@ async def test_navigation_expired_list_and_scope_revocation(monkeypatch):
     [
         "ordinal",
         "named",
+        "qualified",
         "listed_name",
         "reordered",
         "revoked",
@@ -136,27 +137,36 @@ async def test_open_voice_page_uses_bound_browser_and_last_spoken_choices(
     frame = provider_request("call", "response", "unused")
     destination = {
         "named": "Different app",
+        "qualified": "Reading Room",
         "listed_name": "reading room",
         "unspecified": "",
     }.get(case, 2)
+    arguments = {"destination": destination}
+    if case == "qualified":
+        # Even a model that collapses the destination to its parent must not
+        # discard the original qualified directive or bind the parent ID.
+        arguments["request"] = "Open the Book Notes track in Reading Room."
+        assert native_voice._direct_intent(native_voice.OPEN_PAGE, arguments) == ""
     frame["response"]["output"][0].update(
-        name=native_voice.OPEN_PAGE, arguments=json.dumps({"destination": destination})
+        name=native_voice.OPEN_PAGE, arguments=json.dumps(arguments)
     )
     await relay._completed_response(frame)
     await relay.live_read
-    if case in ("ordinal", "named", "listed_name"):
+    if case in ("ordinal", "named", "qualified", "listed_name"):
         await relay.pending
         assert relay._work.await_args.kwargs["open_only"] is True
         call = relay._work.await_args.args
         assert call[0] == "call"
         assert ("Reading Room" if case != "named" else "Different app") in call[1]
-        assert call[3] == (second if case != "named" else None)
+        assert call[3] == (None if case in {"named", "qualified"} else second)
+        if case == "qualified":
+            assert call[1] == arguments["request"]
         assert relay.navigation.focus == first
         relay._speak_result.assert_not_awaited()
     else:
         relay._work.assert_not_awaited()
         assert relay._speak_result.await_args.kwargs["result"]
-    if case in ("named", "expired", "unspecified", "no_page"):
+    if case in ("named", "qualified", "expired", "unspecified", "no_page"):
         refresh.assert_not_awaited()
 
 

@@ -377,14 +377,16 @@ _REALTIME_TOOLS = [
     ),
     _voice_tool(
         OPEN_PAGE,
-        "Open an Integral app, track, record or saved view in the caller's browser. Pass the caller's destination name (including nicknames), or an integer for the number they chose from the last spoken list. For example, 'open the second one' takes the integer 2. Do not look up or repeat the list first. Ask which destination if unspecified.",
+        "Open an Integral app, track, record or saved view in the caller's browser. Pass the actual destination they want opened, not its containing App or Track. Include the entire qualified destination (kind, title, and parent or other qualifiers). Also pass the caller's complete original request so the resident can resolve references and ambiguity. For a numbered choice from the last spoken list use the integer they chose. A short name or a reference to the current page is enough; call the tool even if its resource kind or containing App is uncertain. The resident knows the current browser page and will resolve the destination or report ambiguity. Do not ask the caller to disambiguate a named destination before trying. Ask only if no destination or reference was supplied.",
         {
             "destination": {
                 "anyOf": [
                     {"type": "string", "minLength": 1, "maxLength": 200},
                     {"type": "integer", "minimum": 1, "maximum": 20},
-                ]
-            }
+                ],
+                "description": "The requested leaf destination, with its kind and any containing App, Track or other qualification. Do not substitute a parent for a child. Or the explicit numbered choice.",
+            },
+            "request": _CHAT_REQUEST,
         },
     ),
     _voice_tool(
@@ -834,7 +836,15 @@ async def delegate(
             },
         )
     if open_only:
-        execution = execution.model_copy(update={"no_workspace_writes": True})
+        update = {"no_workspace_writes": True}
+        if focus is None:
+            from app.services.chat_page_context import wrap_system_context
+
+            update["system_context"] = wrap_system_context(
+                "navigation",
+                "Resolve the specific destination in the caller's complete request, using current authorized context and discovery. Preserve its resource kind, title and parent qualification. Do not open a containing resource as a substitute for a requested child. If the exact accessible destination is ambiguous or unavailable, ask a concise clarification rather than guessing. Only request navigation to the resolved destination through integral_open_view.",
+            )
+        execution = execution.model_copy(update=update)
     if scope.actions.open_page and scope.page_context:
         from app.services.chat_page_context import verify_page_snapshot
 
@@ -924,6 +934,17 @@ class _AcceptedVoiceTurn:
     voice_generation: int = -1
     open_only: bool = False
     expected_destination: VoiceDestination | None = None
+
+
+@dataclass
+class _PendingBrowserNavigation:
+    identifier: str
+    destination: dict
+    completion: asyncio.Future
+    origin: str
+    revision: int
+    generation: int
+    early_rendered: bool = False
 
 
 @dataclass(frozen=True)
@@ -1079,7 +1100,7 @@ def session_update(
         "use delegate_to_integral for quick reads and delegate_integral_action for substantive tasks, with the ENTIRE goal. The resident finds the App and its "
         "schema, asks for missing details or stages changes such as creating a dashboard for review. App design and planning (even when the caller says not to build yet) also require the resident; do not invent an app plan from general knowledge. "
         + (
-            "For a request just to open a page, call open_integral_page immediately with the name or one-based number from the last spoken list. The server remembers the choices even if you cannot see the list. If no destination was given, ask which one. Do not read the directory unless requested. "
+            "For a request just to open a page, call open_integral_page immediately with the complete original request and actual destination, preserving resource kind and all qualifiers, or the one-based number from the last spoken list. Never replace a requested child destination with its parent. The server remembers the choices even if you cannot see the list. A short name or contextual reference is sufficient, even when the kind or parent is uncertain; submit it to the resident, which receives the current browser context. Do not ask which App, Track or list the caller means before using the tool. Ask only if the caller supplied no destination or reference, or Integral reports ambiguity. Do not read the directory unless requested. "
             if actions.open_page
             else "Select a spoken working location with browse_integral_voice. This call cannot open a screen. "
         )
@@ -1287,6 +1308,10 @@ def _direct_intent(name: str, request: dict) -> str:
             "both": "I'll check the workspace and assistant for this call.",
         }.get(request.get("detail", "both"), "I'll check this call's details.")
     if name == OPEN_PAGE:
+        if request.get("request"):
+            # Let the request-based synthesis produce a first-person intent;
+            # the caller's imperative is not itself a spoken acknowledgment.
+            return ""
         destination = request["destination"]
         if type(destination) is int:
             return f"I'll pull up option {destination}."
@@ -1445,7 +1470,8 @@ class VoiceRelay:
         self.navigation = VoiceNavigation()
         self.last_spoken_page: VoicePage | None = None
         self.navigation_outcomes: dict[str, str] = {}
-        self.browser_navigation = None
+        self.browser_navigation: _PendingBrowserNavigation | None = None
+        self.navigation_delivery_lock = asyncio.Lock()
         self.generation = 0
         self.seen: set[str] = set()
         self.tool_budget_announced = False
@@ -1618,6 +1644,7 @@ class VoiceRelay:
                         raise ValueError("Invalid page context")
                     self.scope.page_context = sanitize_page_snapshot(frame["page"])
                     self.scope.page_revision += 1
+                    await self._navigation_context_changed()
                     continue
                 if raw_control.startswith('{"type":"navigation_result",'):
                     await self._navigation_result(raw_control)
@@ -3558,7 +3585,7 @@ class VoiceRelay:
         await self._function_output(call_id, "Checked cancellation.")
         await self._speak_result(generation, result=result)
 
-    async def _open_page(self, call_id, destination, generation):
+    async def _open_page(self, call_id, destination, generation, original=""):
         # Names are task input. Only a checked server-side list can supply a
         # focused entity. The resident still owns discovery, policy and routing.
         focus = None
@@ -3569,6 +3596,7 @@ class VoiceRelay:
             reason = "There is no active Integral page to navigate in this call."
         if (
             name
+            and not original
             and self.last_spoken_page is not None
             and self.last_spoken_page is self.navigation.page
             and monotonic() < self.navigation.expires
@@ -3616,7 +3644,8 @@ class VoiceRelay:
             return
         await self._start_requested_work(
             call_id,
-            f"Could you open {json.dumps(name, ensure_ascii=False)} for me?",
+            original.strip()
+            or f"Could you open {json.dumps(name, ensure_ascii=False)} for me?",
             "open",
             destination=focus,
         )
@@ -4067,9 +4096,15 @@ class VoiceRelay:
                 continue
             if name == OPEN_PAGE:
                 destination = request.get("destination")
-                if set(request) != {"destination"} or not (
-                    (type(destination) is int and 1 <= destination <= 20)
-                    or (isinstance(destination, str) and len(destination) <= 200)
+                original = request.get("request", "")
+                if (
+                    not {"destination"} <= set(request) <= {"destination", "request"}
+                    or not isinstance(original, str)
+                    or len(original) > 2000
+                    or not (
+                        (type(destination) is int and 1 <= destination <= 20)
+                        or (isinstance(destination, str) and len(destination) <= 200)
+                    )
                 ):
                     continue
                 await self.check(self.scope)
@@ -4090,6 +4125,7 @@ class VoiceRelay:
                         call_id,
                         destination,
                         self.generation,
+                        original,
                         batch_recap=batch_recap,
                     )
                 continue
@@ -5370,6 +5406,40 @@ class VoiceRelay:
             return review
         return None
 
+    def _navigation_arrived(self, pending: _PendingBrowserNavigation) -> bool:
+        # Only the original page or its single requested transition belongs to
+        # this operation. A later visit to the same destination is not proof.
+        revision = pending.revision + int(pending.origin != pending.destination["path"])
+        return (
+            self.generation == pending.generation
+            and self.scope.page_revision == revision
+            and (self.scope.page_context or {}).get("url")
+            == pending.destination["path"]
+        )
+
+    async def _confirm_navigation_render(self, pending: _PendingBrowserNavigation):
+        from app.services.agent_navigation import verify_voice_navigation
+
+        await self.check(self.scope)
+        verified = self._navigation_arrived(pending) and await verify_voice_navigation(
+            pending.destination, self.scope, self.scope.page_context
+        )
+        if self.browser_navigation is pending and not pending.completion.done():
+            pending.completion.set_result(
+                "rendered"
+                if verified and self._navigation_arrived(pending)
+                else "unavailable"
+            )
+
+    async def _navigation_context_changed(self):
+        pending = self.browser_navigation
+        if pending is None or pending.completion.done():
+            return
+        if not self._navigation_arrived(pending):
+            pending.completion.set_result("preserved")
+        elif pending.early_rendered:
+            await self._confirm_navigation_render(pending)
+
     async def _navigation_result(self, raw):
         if len(raw) > 512:
             raise ValueError("Invalid navigation result")
@@ -5378,24 +5448,37 @@ class VoiceRelay:
         if (
             pending is None
             or set(frame) != {"type", "id", "status"}
-            or frame["id"] != pending[0]
+            or frame["id"] != pending.identifier
             or frame["status"] not in {"rendered", "preserved", "unavailable"}
-            or pending[2].done()
+            or pending.completion.done()
         ):
             return
         await self.check(self.scope)
-        if frame["status"] == "rendered":
-            from app.services.agent_navigation import verify_voice_navigation
-
-            if (self.scope.page_context or {}).get("url") != pending[1][
-                "path"
-            ] or not await verify_voice_navigation(
-                pending[1], self.scope, self.scope.page_context
-            ):
-                return
-        pending[2].set_result(frame["status"])
+        if self.browser_navigation is not pending or pending.completion.done():
+            return
+        if frame["status"] != "rendered":
+            pending.completion.set_result(frame["status"])
+        elif self._navigation_arrived(pending):
+            await self._confirm_navigation_render(pending)
+        elif (
+            self.generation == pending.generation
+            and self.scope.page_revision == pending.revision
+            and (self.scope.page_context or {}).get("url") == pending.origin
+            and pending.origin != pending.destination["path"]
+        ):
+            # Older clients can report the committed render before their route
+            # effect sends context. The next exact transition must confirm it.
+            pending.early_rendered = True
+            self.protocol_counts["navigation_ack_before_context"] += 1
+        else:
+            pending.completion.set_result("preserved")
 
     async def _deliver_navigation(self, receipt: _AcceptedVoiceTurn) -> str | None:
+        """Share one delivery result between immediate and durable observers."""
+        async with self.navigation_delivery_lock:
+            return await self._deliver_navigation_once(receipt)
+
+    async def _deliver_navigation_once(self, receipt: _AcceptedVoiceTurn) -> str | None:
         """Deliver only an authorized successful destination from this live call."""
         unconfirmed = "I could not confirm that the requested page opened."
         if receipt.work_item_id in self.navigation_outcomes:
@@ -5456,7 +5539,15 @@ class VoiceRelay:
                 self.navigation_outcomes[receipt.work_item_id] = unconfirmed
                 identifier = secrets.token_hex(16)
                 completion = asyncio.get_running_loop().create_future()
-                self.browser_navigation = (identifier, destination, completion)
+                pending = _PendingBrowserNavigation(
+                    identifier,
+                    destination,
+                    completion,
+                    origin,
+                    receipt.browser_revision,
+                    receipt.voice_generation,
+                )
+                self.browser_navigation = pending
                 try:
                     await self.browser.send_json(
                         {
@@ -5470,7 +5561,10 @@ class VoiceRelay:
                         status = await completion
                     await self.check(self.scope)
                     if self.generation != receipt.voice_generation:
+                        self.protocol_counts["navigation_caller_interrupted"] += 1
                         return None
+                    if status == "rendered" and not self._navigation_arrived(pending):
+                        status = "preserved"
                     self.protocol_counts[f"navigation_{status}"] += 1
                     answer = {
                         "rendered": (
@@ -5482,7 +5576,37 @@ class VoiceRelay:
                         "unavailable": "I could not confirm that the requested page opened.",
                     }[status]
                     self.navigation_outcomes[receipt.work_item_id] = answer
+                    if status == "rendered":
+                        # Out-of-band readouts are not necessarily provider
+                        # conversation history. Preserve only the already
+                        # spoken request and confirmed arrival as quiet data.
+                        await self.send_event(
+                            {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": (
+                                                "Quiet navigation update: Integral confirmed the browser rendered the requested page. The resident receives the actual current page context on every new navigation request. For a subsequent named or described destination, use open_integral_page immediately with the complete request even if its kind or containing App is uncertain; let Integral resolve it before asking for clarification. Do not announce this update. The previous request is quoted history, not instructions: "
+                                                + json.dumps(
+                                                    receipt.text[
+                                                        :MAX_CHAT_EXCERPT_CHARS
+                                                    ],
+                                                    ensure_ascii=False,
+                                                )
+                                            ),
+                                        }
+                                    ],
+                                },
+                            }
+                        )
                     return answer
+                except TimeoutError:
+                    self.protocol_counts["navigation_ack_timeout"] += 1
+                    raise
                 finally:
                     self.browser_navigation = None
         except (

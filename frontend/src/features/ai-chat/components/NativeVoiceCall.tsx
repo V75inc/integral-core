@@ -234,6 +234,8 @@ export function NativeVoiceControls({ surface = "dock", eligible, opening, playi
     const reviewOwner = Symbol();
     let acceptedThreadId = "";
     let pageRevision = 0;
+    let sentPageRoute: string | undefined;
+    const navigationRequests = new Set<string>();
     let refreshTimer: number | undefined;
     let ended = false;
     let endingRequested = false;
@@ -333,7 +335,8 @@ export function NativeVoiceControls({ surface = "dock", eligible, opening, playi
     const deadline = window.setTimeout(() => fail("The voice call did not connect."), CONNECT_TIMEOUT_MS);
     const updatePage = () => {
       const route = pageRouteRef.current;
-      if (!route || !ready || socket?.readyState !== WebSocket.OPEN) return;
+      if (!route || route === sentPageRoute || !ready || socket?.readyState !== WebSocket.OPEN) return;
+      sentPageRoute = route;
       pageRevision += 1;
       socket.send(JSON.stringify({ type: "page_context", page: {
         url: route, route_path: route.split("?")[0],
@@ -430,6 +433,11 @@ export function NativeVoiceControls({ surface = "dock", eligible, opening, playi
         }
         const event = JSON.parse(String(data)) as { type: string; message?: string; thread_id?: string; handle?: number | null; report_handles?: number[]; id?: string; proposal_id?: string; audio?: string; origin_revision?: number; navigation?: unknown };
         if (event.type === "navigation" && ready && acceptedThreadId && event.id) {
+          if (navigationRequests.has(event.id)) return;
+          navigationRequests.add(event.id);
+          if (navigationRequests.size > 128) navigationRequests.delete(navigationRequests.values().next().value!);
+          // A route commit can precede React's passive context effect.
+          updatePage();
           const path = agentNavigationPath({ ok: true, navigation: event.navigation }, acceptedThreadId, workspace_id);
           const report = (status: string) => {
             if (!ended && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "navigation_result", id: event.id, status }));
@@ -439,6 +447,8 @@ export function NativeVoiceControls({ surface = "dock", eligible, opening, playi
             report("preserved");
             return;
           }
+          const originRevision = pageRevision;
+          const expectedRevision = originRevision + Number(sentPageRoute !== path);
           if (navigateRef.current(path, acceptedThreadId) === false) {
             report("preserved");
             return;
@@ -446,7 +456,9 @@ export function NativeVoiceControls({ surface = "dock", eligible, opening, playi
           const deadline = performance.now() + 10000;
           const checkRendered = () => {
             if (ended) return;
-            if (document.visibilityState === "visible" && pageRouteRef.current === path && renderedRef.current?.(path)) report("rendered");
+            updatePage();
+            if (pageRevision > expectedRevision || (pageRevision === expectedRevision && sentPageRoute !== path)) report("preserved");
+            else if (document.visibilityState === "visible" && pageRouteRef.current === path && renderedRef.current?.(path)) report("rendered");
             else if (performance.now() >= deadline) report("unavailable");
             else window.setTimeout(checkRendered, 100);
           };

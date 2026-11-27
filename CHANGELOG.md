@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Stabilize live voice navigation acknowledgments across route transitions and concurrent result observers, retaining authorization and stale-route checks. Preserve the full qualified destination request when delegating named navigation.
+
 - Honor Auto and Custom permissions for schema-declared simple scalar edits (including text registrations), preserving canonical validation, revision fences and review for unsupported effects.
 
 - Restore voice confirmation for bounded multi-paragraph and bullet-list task descriptions, independent of unrelated UI focus; speak directly to the signed-in person.
