@@ -148,7 +148,7 @@ function HostManagedCard({
   const grant = pkg.grant;
   const hasLineGrant = grant != null;
   const bindingQuery = useQuery({
-    queryKey: ['connectors', 'host-line', pkg.id],
+    queryKey: ['connectors', 'host-line', workspaceId, pkg.id],
     queryFn: () => canDisconnectFromCard
       ? getWhatsAppChannelBinding()
       : managedChannelsApi.credentialMetadata(workspaceId, pkg.id),

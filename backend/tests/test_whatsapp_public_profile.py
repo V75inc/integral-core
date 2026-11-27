@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from app.agentive.services.web_chat_profile_inference import public_text_model_input
+from app.agentive.services.web_chat_profile_inference import (
+    MAX_HISTORY_CHARACTERS,
+    bound_public_exchanges,
+    clean_public_reply,
+    public_text_model_input,
+)
 from app.agentive.services.whatsapp_public_profile import (
     UNAVAILABLE_NOTICE,
     PublicLineGrant,
@@ -94,6 +99,24 @@ async def test_reply_stops_when_the_public_grant_is_no_longer_live(monkeypatch):
     assert reply == UNAVAILABLE_NOTICE
     assert completed == []
     assert reads["n"] == 2
+
+
+@pytest.mark.unit
+def test_public_history_keeps_the_newest_exchanges_inside_the_budget():
+    """A long stored reply does not make the next visitor turn impossible."""
+    bulky = "word " * 700
+    history = tuple(("hello", bulky) for _ in range(4))
+    bounded = bound_public_exchanges(history)
+
+    assert bounded
+    assert sum(len(visitor) + len(assistant) for visitor, assistant in bounded) <= (
+        MAX_HISTORY_CHARACTERS
+    )
+    assert len(bounded) < len(history)
+    prompt = public_text_model_input("Be brief.", bounded, "next")
+    assert prompt.visitor_text == "next"
+    assert clean_public_reply("ok\u0000there") == "okthere"
+    assert clean_public_reply("") == ""
 
 
 @pytest.mark.unit

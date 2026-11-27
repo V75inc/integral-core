@@ -229,11 +229,14 @@ class _PhoneSocket:
         await self._socket.send_json(message)
 
 
-async def _hang_up_phone_quietly(call_id: str, upstream=None) -> None:
+async def _hang_up_phone_quietly(
+    call_id: str, upstream=None, binding_id: str = ""
+) -> None:
     """Disconnect one phone call without escaping the socket finally.
 
-    ``hang_up_phone_call`` already closes its stored upstream once. A later
-    close here runs only when that helper raises before the close.
+    The stored relay is closed by ``hang_up_phone_call``. This also closes the
+    local upstream, including the window where hangup ran before the relay
+    was attached.
     """
     from app.agentive.services.whatsapp_voice_bridge import (
         close_model_socket,
@@ -241,10 +244,10 @@ async def _hang_up_phone_quietly(call_id: str, upstream=None) -> None:
     )
 
     try:
-        await hang_up_phone_call(call_id)
+        await hang_up_phone_call(call_id, binding_id=binding_id)
     except Exception:
         logger.warning("phone voice hangup failed")
-        await close_model_socket(upstream)
+    await close_model_socket(upstream)
 
 
 # deviation: jvspatial @endpoint has no WebSocket primitive.
@@ -257,6 +260,9 @@ async def phone_voice(socket: WebSocket):
     """
     from app.agentive.services.whatsapp_voice_bridge import (
         attach_phone_relay,
+        call_has_phone_relay,
+        close_model_socket,
+        confirm_phone_line,
         discard_relay_bearer,
         relay_bearer_record,
     )
@@ -273,21 +279,22 @@ async def phone_voice(socket: WebSocket):
     await socket.accept()
     principal = record["principal_id"]
     claimed = False
+    release_call = True
     upstream = None
     try:
         if principal_has_live_call(principal):
+            # A second socket for the call that is already bridged must not
+            # tear that call down. A different live call still releases this one.
+            release_call = not call_has_phone_relay(record["call_id"])
             await socket.close(code=4403)
             return
         _active_calls.add(principal)
         claimed = True
-        if record.get("binding_id"):
-            from app.agentive.services.whatsapp_voice_bridge import (
-                confirm_phone_line,
-            )
-
-            if not await confirm_phone_line(record):
-                await socket.close(code=4403)
-                return
+        if not (record.get("binding_id") or "").strip() or not await confirm_phone_line(
+            record
+        ):
+            await socket.close(code=4403)
+            return
         credential = await resolve_realtime_credential(record["workspace_id"])
         if credential is None:
             await socket.close(code=4404)
@@ -298,11 +305,15 @@ async def phone_voice(socket: WebSocket):
             return
         # Upstream is open and this principal is claimed. Hangup from either
         # side closes this relay. A missing bearer never reaches here.
-        attach_phone_relay(
+        attached = attach_phone_relay(
             call_id=record["call_id"],
             upstream=upstream,
             bearer=presented,
         )
+        if attached is None:
+            await close_model_socket(upstream)
+            upstream = None
+            return
         # An older row without the key is empty, so ``authorize`` refuses the
         # ``wa:`` thread rather than guessing a channel session.
         scope = VoiceScope(
@@ -322,11 +333,16 @@ async def phone_voice(socket: WebSocket):
     finally:
         try:
             # The bearer was valid, so this WhatsApp leg was accepted. Close
-            # it on every exit: a live principal, a missing credential, an
-            # upstream failure, or the relay ending. One call id disconnects
-            # once. Discard still runs when hangup is stubbed.
-            await _hang_up_phone_quietly(record["call_id"], upstream)
-            discard_relay_bearer(record["call_id"])
+            # it on every exit this socket owns: a live principal, a missing
+            # credential, an upstream failure, or the relay ending. A second
+            # socket for a call that is already bridged leaves that call up.
+            if release_call:
+                await _hang_up_phone_quietly(
+                    record["call_id"],
+                    upstream,
+                    binding_id=record.get("binding_id", ""),
+                )
+                discard_relay_bearer(record["call_id"])
         finally:
             if claimed:
                 _active_calls.discard(principal)
@@ -350,6 +366,8 @@ async def public_phone_voice(socket: WebSocket):
     from app.agentive.services.whatsapp_public_voice import PublicPhoneRelay
     from app.agentive.services.whatsapp_voice_bridge import (
         attach_phone_relay,
+        call_has_phone_relay,
+        close_model_socket,
         confirm_public_call,
         discard_relay_bearer,
         relay_bearer_record,
@@ -362,7 +380,12 @@ async def public_phone_voice(socket: WebSocket):
         return
     await socket.accept()
     upstream = None
+    release_call = True
     try:
+        if call_has_phone_relay(record["call_id"]):
+            release_call = False
+            await socket.close(code=4403)
+            return
         grant = await confirm_public_call(record)
         if grant is None:
             await socket.close(code=4403)
@@ -375,11 +398,15 @@ async def public_phone_voice(socket: WebSocket):
         if upstream is None:
             await socket.close(code=4404)
             return
-        attach_phone_relay(
+        attached = attach_phone_relay(
             call_id=record["call_id"],
             upstream=upstream,
             bearer=presented,
         )
+        if attached is None:
+            await close_model_socket(upstream)
+            upstream = None
+            return
 
         async def still_allowed() -> bool:
             return await confirm_public_call(record) is not None
@@ -398,8 +425,13 @@ async def public_phone_voice(socket: WebSocket):
         pass
     finally:
         try:
-            await _hang_up_phone_quietly(record["call_id"], upstream)
-            discard_relay_bearer(record["call_id"])
+            if release_call:
+                await _hang_up_phone_quietly(
+                    record["call_id"],
+                    upstream,
+                    binding_id=record.get("binding_id", ""),
+                )
+                discard_relay_bearer(record["call_id"])
         finally:
             if (
                 socket.client_state

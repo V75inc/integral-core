@@ -494,6 +494,37 @@ async def test_accept_logs_500_error_without_secrets(jvvoice_settings, caplog):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_accept_logs_drop_a_provider_error_that_contains_a_token(
+    jvvoice_settings, caplog
+):
+    """A provider error string that embeds a Meta token is not written to the log."""
+    caplog.set_level(logging.DEBUG)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            500,
+            json={"error": "failed for token EAAG_secret_value"},
+        )
+
+    async with _jvvoice_client(handler) as client:
+        result = await accept_jvvoice_call(
+            whatsapp_call_id="wacid.1",
+            phone_number_id="pn-1",
+            whatsapp_api_key=_META_TOKEN,
+            sdp=_SDP,
+            sdp_type="offer",
+            caller_phone="+15551212000",
+            client=client,
+        )
+
+    assert result.ok is False
+    logged = _logged(caplog)
+    assert "EAAG_secret_value" not in logged
+    assert "status=500" in logged
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_non_connected_status_is_not_success_and_is_not_retried(
     jvvoice_settings,
 ):

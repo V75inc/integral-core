@@ -14,8 +14,8 @@ class WhatsAppVisitorExchange(Object):
 
     __entity_name__: ClassVar[Optional[str]] = "WhatsAppVisitorExchange"
 
-    session_key: str = attribute(default="", indexed=True)
-    event_id: str = attribute(default="", indexed=True)
+    session_key: str = attribute(default="")
+    event_id: str = attribute(default="")
     visitor_text: str = ""
     assistant_text: str = ""
     created_at: Optional[str] = None

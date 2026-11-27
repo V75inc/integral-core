@@ -431,3 +431,11 @@ async def test_voice_service_stores_jvvoice_last4(
     fetched = await authenticated_client.get(_BINDING)
     assert fetched.json()["binding"]["jvvoice_api_key_last4"] == "-key"
     assert "LIVEKIT" not in fetched.text
+    moved = await authenticated_client.put(
+        _CALLING + "/service",
+        json={"jvvoice_base_url": "https://other.example", "api_key": ""},
+    )
+    assert moved.status_code == 400
+    assert "voice-secret-key" not in moved.text
+    again = await authenticated_client.get(_BINDING)
+    assert again.json()["binding"]["jvvoice_base_url"] == "https://voice.example"

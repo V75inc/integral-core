@@ -102,10 +102,10 @@ the jvvoice host. The line's jvvoice HTTPS URL and API key are saved with
 `PUT /api/agentive/channels/whatsapp/binding/calling/service`. The key is
 stored encrypted and the view returns only the last four characters when the
 key is at least four characters. An incomplete URL and key pair does not fall
-back to the deployment `JVVOICE_*` settings. The Connectors package panel
-does not yet render these calling fields; operators set them on those routes
-until the shared settings renderer grows the matching `url` and `secret`
-fields.
+back to the deployment `JVVOICE_*` settings. Changing the URL requires the
+API key again. Hangup uses the same line host. Settings → Connectors shows
+the voice service URL, the key, calling, and the public caller profile on
+the WhatsApp line.
 
 Configure can assign one published public profile on the workspace grant. The
 profile must have audience public and no tools. Saving it does not enable the

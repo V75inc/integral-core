@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
-from typing import Any
+import threading
+import time
+from typing import Any, Optional
 
 from app.agentive.services.whatsapp_call_admission import CallerAdmission
 from app.agentive.services.whatsapp_chat_bridge import _session_id
@@ -18,8 +20,13 @@ _phone_relays: dict[str, "_PhoneRelay"] = {}
 _hung_up_calls: set[str] = set()
 # Meta tokens for accepted calls, so hangup can end the provider leg.
 _call_api_keys: dict[str, str] = {}
+# Line that accepted the call. Hangup must use that jvvoice host.
+_call_bindings: dict[str, str] = {}
 # One-call relay bearers. The token is not a jvvoice key, Meta token, or JWT.
 _relay_bearers: dict[str, dict[str, str]] = {}
+_guard = threading.Lock()
+# jvvoice must present the bearer promptly. A leaked token does not stay live.
+_BEARER_TTL_SECONDS = 120.0
 
 
 class _PhoneRelay:
@@ -32,27 +39,42 @@ class _PhoneRelay:
         self.submit = submit
 
 
+def call_has_phone_relay(call_id: str) -> bool:
+    """True when this call already has a live model socket in this process."""
+    with _guard:
+        return bool(call_id) and call_id in _phone_relays
+
+
 def attach_phone_relay(
     *,
     call_id: str,
     upstream,
     bearer: str = "",
     submit=None,
-) -> _PhoneRelay:
-    """Remember a live phone relay so hangup can close it. Does not mint a bearer."""
-    relay = _PhoneRelay(call_id, upstream, bearer, submit)
-    _phone_relays[call_id] = relay
-    return relay
+) -> Optional[_PhoneRelay]:
+    """Remember a live phone relay so hangup can close it. Does not mint a bearer.
+
+    A call that already hung up is not attached. The caller closes ``upstream``.
+    """
+    with _guard:
+        if not call_id or call_id in _hung_up_calls:
+            return None
+        relay = _PhoneRelay(call_id, upstream, bearer, submit)
+        _phone_relays[call_id] = relay
+        return relay
 
 
-def remember_call_token(call_id: str, token: str) -> None:
-    """Keep the Meta token so a later hangup can end the provider call.
+def remember_call_token(call_id: str, token: str, binding_id: str = "") -> None:
+    """Keep the Meta token and line so a later hangup can end the provider call.
 
-    The socket that owns the model does not see the token. Without this
-    copy, closing the model leaves the WhatsApp leg up.
+    The socket that owns the model does not see the token. The line id selects
+    that line's jvvoice host. Without the line, hangup must not use the
+    deployment ``JVVOICE_*`` settings.
     """
     if call_id and token:
         _call_api_keys[call_id] = token
+    if call_id and binding_id:
+        _call_bindings[call_id] = binding_id
 
 
 async def close_model_socket(upstream: Any) -> None:
@@ -75,25 +97,55 @@ async def close_model_socket(upstream: Any) -> None:
         return
 
 
+async def _binding_for_hangup(binding, binding_id: str):
+    """Return the line to disconnect, and whether a line is required.
+
+    A required line that cannot be loaded does not fall back to deployment
+    ``JVVOICE_*`` settings.
+    """
+    if binding is not None:
+        return binding, True
+    target = (binding_id or "").strip()
+    if not target:
+        return None, False
+    from app.agentive.nodes import WhatsAppChannelBinding
+
+    try:
+        found = await WhatsAppChannelBinding.get(target)
+    except Exception:
+        logger.info("phone hangup could not load the line")
+        found = None
+    return found, True
+
+
 async def hang_up_phone_call(
     call_id: str,
     *,
     whatsapp_api_key: str = "",
     client=None,
+    binding=None,
+    binding_id: str = "",
 ) -> None:
     """Close the model and ask jvvoice to disconnect once. Does not submit chat."""
-    if not call_id or call_id in _hung_up_calls:
-        return
-    _hung_up_calls.add(call_id)
-    discard_relay_bearer(call_id)
-    token = whatsapp_api_key or _call_api_keys.pop(call_id, "")
-    _call_api_keys.pop(call_id, None)
-    relay = _phone_relays.pop(call_id, None)
+    with _guard:
+        if not call_id or call_id in _hung_up_calls:
+            return
+        _hung_up_calls.add(call_id)
+        discard_relay_bearer(call_id)
+        token = whatsapp_api_key or _call_api_keys.pop(call_id, "")
+        _call_api_keys.pop(call_id, None)
+        saved_binding_id = (binding_id or "").strip() or _call_bindings.pop(call_id, "")
+        _call_bindings.pop(call_id, None)
+        relay = _phone_relays.pop(call_id, None)
     if relay is not None:
         upstream = relay.upstream
         relay.bearer = ""
         relay.upstream = None
         await close_model_socket(upstream)
+    line, required = await _binding_for_hangup(binding, saved_binding_id)
+    if required and line is None:
+        logger.warning("phone hangup skipped; the line is gone")
+        return
     from app.agentive.services.whatsapp_call_control import disconnect_jvvoice_call
 
     try:
@@ -101,11 +153,15 @@ async def hang_up_phone_call(
             whatsapp_call_id=call_id,
             whatsapp_api_key=token,
             client=client,
+            binding=line,
         )
     except Exception:
-        _hung_up_calls.discard(call_id)
-        if token:
-            _call_api_keys[call_id] = token
+        with _guard:
+            _hung_up_calls.discard(call_id)
+            if token:
+                _call_api_keys[call_id] = token
+            if saved_binding_id:
+                _call_bindings[call_id] = saved_binding_id
         raise
 
 
@@ -147,12 +203,14 @@ async def start_phone_relay(
     whatsapp_api_key: str = "",
     client=None,
     open_upstream=None,
+    binding=None,
 ) -> bool:
     """Start one phone relay unless this principal already has a live call.
 
     A busy principal is handed to call-control for disconnect. That path does
     not open an upstream socket and does not accept again. A browser call and
-    a phone call are refused, not merged.
+    a phone call are refused, not merged. Disconnect uses this line's jvvoice
+    host when ``binding`` is set.
     """
     from app.agentive.api.native_voice import principal_has_live_call
     from app.agentive.services.whatsapp_call_control import release_busy_phone_call
@@ -162,6 +220,7 @@ async def start_phone_relay(
             whatsapp_call_id=whatsapp_call_id,
             whatsapp_api_key=whatsapp_api_key,
             client=client,
+            binding=binding,
         )
         return False
     if open_upstream is not None:
@@ -203,19 +262,21 @@ def mint_public_relay_bearer(
 ) -> str:
     """Mint one public-profile bearer. It has no member principal or thread."""
     token = secrets.token_urlsafe(32)
-    _relay_bearers[token] = {
-        "mode": "public",
-        "call_id": call_id,
-        "principal_id": "",
-        "workspace_id": workspace_id,
-        "thread_id": "",
-        "channel_session": "",
-        "binding_id": binding_id,
-        "grant_id": grant_id,
-        "revision": str(revision),
-        "profile_key": profile_key,
-        "published_version": str(published_version),
-    }
+    _relay_bearers[token] = _bearer_row(
+        {
+            "mode": "public",
+            "call_id": call_id,
+            "principal_id": "",
+            "workspace_id": workspace_id,
+            "thread_id": "",
+            "channel_session": "",
+            "binding_id": binding_id,
+            "grant_id": grant_id,
+            "revision": str(revision),
+            "profile_key": profile_key,
+            "published_version": str(published_version),
+        }
+    )
     return token
 
 
@@ -230,21 +291,37 @@ def mint_relay_bearer(
 ) -> str:
     """Mint one bearer bound to this call. The token is not written to a record."""
     token = secrets.token_urlsafe(32)
-    _relay_bearers[token] = {
+    row = {
         "call_id": call_id,
         "principal_id": principal_id,
         "workspace_id": workspace_id,
         "thread_id": thread_id,
         "channel_session": channel_session,
-        "binding_id": binding_id,
     }
+    if (binding_id or "").strip():
+        row["binding_id"] = binding_id
+    _relay_bearers[token] = _bearer_row(row)
     return token
 
 
+def _bearer_row(row: dict[str, str]) -> dict[str, str]:
+    stamped = dict(row)
+    stamped["expires_at"] = str(time.monotonic() + _BEARER_TTL_SECONDS)
+    return stamped
+
+
 def relay_bearer_record(token: str) -> dict[str, str] | None:
-    """Return the bound ids for a live bearer. An unknown token is not a record."""
-    row = _relay_bearers.get(token or "")
+    """Return the bound ids for a live bearer. An unknown or expired token is not a record."""
+    key = token or ""
+    row = _relay_bearers.get(key)
     if row is None:
+        return None
+    try:
+        expires = float(row.get("expires_at") or "0")
+    except ValueError:
+        expires = 0
+    if expires and time.monotonic() > expires:
+        _relay_bearers.pop(key, None)
         return None
     return dict(row)
 
@@ -342,6 +419,8 @@ async def bind_phone_accept(
     admission: CallerAdmission, call_id: str, *, binding_id: str = ""
 ) -> dict:
     """Mint the accept fields for one admitted owner. Does not open a socket."""
+    if not (binding_id or "").strip():
+        raise ValueError("WhatsApp line is required")
     scope = await phone_voice_scope(admission)
     token = mint_relay_bearer(
         call_id=call_id,

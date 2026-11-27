@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 from app.agentive.services.web_chat_profile_inference import (
     WebChatModelInput,
+    bound_public_exchanges,
+    clean_public_reply,
     public_text_model_input,
 )
 from app.api.errors import ResourceConflictError
@@ -78,8 +80,10 @@ async def live_public_profile_grants(binding) -> list[PublicLineGrant]:
         edge=[USES_WHATSAPP_LINE],
         direction="in",
         node=["Workspace"],
-        limit=50,
+        limit=51,
     )
+    if len(workspaces) > 50:
+        return []
     found: list[PublicLineGrant] = []
     for workspace in workspaces:
         grant = await workspace_line_grant(workspace.id, binding.id)
@@ -320,14 +324,21 @@ async def _reply_with_profile(
     if not await _grant_still_only(binding, grant):
         return UNAVAILABLE_NOTICE
     session_key = visitor_session_key(grant.grant_id, grant.revision, e164)
-    prompt = public_text_model_input(grant.persona, await _history(session_key), text)
+    try:
+        prompt = public_text_model_input(
+            grant.persona,
+            bound_public_exchanges(await _history(session_key)),
+            text,
+        )
+    except ValueError:
+        return UNAVAILABLE_NOTICE
     if not await _grant_still_only(binding, grant):
         return UNAVAILABLE_NOTICE
     if complete is None:
         reply = await _complete_public_text(grant, session_key, prompt)
     else:
         reply = await complete(prompt)
-    reply = (reply or "").strip()[:4000]
+    reply = clean_public_reply(reply or "")
     if not reply:
         return UNAVAILABLE_NOTICE
     if not await _grant_still_only(binding, grant):

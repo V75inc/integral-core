@@ -478,7 +478,7 @@ function ScopedConnectorsSection({
       const generation = { provision_id: channel.provision_id, route_epoch: channel.route_epoch };
       const enable = channel.state === "inactive" || channel.enabled === false;
       if (enable && !channel.can_enable) throw new Error();
-      if (enable && channel.configuration_kind === "published-public-profile-v1") {
+      if (enable && channel.definition.visitor_surface && channel.configuration_kind === "published-public-profile-v1") {
         const profile = await qc.fetchQuery(managedProfileOptions(principalId, workspaceId, slug, generation, channel.definition.visitor_surface));
         if (!profile.eligible_profiles.some(choice => choice.key === profile.profile_key)) throw new Error();
       }

@@ -12,7 +12,7 @@ import json
 import logging
 
 from app.agentive.services.web_chat_profile_inference import public_text_model_input
-from app.services.native_voice import MAX_AUDIO_CHUNK, PCM_SAMPLE_RATE
+from app.services.native_voice import MAX_AUDIO_CHUNK, MAX_CALL_SECONDS, PCM_SAMPLE_RATE
 
 logger = logging.getLogger(__name__)
 _MAX_PLAYBACK = 96_000
@@ -81,18 +81,30 @@ class PublicPhoneRelay:
         self.session_ready = False
 
     async def run(self) -> None:
-        if not await self._allowed():
-            return
-        await self.upstream.send(json.dumps(public_session_update(self.persona)))
-        peer = asyncio.create_task(self._read_peer())
-        model = asyncio.create_task(self._read_model())
-        watch = asyncio.create_task(self._watch())
-        done, pending = await asyncio.wait(
-            {peer, model, watch}, return_when=asyncio.FIRST_COMPLETED
-        )
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*done, *pending, return_exceptions=True)
+        peer = model = watch = None
+        try:
+            if not await self._allowed():
+                return
+            await self.upstream.send(json.dumps(public_session_update(self.persona)))
+            peer = asyncio.create_task(self._read_peer())
+            model = asyncio.create_task(self._read_model())
+            watch = asyncio.create_task(self._watch())
+            async with asyncio.timeout(MAX_CALL_SECONDS):
+                done, pending = await asyncio.wait(
+                    {peer, model, watch}, return_when=asyncio.FIRST_COMPLETED
+                )
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*done, *pending, return_exceptions=True)
+        except TimeoutError:
+            logger.info("public phone call duration limit reached")
+        finally:
+            tasks = [task for task in (peer, model, watch) if task is not None]
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _allowed(self) -> bool:
         try:

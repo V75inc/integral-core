@@ -59,6 +59,15 @@ class SaveWhatsAppVoiceServiceRequest(BaseModel):
         if not stripped:
             return ""
         parsed = urlparse(stripped)
-        if parsed.scheme != "https" or not parsed.netloc:
-            raise ValueError("jvvoice base URL must be https")
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "jvvoice base URL must be https without a user, query, or fragment"
+            )
         return stripped

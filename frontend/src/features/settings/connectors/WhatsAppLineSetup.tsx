@@ -72,7 +72,7 @@ export function WhatsAppLineSetup({ workspaceId }: { workspaceId: string }) {
       setError('');
       setNotice('Voice service saved.');
       qc.setQueryData(['connectors', 'whatsapp-line', workspaceId], saved);
-      await line.refetch();
+      await refresh();
     },
     onError: (err: unknown) => setError(message(err, 'Could not save the voice service.')),
   });
@@ -87,9 +87,12 @@ export function WhatsAppLineSetup({ workspaceId }: { workspaceId: string }) {
     },
     onSuccess: async () => {
       setError('');
+      await refresh();
+    },
+    onError: async (err: unknown) => {
+      setError(message(err, 'Could not update voice calling.'));
       await line.refetch();
     },
-    onError: (err: unknown) => setError(message(err, 'Could not update voice calling.')),
   });
   const lineEnabled = useMutation({
     mutationFn: (enabled: boolean) => {

@@ -603,6 +603,9 @@ def _reset_phone_hangups() -> None:
     keys = getattr(bridge, "_call_api_keys", None)
     if keys is not None:
         keys.clear()
+    bindings = getattr(bridge, "_call_bindings", None)
+    if bindings is not None:
+        bindings.clear()
     bearers = getattr(bridge, "_relay_bearers", None)
     if bearers is not None:
         bearers.clear()
@@ -686,6 +689,57 @@ async def test_hangup_uses_the_token_saved_when_the_call_was_accepted(monkeypatc
     assert upstream.closed is True
     assert bodies[0]["whatsapp_api_key"] == "meta-saved-token"
     assert bodies[0]["whatsapp_call_id"] == "wacid.1"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_hangup_uses_the_line_jvvoice_host(monkeypatch):
+    """A saved line is disconnected on that host, not the deployment default."""
+    import httpx
+
+    from app.agentive.nodes import WhatsAppChannelBinding
+    from app.agentive.services import whatsapp_voice_bridge as bridge
+    from app.config import settings
+
+    _reset_phone_hangups()
+    line = SimpleNamespace(
+        id="binding-1",
+        jvvoice_base_url="https://line.example.test",
+        jvvoice_api_key_ciphertext="cipher",
+    )
+
+    async def load(binding_id):
+        assert binding_id == "binding-1"
+        return line
+
+    def decrypt(ciphertext, aad=""):
+        assert ciphertext == "cipher"
+        assert aad == "binding-1"
+        return "line-voice-key"
+
+    urls: list[str] = []
+    auths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        urls.append(str(request.url))
+        auths.append(request.headers["Authorization"])
+        return httpx.Response(200, json={"status": "disconnected"})
+
+    monkeypatch.setattr(WhatsAppChannelBinding, "get", load)
+    monkeypatch.setattr(
+        "app.services.credential_crypto.decrypt_secret_from_storage",
+        decrypt,
+    )
+    monkeypatch.setattr(settings, "JVVOICE_BASE_URL", "https://default.example.test")
+    monkeypatch.setattr(settings, "JVVOICE_API_KEY", "deployment-key")
+    bridge.remember_call_token("wacid.1", "meta-saved-token", binding_id="binding-1")
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            await bridge.hang_up_phone_call("wacid.1", client=client)
+    finally:
+        _reset_phone_hangups()
+    assert urls == ["https://line.example.test/api/calls/disconnect"]
+    assert auths == ["Bearer line-voice-key"]
 
 
 @pytest.mark.unit
@@ -1307,7 +1361,17 @@ def _mint_call_bearer() -> str:
         principal_id="user-1",
         workspace_id="ws-1",
         thread_id="thread-1",
+        binding_id="binding-1",
     )
+
+
+def _allow_phone_line(monkeypatch) -> None:
+    from app.agentive.services import whatsapp_voice_bridge as bridge
+
+    async def allow(_record):
+        return True
+
+    monkeypatch.setattr(bridge, "confirm_phone_line", allow)
 
 
 class _ReadyUpstream(_FakeUpstream):
@@ -1336,6 +1400,7 @@ async def test_phone_socket_delivers_one_pcm_chunk_for_a_valid_bearer(monkeypatc
 
     _reset_phone_hangups()
     native_voice._active_calls.clear()
+    _allow_phone_line(monkeypatch)
     token = _mint_call_bearer()
     upstream = _ReadyUpstream()
     opened: list[str] = []
@@ -1586,6 +1651,7 @@ def test_phone_voice_attaches_the_relay_and_hangs_up_on_close(monkeypatch):
 
     _reset_phone_hangups()
     native_voice._active_calls.clear()
+    _allow_phone_line(monkeypatch)
     token = _mint_call_bearer()
     release = threading.Event()
     entered = threading.Event()
@@ -1703,6 +1769,7 @@ def test_phone_socket_disconnects_when_realtime_credential_is_missing(monkeypatc
 
     _reset_phone_hangups()
     native_voice._active_calls.clear()
+    _allow_phone_line(monkeypatch)
     token = _mint_call_bearer()
     hung: list[str] = []
 

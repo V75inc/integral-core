@@ -483,6 +483,13 @@ async def get_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, A
 
     user_id = _require_channel_user(request)
     workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if workspace_id:
+        from app.services.workspace_permissions import is_workspace_admin_or_owner
+
+        if not await is_workspace_admin_or_owner(user_id, workspace_id):
+            raise InsufficientPermissionsError(
+                message="Only workspace owners and admins can view the WhatsApp line"
+            )
     binding = None if not workspace_id else await binding_for_workspace(workspace_id)
     from app.connectors.package_channels import read_host_grant
 
@@ -635,10 +642,12 @@ async def set_whatsapp_voice_service_endpoint(request: Request) -> Dict[str, Any
 
     from app.agentive.services.whatsapp_channel_binding import (
         attach_jvconnect_calling_status,
+        binding_for_workspace,
         set_workspace_line_voice_service,
         workspace_calling_view,
         workspace_line_grant,
     )
+    from app.api.errors import ServiceUnavailableError
     from app.schemas.agentive.whatsapp_channel import SaveWhatsAppVoiceServiceRequest
     from app.services.request_scope import resolve_workspace_id_from_request
 
@@ -652,12 +661,41 @@ async def set_whatsapp_voice_service_endpoint(request: Request) -> Dict[str, Any
         body = SaveWhatsAppVoiceServiceRequest.model_validate(raw or {})
     except ValidationError as exc:
         raise BadRequestError(message=_binding_validation_message(exc)) from exc
-    binding = await set_workspace_line_voice_service(
-        user_id, workspace_id, body.jvvoice_base_url, body.api_key
-    )
+    before_binding = await binding_for_workspace(workspace_id)
+    before = None
+    if before_binding is not None:
+        before = {
+            "jvvoice_base_url": getattr(before_binding, "jvvoice_base_url", "") or "",
+            "jvvoice_api_key_last4": getattr(
+                before_binding, "jvvoice_api_key_last4", ""
+            )
+            or "",
+        }
+    try:
+        binding = await set_workspace_line_voice_service(
+            user_id, workspace_id, body.jvvoice_base_url, body.api_key
+        )
+    except RuntimeError as exc:
+        text = str(exc)
+        if "INTEGRAL_CREDENTIAL_ENC_KEY" not in text:
+            raise
+        raise ServiceUnavailableError(message=text) from exc
     grant = await workspace_line_grant(workspace_id, binding.id)
     view = workspace_calling_view(binding, grant)
     view = await attach_jvconnect_calling_status(binding, view)
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="whatsapp_channel_voice_service.update",
+        resource_type="WhatsAppChannelBinding",
+        resource_id=binding.id,
+        before=before,
+        after={
+            "jvvoice_base_url": view.get("jvvoice_base_url") or "",
+            "jvvoice_api_key_last4": view.get("jvvoice_api_key_last4") or "",
+        },
+        scope=f"user:{user_id}",
+    )
     return {"binding": view}
 
 

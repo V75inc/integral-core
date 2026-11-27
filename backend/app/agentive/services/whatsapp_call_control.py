@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -18,7 +19,7 @@ from app.schemas.agentive.whatsapp_call import (
     JvvoiceAcceptCallRequest,
     JvvoiceDisconnectCallRequest,
 )
-from app.services.url_safety import validate_outbound_http_url
+from app.services.url_safety import pin_public_dns, validate_outbound_http_url
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,12 @@ class JvvoiceCallResult:
     detail: str = ""
 
 
+_SECRET_MARK = re.compile(
+    r"(EAAG|jvv_|jvk_|whsec_)[A-Za-z0-9_\-]{4,}",
+    re.IGNORECASE,
+)
+
+
 def _safe_error_text(value: object) -> str:
     """Keep a short provider message. Never log tokens, SDP, or bearers."""
     if not isinstance(value, str):
@@ -171,9 +178,12 @@ def _safe_error_text(value: object) -> str:
     if not text or len(text) > 200:
         return ""
     lowered = text.lower()
-    if "bearer " in lowered or "v=0" in lowered:
+    if "bearer " in lowered or "v=0" in lowered or _SECRET_MARK.search(text):
         return ""
     if text.count(".") == 2 and len(text) > 40:
+        return ""
+    compact = "".join(text.split())
+    if len(compact) >= 20 and compact.isalnum():
         return ""
     return text
 
@@ -362,13 +372,14 @@ async def _post_jvvoice(
             _log_jvvoice(operation, result)
             return result
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as owned:
-            result = await _perform_jvvoice(
-                owned,
-                url,
-                api_key,
-                payload,
-                success_status=success_status,
-            )
+            with pin_public_dns(url):
+                result = await _perform_jvvoice(
+                    owned,
+                    url,
+                    api_key,
+                    payload,
+                    success_status=success_status,
+                )
     else:
         result = await _perform_jvvoice(
             client,
@@ -449,15 +460,18 @@ async def release_busy_phone_call(
     whatsapp_call_id: str,
     whatsapp_api_key: str = "",
     client: Optional[httpx.AsyncClient] = None,
+    binding=None,
 ) -> JvvoiceCallResult:
     """Hang up a phone call that cannot join an existing live relay.
 
-    Uses the disconnect helper. Does not post accept.
+    Uses the disconnect helper. Does not post accept. ``binding`` selects the
+    line's jvvoice host.
     """
     return await disconnect_jvvoice_call(
         whatsapp_call_id=whatsapp_call_id,
         whatsapp_api_key=whatsapp_api_key,
         client=client,
+        binding=binding,
     )
 
 
@@ -733,7 +747,11 @@ async def _accept_public_profile_call(
         await _record_call(store, binding, parsed, "failed", "not_connected")
         logger.warning("whatsapp call accept failed status=%s", accepted.status_code)
         return
-    remember_call_token(parsed.call_id, token)
+    remember_call_token(
+        parsed.call_id,
+        token,
+        binding_id=getattr(binding, "id", "") or "",
+    )
     await _record_call(store, binding, parsed, "accepted", "")
     logger.info("whatsapp public call accepted")
 
@@ -773,6 +791,7 @@ async def handle_whatsapp_call(
                 parsed.call_id,
                 whatsapp_api_key=access_token_in_hand,
                 client=http_client,
+                binding=binding,
             )
         return {"ok": True}
     # A stored receipt or an in-process claim means this id is already
@@ -858,6 +877,7 @@ async def handle_whatsapp_call(
         whatsapp_call_id=parsed.call_id,
         whatsapp_api_key=token,
         client=http_client,
+        binding=binding,
     ):
         await _record_call(store, binding, parsed, "refused", "principal_busy")
         logger.info("whatsapp call refused reason=principal_busy")
@@ -871,10 +891,13 @@ async def handle_whatsapp_call(
             parsed.call_id,
             binding_id=getattr(binding, "id", "") or "",
         )
-    except ValueError:
+    except ValueError as exc:
         discard_relay_bearer(parsed.call_id)
-        await _record_call(store, binding, parsed, "failed", "thread_mismatch")
-        logger.warning("whatsapp call thread mismatch")
+        reason = (
+            "line_required" if "line is required" in str(exc) else "thread_mismatch"
+        )
+        await _record_call(store, binding, parsed, "failed", reason)
+        logger.warning("whatsapp call %s", reason)
         return {"ok": True}
     relay_url = fields["relay_url"]
     logger.info("whatsapp call accept sdp_len=%s", len(parsed.sdp))
@@ -885,6 +908,25 @@ async def handle_whatsapp_call(
         return {"ok": True}
     if reload_call_inputs is not None:
         identities, grants = await reload_call_inputs(binding)
+        from app.agentive.nodes import WhatsAppChannelBinding
+
+        try:
+            fresh = await WhatsAppChannelBinding.get(getattr(binding, "id", "") or "")
+        except RuntimeError:
+            fresh = binding
+        if fresh is None:
+            discard_relay_bearer(parsed.call_id)
+            await _record_call(store, binding, parsed, "refused", "admission_changed")
+            if token:
+                await disconnect_jvvoice_call(
+                    whatsapp_call_id=parsed.call_id,
+                    whatsapp_api_key=token,
+                    client=http_client,
+                    binding=binding,
+                )
+            logger.info("whatsapp call refused reason=admission_changed")
+            return {"ok": True}
+        binding = fresh
     if not _line_answer_still_holds(binding, parsed, identities, grants, admission):
         discard_relay_bearer(parsed.call_id)
         await _record_call(store, binding, parsed, "refused", "admission_changed")
@@ -913,7 +955,11 @@ async def handle_whatsapp_call(
         await _record_call(store, binding, parsed, "failed", "not_connected")
         logger.warning("whatsapp call accept failed status=%s", accepted.status_code)
         return {"ok": True}
-    remember_call_token(parsed.call_id, token)
+    remember_call_token(
+        parsed.call_id,
+        token,
+        binding_id=getattr(binding, "id", "") or "",
+    )
     await _record_call(store, binding, parsed, "accepted", "")
     logger.info("whatsapp call accepted")
     return {"ok": True}

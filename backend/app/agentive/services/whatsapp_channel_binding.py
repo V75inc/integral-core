@@ -375,21 +375,32 @@ async def set_workspace_line_voice_service(
     if not workspace_id:
         raise BadRequestError(message="A workspace is required")
     await _require_line_admin(user_id, workspace_id)
+    url = (jvvoice_base_url or "").strip().rstrip("/")
+    key = (api_key or "").strip()
+    if url:
+        _require_voice_service_url(url)
+        from app.services.url_safety import validate_outbound_http_url
+
+        await validate_outbound_http_url(url)
     async with _workspace_line_write(workspace_id):
         binding = await binding_for_workspace(workspace_id)
         if binding is None:
             raise ResourceNotFoundError(message="WhatsApp channel is not configured")
-        url = (jvvoice_base_url or "").strip().rstrip("/")
-        key = (api_key or "").strip()
+        current_url = (
+            (getattr(binding, "jvvoice_base_url", "") or "").strip().rstrip("/")
+        )
         if not url and not key:
             binding.jvvoice_base_url = ""
             binding.jvvoice_api_key_ciphertext = ""
             binding.jvvoice_api_key_last4 = ""
         else:
+            if key and not url and not current_url:
+                raise BadRequestError(message="Enter the jvvoice base URL")
+            if url and url != current_url and not key:
+                raise BadRequestError(
+                    message="Enter the jvvoice API key when changing the jvvoice URL"
+                )
             if url:
-                from app.services.url_safety import validate_outbound_http_url
-
-                await validate_outbound_http_url(url)
                 binding.jvvoice_base_url = url
             if key:
                 binding.jvvoice_api_key_ciphertext = encrypt_secret_for_storage(
@@ -401,6 +412,24 @@ async def set_workspace_line_voice_service(
         binding.updated_at = utc_now_iso()
         await binding.save()
         return binding
+
+
+def _require_voice_service_url(url: str) -> None:
+    """Require an https jvvoice URL with no user info, query, or fragment."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise BadRequestError(
+            message="jvvoice base URL must be https without a user, query, or fragment"
+        )
 
 
 async def reregister_workspace_whatsapp_webhook(
