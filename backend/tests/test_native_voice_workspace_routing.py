@@ -364,8 +364,21 @@ async def test_voice_and_typed_use_same_heavy_dashboard_broker(monkeypatch):
 @pytest.mark.parametrize(
     "ordering", ["context-first", "ack-first", "superseded", "revoked", "interrupted"]
 )
+@pytest.mark.parametrize(
+    "destination_path,request_text",
+    [
+        ("/apps/n.WorkspaceApp.fixture", "Open Field Notes"),
+        ("/tracks/n.Track.museum", "Open Object assessments in Museum Collections"),
+        (
+            "/tracks/n.Track.library?view_id=n.View.reading",
+            "Open reading view in Book Notes",
+        ),
+        ("/tracks/n.Track.research?entry=n.Entry.sample", "Open the sample record"),
+    ],
+    ids=["app", "track", "saved-view", "record"],
+)
 async def test_live_navigation_delivery_is_exact_and_not_replayed(
-    monkeypatch, ordering
+    monkeypatch, ordering, destination_path, request_text
 ):
     """Only a successful current-call result can move the bound browser."""
     from app.schemas.agentive.chat_events import ChatEventReplayPage
@@ -376,7 +389,7 @@ async def test_live_navigation_delivery_is_exact_and_not_replayed(
     scope.page_context = {"url": "/agent", "route_path": "/agent"}
     destination = {
         "type": "navigation",
-        "path": "/apps/n.WorkspaceApp.fixture",
+        "path": destination_path,
         "thread_id": "thread",
         "workspace_id": "workspace",
     }
@@ -391,7 +404,7 @@ async def test_live_navigation_delivery_is_exact_and_not_replayed(
     accepted = native_voice._AcceptedVoiceTurn(
         "work",
         "message",
-        "Open app",
+        request_text,
         browser_origin="/agent",
         voice_generation=relay.generation,
     )
@@ -433,7 +446,7 @@ async def test_live_navigation_delivery_is_exact_and_not_replayed(
     next_path = "/other" if ordering == "superseded" else destination["path"]
     context = {
         "type": "page_context",
-        "page": {"url": next_path, "route_path": next_path},
+        "page": {"url": next_path, "route_path": next_path.split("?")[0]},
     }
     if ordering != "context-first":
         await send(ack)
