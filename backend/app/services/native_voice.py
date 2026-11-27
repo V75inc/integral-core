@@ -1519,9 +1519,11 @@ class VoiceRelay:
         self.progress_at: dict[str, float] = {}
         self.progress_counts: Counter[str] = Counter()
         self.workspace_tool_generation: int | None = None
-        # A response.created after a workspace tool is withheld until its
-        # completed output shows a function call. Audio-only extras stay silent.
+        # A response.created after a workspace tool is withheld. A later
+        # function-only completion can be the next request. Audio on that
+        # response marks an unsolicited continuation and stays ignored.
         self.deferred_response_id: str | None = None
+        self.deferred_response_spoke: bool = False
         self.last_spoken_response: str | None = None
         self.speaking = False
         self.microphone_muted = False
@@ -1730,6 +1732,7 @@ class VoiceRelay:
         self.generation += 1
         self.response_generation = None
         self.deferred_response_id = None
+        self.deferred_response_spoke = False
         self.speech_only_response_id = None
         self._clear_capability_offer()
         self.opening_response_id = None
@@ -4350,10 +4353,11 @@ class VoiceRelay:
                         self.opening_response_id = response_id
                     self.opening_token = None
                 elif self.workspace_tool_generation == self.generation:
-                    # An unsolicited audio response must not displace a readout.
-                    # A later function call on this id is adopted in response.done.
+                    # Audio on this response stays silent. A function-only
+                    # completion can still be the next request.
                     self.protocol_counts["suppressed_post_delegate_response"] += 1
                     self.deferred_response_id = response_id
+                    self.deferred_response_spoke = False
                 else:
                     self.opening_response_id = None
                     self.opening_token = None
@@ -4432,6 +4436,8 @@ class VoiceRelay:
                 if self.review_confirmation:
                     continue
                 response_id = event.get("response_id")
+                if response_id and response_id == self.deferred_response_id:
+                    self.deferred_response_spoke = True
                 if (
                     (
                         self.workspace_tool_generation == self.generation
@@ -4718,11 +4724,12 @@ class VoiceRelay:
                         )
                     self._discard_silent_readout()
                     continue
-                # The created event was withheld so an audio-only extra stays
-                # silent. A completed function call is the next caller turn.
+                # Audio on a withheld response is an unsolicited continuation.
+                # A function call with no audio is the next request.
                 if (
                     response_id
                     and response_id == self.deferred_response_id
+                    and not self.deferred_response_spoke
                     and self.response_generation is None
                     and not self.speech_only_response_id
                     and not self.delegate_token
@@ -4735,6 +4742,7 @@ class VoiceRelay:
                     self.response_generation = response_id
                 if response_id and response_id == self.deferred_response_id:
                     self.deferred_response_id = None
+                    self.deferred_response_spoke = False
                 self.processing_tool_response = True
                 try:
                     await self._completed_response(event)
