@@ -957,7 +957,10 @@ Preserve the 80% global coverage requirement and 90% per-file requirement for ca
 
 A standing resident permission binds a human to their workspace. Ask (default) never authorizes an edit. Auto covers eligible simple edits in private tracks the caller owns. Custom limits those edits to the saved set. Full covers canonical record creates and updates in that workspace, subject to the caller’s current resource policy and the writer’s validation. Changing modes preserves the saved Custom set. Each effective grant revision is captured at interactive turn admission
 and rechecked under lock at the staged effect. Manual and automatic decisions
-use the canonical writer and receipt. A change to the grant cannot authorize
+use the canonical writer and receipt. For Auto and Custom, ordinary bounded
+scalar edits may be evaluated against the actual effective field schema and
+record revision; reference, file, composite and computed fields and hooks
+are not silently treated as simple edits. A change to the grant cannot authorize
 a proposal from an earlier turn. Voice presents the same decision as chat.
 
 For legacy staged workspace tools, an explicit dictionary result `ok: false`

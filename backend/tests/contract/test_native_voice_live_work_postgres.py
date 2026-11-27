@@ -793,6 +793,12 @@ async def test_spoken_review_of_canonical_entry_proposal(
         "full_create",
         "full_denied",
         "auto_private",
+        "scalar_custom",
+        "auto_scalar",
+        "scalar_manual",
+        "scalar_manual_reject",
+        "scalar_unsupported",
+        "scalar_stale",
         "auto_shared",
         "ask_saved",
         "policy_outside",
@@ -862,7 +868,15 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     date_key, date_label = (
         ("renew_on", "Renewal on") if creating else ("due_date", "Due date")
     )
-    if edit == "date" or creating:
+    scalar = edit in {
+        "scalar_custom",
+        "auto_scalar",
+        "scalar_manual",
+        "scalar_manual_reject",
+        "scalar_unsupported",
+        "scalar_stale",
+    }
+    if edit == "date" or creating or scalar:
         kind = await authenticated_client.post(
             "/api/entry-types",
             headers=headers,
@@ -875,6 +889,13 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
                         {"key": "notes", "name": "Notes", "type": "markdown"},
                         {"key": "count", "name": "Count", "type": "number"},
                         {"key": "lead", "name": "Assigned lead", "type": "member"},
+                        {"key": "registration", "name": "Registration", "type": "text"},
+                        {
+                            "key": "condition",
+                            "name": "Condition",
+                            "type": "select",
+                            "enum": ["Ready", "Held"],
+                        },
                         {"key": "expedite", "name": "Expedite", "type": "boolean"},
                     ]
                 },
@@ -884,6 +905,10 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         record_input.update(
             type_id=kind.json()["entry_type"]["id"],
             custom_fields={date_key: "2026-11-26"},
+        )
+    if scalar:
+        record_input["custom_fields"].update(
+            registration="QA0001", condition="Ready", count=3, expedite=True
         )
     response = await authenticated_client.post(
         "/api/entries", headers=headers, json=record_input
@@ -915,6 +940,10 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         "full_create",
         "full_denied",
         "auto_private",
+        "scalar_custom",
+        "auto_scalar",
+        "scalar_unsupported",
+        "scalar_stale",
         "auto_shared",
         "ask_saved",
         "policy_outside",
@@ -982,7 +1011,8 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
             client_request_id="voice-confirmation-fixture",
             parts=[{"type": "text", "text": "Rename Acme to Georgetown"}],
             execution_context=ChatTurnExecutionContext(
-                extra_data={"voice_delegate": True}, focused_track_id=track_id
+                extra_data={} if edit == "auto_scalar" else {"voice_delegate": True},
+                focused_track_id=track_id,
             ),
         )
     )
@@ -1003,6 +1033,23 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         payload.update(
             fields={"due_date": "2026-11-27"},
             expected_schema_revision=await _schema_revision_for_update(entry),
+        )
+    elif scalar:
+        from app.agentive.tooling.bindings import _schema_revision_for_update
+
+        changes = {"registration": "QA0002"}
+        if edit == "auto_scalar":
+            changes = {"condition": "Held", "count": 0, "expedite": False}
+        if edit == "scalar_unsupported":
+            changes = {"notes": "A note requiring review"}
+        schema_revision = await _schema_revision_for_update(entry)
+        payload.update(
+            fields=changes,
+            expected_schema_revision=(
+                schema_revision
+                if edit != "scalar_stale"
+                else (schema_revision or 0) + 1
+            ),
         )
     else:
         payload["title"] = "Acme Georgetown"
@@ -1125,7 +1172,7 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
             "entry", entry["id"], "Acme", track_id
         )
     review = await relay._current_review()
-    if edit == "full_edit":
+    if edit in {"full_edit", "scalar_unsupported", "scalar_stale"}:
         assert (
             review is None
         )  # A body replacement is outside the simple spoken projection.
@@ -1244,11 +1291,22 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
                 f"/api/tracks/{track_id}/collaborators/{test_user2.id}", headers=headers
             )
             assert removed.status_code == 200, removed.text
-        if edit in {"auto_shared", "policy_outside", "ask_saved", "full_denied"}:
+        if edit in {
+            "auto_shared",
+            "policy_outside",
+            "ask_saved",
+            "full_denied",
+            "scalar_unsupported",
+            "scalar_stale",
+        }:
             if edit == "ask_saved":
                 assert "resident_permission_revision" not in claimed.input_payload
             assert await apply_resident_permission(claimed, ctx, staged.token) is None
-            assert (await Entry.get(entry["id"])).title == "Acme"
+            unchanged = await Entry.get(entry["id"])
+            assert unchanged.title == "Acme"
+            if scalar:
+                assert unchanged.custom_fields["registration"] == "QA0001"
+                assert unchanged.custom_fields.get("notes") is None
             return
         if edit == "policy_late":
             assert "resident_permission_revision" not in claimed.input_payload
@@ -1290,6 +1348,11 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
             path, headers=headers, json={"track_id": "", "revision": grant["revision"]}
         )
         assert revoked.status_code == 200 and not revoked.json()["track_id"]
+        if edit in {"scalar_custom", "auto_scalar"}:
+            updated = await Entry.get(entry["id"])
+            assert all(updated.custom_fields[k] == v for k, v in changes.items())
+            assert updated.title == "Acme"
+            return
         if edit in {"policy_edit", "full_edit", "auto_private"}:
             updated = await Entry.get(entry["id"])
             assert updated.title == "Acme Georgetown"
@@ -1321,13 +1384,30 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     confirmation.audio.extend(b"\xff\x7f" * 48000)
 
     async def recognize(*args, **kwargs):
-        return "No thanks" if edit in {"reject", "batch_reject"} else "Yes, please"
+        return (
+            "No thanks"
+            if edit in {"reject", "batch_reject", "scalar_manual_reject"}
+            else "Yes, please"
+        )
 
     monkeypatch.setattr(service, "transcribe_voice_confirmation", recognize)
     monkeypatch.setattr(native_voice, "CAPTURE_SECONDS", 0.01)
     relay.review_confirmation = confirmation
     await relay._capture_review_confirmation(confirmation)
     assert (await event(browser.outbox))["type"] == "review_confirmation_ended"
+    if edit in {"scalar_manual", "scalar_manual_reject"}:
+        from app.models.nodes import Entry
+
+        saved = await Entry.get(entry["id"])
+        assert saved.custom_fields["registration"] == (
+            "QA0001" if edit.endswith("reject") else "QA0002"
+        )
+        assert saved.record_revision == (
+            entry["record_revision"]
+            if edit.endswith("reject")
+            else entry["record_revision"] + 1
+        )
+        return
     if batch:
         from app.agentive.nodes import RoutineTask
         from app.models.nodes import Entry

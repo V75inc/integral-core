@@ -237,8 +237,7 @@ to them.
 
 A current-review read can speak the exact supported fields of one pending
 record edit tied to the accepted voice work and run, if the target is still
-readable and its recorded revision is current. Initially this covers title,
-status and typed date edits. Voice projects the current record and the actual
+readable and its recorded revision is current. This covers title, status and schema-declared bounded literal text, select, number, boolean and date edits. The same field projection qualifies an eligible standing private-list grant; both typed and spoken turns use it. Composite, reference, file, computed and other unsupported fields retain review. Voice projects the current record and the actual
 staged payload. The same projection must still match when playback begins.
 Simple creation also uses the existing proposal form and canonical field
 validator to present the Track, type, title and effective scalar values.

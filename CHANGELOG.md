@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Honor Auto and Custom permissions for schema-declared simple scalar edits (including text registrations), preserving canonical validation, revision fences and review for unsupported effects.
+
 - Restore voice confirmation for bounded multi-paragraph and bullet-list task descriptions, independent of unrelated UI focus; speak directly to the signed-in person.
 
 - Add bounded encrypted, source-linked native conversation working memory.
