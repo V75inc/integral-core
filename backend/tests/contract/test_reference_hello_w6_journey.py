@@ -102,7 +102,7 @@ async def test_reference_hello_app_full_extension_journey(monkeypatch):
     assert echo["output"]["message"] == "still here"
     assert echo["evidence"]["policy_revision"].startswith("policy-sha256:")
 
-    archive = await export_resources(
+    archive, _skipped = await export_resources(
         user_id=actor_id,
         workspace_id=workspace.id,
         selection=ExportSelection(kind="track", ids=[notes.id], mode="full"),

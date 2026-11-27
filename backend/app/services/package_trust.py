@@ -45,7 +45,9 @@ def assert_library_artifact_trusted(library_profile: OperationalModel) -> None:
     from app.services.operational_model_loader import compute_bundle_fingerprint
 
     actual_fingerprint = compute_bundle_fingerprint(bundle_dir)
-    if actual_fingerprint != expected_fingerprint:
+    legacy_fingerprint = compute_bundle_fingerprint(bundle_dir, legacy=True)
+    # Accept pre-alignment stamps that included local cache/VCS junk.
+    if expected_fingerprint not in (actual_fingerprint, legacy_fingerprint):
         raise PackageArtifactTrustError(
             message="Package artifact changed after catalog validation.",
             details={

@@ -342,6 +342,16 @@ def main(argv: list[str] | None = None) -> int:
             lifecycle.add_argument(
                 "--apps", type=Path, help="External App discovery directory"
             )
+            lifecycle.add_argument(
+                "--admin-env",
+                type=Path,
+                help="Read ADMIN_EMAIL/ADMIN_PASSWORD/ADMIN_NAME for first-run admin seed",
+            )
+            lifecycle.add_argument(
+                "--no-admin",
+                action="store_true",
+                help="Skip first-run admin seeding (no login)",
+            )
         elif command == "logs":
             lifecycle.add_argument(
                 "--service",
@@ -565,6 +575,8 @@ def main(argv: list[str] | None = None) -> int:
                     port=args.port,
                     open_browser=not args.no_open,
                     apps=args.apps,
+                    admin_env=args.admin_env,
+                    no_admin=args.no_admin,
                     on_progress=(
                         setup_progress
                         if os.environ.get("INTEGRAL_SETUP_PROGRESS") == "1"

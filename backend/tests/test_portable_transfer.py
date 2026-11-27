@@ -119,7 +119,7 @@ async def test_round_trip(kind, mode, authenticated_client, test_user, monkeypat
         attachment_ids=[attachment.id],
         custom_fields={"document": attachment.id},
     )
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(
@@ -166,7 +166,7 @@ async def test_round_trip(kind, mode, authenticated_client, test_user, monkeypat
     assert a.custom_fields["document"] == attachments[0].id
     assert await storage.read_attachment(attachments[0].storage_key) == content
     # Imported material must itself be exportable, without dangling source refs.
-    again = await export_resources(
+    again, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="track", ids=[copied.id], mode="full"),
@@ -225,7 +225,7 @@ async def test_export_strips_deleted_relation_targets(authenticated_client, test
     await second.delete(cascade=False)
     assert await Entry.get(deleted_id) is None
 
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
@@ -269,9 +269,12 @@ async def test_export_names_live_external_app_for_relation(
 
 
 @pytest.mark.asyncio
-async def test_export_refuses_silent_record_loss(authenticated_client, test_user):
+async def test_export_omits_incomplete_required_link_records(
+    authenticated_client, test_user
+):
     from app.services.app_graph import get_track_attached_operational_model
     from app.services.operational_model_runtime import sync_attached_manifest
+    from app.services.portable_archive import decode_archive
 
     ws, app, track, first, second = await fixture(test_user.id)
     cp = await get_track_attached_operational_model(track)
@@ -299,12 +302,62 @@ async def test_export_refuses_silent_record_loss(authenticated_client, test_user
     }
     await second.save()
 
-    with pytest.raises(BadRequestError, match="missing required relations or files"):
-        await export_resources(
-            user_id=test_user.id,
-            workspace_id=ws,
-            selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
-        )
+    data, skipped = await export_resources(
+        user_id=test_user.id,
+        workspace_id=ws,
+        selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
+    )
+    assert skipped == ["Second"]
+    raw, _files = decode_archive(data)
+    titles = [
+        entry["title"]
+        for track in raw["apps"][0]["tracks"]
+        for entry in track.get("entries") or []
+    ]
+    assert "First" in titles
+    assert "Second" not in titles
+
+
+@pytest.mark.asyncio
+async def test_export_reports_skipped_entries_in_headers(
+    authenticated_client, test_user
+):
+    from app.services.app_graph import get_track_attached_operational_model
+    from app.services.operational_model_runtime import sync_attached_manifest
+
+    ws, app, track, first, second = await fixture(test_user.id)
+    cp = await get_track_attached_operational_model(track)
+    types = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
+    et = types[0]
+    fields = list(et.form_schema.get("fields") or [])
+    for field in fields:
+        if field.get("key") == "related":
+            field["required"] = True
+    et.form_schema = {**et.form_schema, "fields": fields}
+    await et.save()
+    await sync_attached_manifest(cp)
+
+    first.custom_fields = {
+        **(first.custom_fields or {}),
+        "amount": 0,
+        "related": first.id,
+    }
+    await first.save()
+    second.custom_fields = {
+        **(second.custom_fields or {}),
+        "amount": 12.5,
+        "related": "n.Entry.missing-required-target",
+    }
+    await second.save()
+
+    response = await authenticated_client.post(
+        "/api/portable/export",
+        json={"kind": "app", "ids": [app.id], "mode": "full"},
+        headers={"X-Integral-Scope": f"ws:{ws}"},
+    )
+    assert response.status_code == 200
+    assert response.headers.get("X-Integral-Skipped-Entry-Count") == "1"
+    assert "Second" in response.headers.get("X-Integral-Skipped-Entries", "")
 
 
 @pytest.mark.asyncio
@@ -318,7 +371,7 @@ async def test_import_skips_entries_missing_required_relation(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
     )
     ws, app, track, first, second = await fixture(test_user.id)
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
@@ -409,7 +462,7 @@ async def test_bad_field_restore_cleans_up_new_resources(
     authenticated_client, test_user
 ):
     ws, app, _, _, _ = await fixture(test_user.id)
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
@@ -465,7 +518,7 @@ async def test_multiple_tracks_restore_into_existing_app(
     await update_entry_in_track(
         entry_id=first.id, user_id=test_user.id, custom_fields={"related": target.id}
     )
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="track", ids=[track.id, other.id], mode="full"),
@@ -527,7 +580,7 @@ async def test_copy_to_another_workspace_with_tags_and_views(
     await catalog_workspace(destination)
     user = await User.get(test_user.id)
     await user.connect(destination, edge=IS_MEMBER_OF, role="owner")
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
@@ -577,7 +630,7 @@ async def test_duplicate_or_corrupt_archive_does_not_write(
     authenticated_client, test_user
 ):
     ws, app, _, _, _ = await fixture(test_user.id)
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
@@ -599,7 +652,7 @@ async def test_failed_restore_removes_schema_sidecars(authenticated_client, test
     from app.models.nodes import ApplicationDefinition, OperationalModel, Views
 
     ws, app, _, _, _ = await fixture(test_user.id)
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
@@ -668,7 +721,7 @@ async def test_image_bytes_and_inline_image_links_round_trip(
     first.attachment_ids = [attachment.id]
     first.body = f"![Blue square](/api/attachments/{attachment.id}/file)"
     await first.save()
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
@@ -698,7 +751,7 @@ async def test_import_checks_total_file_quota_before_creating_copies(
     from app.schemas.portable_transfer import PortableFile
 
     ws, app, _, _, _ = await fixture(test_user.id)
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
@@ -751,7 +804,7 @@ async def test_home_and_dashboard_sources_rebind_to_copied_tracks(
     await create_dashboard(
         user_id=test_user.id, app_id=app.id, name="Overview", widgets=widgets
     )
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="app", ids=[app.id]),
@@ -811,7 +864,7 @@ async def test_declarative_composite_field_round_trip(authenticated_client, test
     copied = await Track.get(result["resource_ids"][0])
     entry = (await copied.nodes(edge=[CONTAINS], node=["Entry"]))[0]
     assert entry.custom_fields["cost"] == 25.5
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="track", ids=[copied.id], mode="full"),
@@ -829,7 +882,7 @@ async def test_failed_import_removes_written_attachment_bytes(
     from app.schemas.portable_transfer import PortableFile
 
     ws, app, _, _, _ = await fixture(test_user.id)
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
@@ -883,7 +936,7 @@ async def test_track_exports_include_inherited_app_tags(
     await cp.connect(tag, edge=CONTAINS)
     first.tags = [tag.id]
     await first.save()
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="track", ids=[track.id], mode="full"),
@@ -931,7 +984,7 @@ async def test_multiple_apps_rebind_cross_app_relations_after_name_collisions(
     await update_entry_in_track(
         entry_id=second.id, user_id=test_user.id, custom_fields={"related": target.id}
     )
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="app", ids=[app.id, provider.id], mode="full"),
@@ -979,7 +1032,7 @@ async def test_shared_template_tracks_export_as_distinct_snapshots(test_user):
     await second.connect(shared, edge=HAS_OPERATIONAL_MODEL)
     second.attached_operational_model_id = shared.id
     await second.save()
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(
@@ -1026,7 +1079,7 @@ async def test_shared_template_materialized_types_round_trip(test_user):
         custom_fields={"amount": 7},
     )
 
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=ws,
         selection=ExportSelection(kind="track", ids=[first.id, second.id], mode="full"),

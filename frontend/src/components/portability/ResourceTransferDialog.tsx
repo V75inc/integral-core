@@ -74,14 +74,21 @@ export function ResourceTransferDialog({ open, kind, workspaceId, appId, onClose
     setBusy(true);
     try {
       if (tab === 'export') {
-        const blob = await portableApi.export(kind, [...selected], mode);
+        const result = await portableApi.export(kind, [...selected], mode);
         if (generation.current !== current) return;
-        const url = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(result.blob);
         const anchor = document.createElement('a');
         anchor.href = url; anchor.download = `integral-${kind}s-${mode}.integral.zip`;
         document.body.appendChild(anchor); anchor.click(); anchor.remove();
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-        showToast('Export downloaded.', 'success'); onClose();
+        const skipped = result.skipped_entry_count || 0;
+        showToast(
+          skipped
+            ? `Export downloaded. Omitted ${countLabel(skipped, 'record')} with missing required links.`
+            : 'Export downloaded.',
+          'success',
+        );
+        onClose();
       } else if (file && !preview) {
         const result = await portableApi.preview(file);
         if (generation.current !== current) return;
@@ -160,7 +167,7 @@ export function ResourceTransferDialog({ open, kind, workspaceId, appId, onClose
       <Text variant="body-sm" tone="muted">
         Choose an Integral export (.integral.zip). On another machine or folder, run Core (`integral up`), then import here.
         Packaged Apps install their runtime from the ZIP. Imported {title} are new private copies {appId ? 'inside this App' : 'in this workspace'}.
-        Full-data archives need related Apps/Tracks together. Export reports broken required links; import reports any skipped records.
+        Full-data archives need related Apps/Tracks together. Export omits records that lose required links and reports the count; import reports any skipped records.
       </Text>
       <input aria-label="Integral archive" type="file" accept=".zip" disabled={busy} onChange={event => { setFile(event.target.files?.[0] || null); setPreview(null); }} />
       {preview && <Surface padding="md" tone="panel-2" className="space-y-3">

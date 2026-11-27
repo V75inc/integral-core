@@ -48,23 +48,26 @@ Ordinary v1 exports retain the original strict wire shape: no package or setting
 fields are added. V2 includes only declared non-secret settings; `writeOnly` and
 password fields are omitted recursively, as are undeclared settings.
 
-Import does **not** publish packages or extract archive code onto the host. An
-operator must first admit the exact package through the destination's supported
-package setup and configure `INTEGRAL_PACKAGE_PATHS`. Restore requires one
-currently visible library source with matching fingerprint, unchanged files and
-a discoverable path for cold boot. A caller-supplied hash or a development-mode
-signature result is not package admission. Existing catalog rows and package
-files remain untouched on success and failure. Signature coverage is unchanged;
-run immutable signed Python packages with `PYTHONDONTWRITEBYTECODE=1` so runtime
-imports do not add bytes to the signed artifact.
+When the destination already has one visible library package for a slug,
+restore binds to that artifact and never rewrites it. When none is admitted,
+import materializes `package/<slug>/` onto a configured writable package root
+(`INTEGRAL_PACKAGE_PATHS` or `integral up --apps`) and seeds the library catalog,
+then installs Apps against that admission. Archive-driven admission is not gated
+by `INTEGRAL_CORE_ONLY` (ambient library discovery on boot still is). Ambiguous
+admissions or a host package with a different fingerprint fail closed without
+overwriting shared host files. Package fingerprints ignore the same local
+cache/VCS junk for install, admit, and export (for example `__pycache__`,
+`.pytest_cache`, `.DS_Store`), so source checkouts remain exportable. Signature
+and trust checks still apply after materialize. Run immutable signed Python
+packages with `PYTHONDONTWRITEBYTECODE=1` so runtime imports do not add bytes to
+the signed artifact.
 
-Apps with protected state currently require an App-owned restore validator that
-Core does not yet expose. Their import fails closed before destination creation;
-a portable archive never grants an operation permit. This restriction includes
-configuration-only protected Apps because schema overrides also affect their
-invariants. Ordinary unprotected packaged Apps use canonical installation,
-entitlements and dependency checks. Early single-App v2 archives using singular
-`package` remain readable.
+Apps with protected state import through Core portable restore: reserved import
+finalization may rewrite protected fields. Ordinary creates and edits outside
+that path still fail closed, and a portable archive never grants an App
+operation permit. Packaged Apps still use canonical installation, entitlements
+and dependency checks. Early single-App v2 archives using singular `package`
+remain readable.
 
 Include all related Tracks in the same full-data App selection when records
 cross Tracks. Select related Apps together so cross-App bindings and packaged
@@ -73,23 +76,26 @@ cross Tracks. Select related Apps together so cross-App bindings and packaged
 On **App** full-data export, relation and file field values that point at
 **deleted** (unresolvable) targets are dropped from the archive so stale links
 do not block the download. If clearing a link would leave a **required**
-relation/file empty, export fails with an explicit repair message. It never
-returns a full-data ZIP with silently omitted records. Live targets outside the selected Apps still
-fail export with a message that names the record, field, and the other App/Track
-to include (or clear the link in the UI first). On import, rows that still lack a
-remappable required relation/file are **skipped** and reported as
-`skipped_entry_count` / `skipped_entries` so the rest of the archive can install.
+relation/file empty, that record is **omitted** from the ZIP and reported via
+`X-Integral-Skipped-Entry-Count` / `X-Integral-Skipped-Entries` (and the export
+UI toast). Live targets outside the selected Apps still fail export with a
+message that names the record, field, and the other App/Track to include (or
+clear the link in the UI first). On import, rows that still lack a remappable
+required relation/file are **skipped** and reported as `skipped_entry_count` /
+`skipped_entries` so the rest of the archive can install.
 
 ### New host / new folder
 
 1. **Source:** Manage Apps → Export (select related Apps; configuration or full) →
    download `.integral.zip`. Packaged Apps carry `package/<slug>/`.
-2. **Destination:** install/run Core in the new location (`integral up`), sign in,
-   have the operator admit the exact packages and configure their package paths,
-   then open the workspace → Manage Apps → Import → preview → import.
-3. **Result:** new private App copies in that workspace; runtime uses the previously admitted package. Sharing, credentials, and history are not copied. You need App-create
-   permission and package trust still applies. Copying only an agent `integral-apps/`
-   folder does not move workspace records.
+2. **Destination:** install/run Core (`integral up`, with a writable package root via
+   `--apps` / `INTEGRAL_PACKAGE_PATHS`), sign in → Manage Apps → Import → preview →
+   import. Missing packages are admitted from the archive onto that root.
+3. **Result:** new private App copies in that workspace; runtime uses the admitted
+   package (pre-existing match or newly materialized). Sharing, credentials, and
+   history are not copied. You need App-create permission and package trust still
+   applies. Copying only an agent `integral-apps/` folder does not move workspace
+   records.
 
 ## Transport and validation
 

@@ -43,12 +43,8 @@ async def preflight_packaged_apps(
             )
         selected.add(identity)
         body = canonical.get("app") or {}
-        if body.get("protected_state"):
-            # No restore-validation contract exists yet. Archive contents cannot
-            # act as an App operation permit, including when records omit fields.
-            raise BadRequestError(
-                message="This App requires App-owned restore validation, which is not available"
-            )
+        # Protected Apps restore through Core portable restore (reserved import).
+        # Archives still do not grant ordinary App operation permits.
         schema = body.get("settings_schema") or {}
         validate_settings_against_schema(
             apply_schema_defaults(spec.settings, schema), schema

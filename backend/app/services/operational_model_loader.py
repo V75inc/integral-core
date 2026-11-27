@@ -6,7 +6,8 @@ Walks ``backend/app/packages/*/operational-model.yaml`` and returns
 v3 additions (Spec §4.2):
   - I-BUNDLE-02 validation: each skill key in manifest must have skills/<key>/SKILL.md
   - I-BUNDLE-04 validation: dir name MUST match package.slug
-  - Bundle fingerprint (sha256 over sorted file manifest, excludes signature.bin)
+  - Bundle fingerprint (sha256 over sorted file manifest; excludes signature.bin
+    and local cache/VCS junk shared with portable pack)
   - Signature gate via operational_model_signature.verify_bundle_signature
   - LibraryProfileSpec carries bundle_dir, skill_keys, ships_python,
     signature_path, signature_verified, signature_reason,
@@ -79,23 +80,66 @@ class ProfileLoadIssue:
     model_path: str = ""
 
 
-def compute_bundle_fingerprint(bundle_dir: Path) -> str:
+# Shared with portable pack/export so install stamps and ZIP fingerprints match.
+BUNDLE_EXCLUDE_DIRS = frozenset(
+    {
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".git",
+        "dist",
+        ".pytest_cache",
+        "node_modules",
+        ".mypy_cache",
+        ".ruff_cache",
+    }
+)
+BUNDLE_EXCLUDE_NAMES = frozenset({".DS_Store", "Thumbs.db"})
+
+
+def skip_bundle_rel(
+    rel: Path | str, *, legacy: bool = False, for_fingerprint: bool = True
+) -> bool:
+    """Return True when a bundle-relative path is outside the pack/fingerprint set.
+
+    ``signature.bin`` is excluded from fingerprints (it signs the hashed
+    payload) but must still travel in portable ZIP members so a fresh host
+    can verify after materialize. Pass ``for_fingerprint=False`` when packing
+    or materializing archive members.
+    """
+    path = Path(rel)
+    if path.as_posix() == "signature.bin" or path.name == "signature.bin":
+        return for_fingerprint
+    if any(part == "__pycache__" for part in path.parts):
+        return True
+    if legacy:
+        return False
+    if any(part in BUNDLE_EXCLUDE_DIRS for part in path.parts):
+        return True
+    return path.name in BUNDLE_EXCLUDE_NAMES
+
+
+def compute_bundle_fingerprint(bundle_dir: Path, *, legacy: bool = False) -> str:
     """SHA-256 over sorted file manifest. Stable across machines.
 
-    Each entry: ``<rel_path>\\0<sha256_hex>\\0<size>``. signature.bin
-    is excluded so the fingerprint doesn't change when the bundle is
-    re-signed. Python's generated ``__pycache__`` trees are also excluded;
-    importing a verified handler must not make its own artifact untrusted.
+    Each entry: ``<rel_path>\\0<sha256_hex>\\0<size>``. ``signature.bin`` and
+    local cache/VCS junk (``__pycache__``, ``.pytest_cache``, ``.DS_Store``, …)
+    are excluded so install, admit, and portable export hash the same artifact.
+    ``legacy=True`` restores the pre-alignment rule (signature + ``__pycache__``
+    only) for export provenance compatibility with older install stamps.
     """
     entries: List[str] = []
-    for p in sorted(bundle_dir.rglob("*")):
+    root = Path(bundle_dir)
+    for p in sorted(root.rglob("*")):
         if not p.is_file():
             continue
-        rel = p.relative_to(bundle_dir).as_posix()
-        if rel == "signature.bin" or "__pycache__" in p.relative_to(bundle_dir).parts:
+        rel = p.relative_to(root)
+        if skip_bundle_rel(rel, legacy=legacy):
             continue
         data = p.read_bytes()
-        entries.append(f"{rel}\x00{hashlib.sha256(data).hexdigest()}\x00{len(data)}")
+        entries.append(
+            f"{rel.as_posix()}\x00{hashlib.sha256(data).hexdigest()}\x00{len(data)}"
+        )
     return hashlib.sha256("\n".join(entries).encode()).hexdigest()
 
 

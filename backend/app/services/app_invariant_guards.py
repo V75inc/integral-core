@@ -81,6 +81,12 @@ async def enforce_protected_field_write(
     principal_id: str = "",
 ) -> None:
     """Reject generic writes that touch App-protected fields outside operations."""
+    from app.services.entry_import_reservations import portable_restore_active
+
+    # Host-to-host portable restore may rewrite protected fields only while a
+    # reserved import shell is being finalized. Ordinary creates/edits stay closed.
+    if portable_restore_active():
+        return
     protected = protected_fields_for_entry_type(workspace_id, entry_type_key)
     current_state = None
     if entry_id or track_id:

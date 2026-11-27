@@ -168,6 +168,24 @@ def test_pack_bundle_fingerprint_stable(tmp_path: Path):
     assert fingerprint == compute_bundle_fingerprint(bundle)
 
 
+def test_bundle_fingerprint_ignores_local_junk(tmp_path: Path):
+    bundle = _write_demo_bundle(tmp_path, slug="portable-junk")
+    clean = compute_bundle_fingerprint(bundle)
+    assert pack_bundle_dir(bundle, bundle.name)[1] == clean
+
+    cache = bundle / ".pytest_cache"
+    cache.mkdir()
+    (cache / "v" / "cache").mkdir(parents=True)
+    (cache / "v" / "cache" / "nodeids").write_text("x", encoding="utf-8")
+    (bundle / ".DS_Store").write_bytes(b"junk")
+    packed, packed_fp = pack_bundle_dir(bundle, bundle.name)
+    assert compute_bundle_fingerprint(bundle) == clean
+    assert packed_fp == clean
+    assert compute_bundle_fingerprint(bundle, legacy=True) != clean
+    assert f"package/{bundle.name}/.DS_Store" not in packed
+    assert not any(".pytest_cache" in name for name in packed)
+
+
 def test_validate_package_members_rejects_tampered_fingerprint(tmp_path: Path):
     bundle = _write_demo_bundle(tmp_path)
     packed, fingerprint = pack_bundle_dir(bundle, bundle.name)
@@ -288,7 +306,7 @@ async def test_packaged_app_export_import_round_trip(tmp_path, test_user, monkey
     source_view.is_default = False
     await source_view.save()
 
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=source_ws.id,
         selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
@@ -468,7 +486,7 @@ async def test_multi_packaged_app_export_import(tmp_path, test_user, monkeypatch
         custom_fields={"body": "a"},
     )
 
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=source_ws.id,
         selection=ExportSelection(
@@ -545,7 +563,7 @@ async def test_mixed_packaged_and_declarative_export_import(
         workspace_id=source_ws.id,
         visibility="private",
     )
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=source_ws.id,
         selection=ExportSelection(
@@ -610,7 +628,7 @@ async def test_legacy_singular_package_archive_still_imports(
         visibility="private",
     )
     app = await App.get(installed["app_id"])
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=source_ws.id,
         selection=ExportSelection(kind="app", ids=[app.id], mode="configuration"),
@@ -754,7 +772,7 @@ async def test_protected_fields_still_blocked_without_portable_context(
 
 
 @pytest.mark.asyncio
-async def test_packaged_import_requires_app_owned_restore_validation(
+async def test_packaged_import_restores_protected_fields(
     tmp_path, test_user, monkeypatch
 ):
     from app.services.app_graph import get_track_attached_operational_model
@@ -764,6 +782,7 @@ async def test_packaged_import_requires_app_owned_restore_validation(
     packages = tmp_path / "packages"
     packages.mkdir()
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
     )
@@ -794,7 +813,7 @@ async def test_packaged_import_requires_app_owned_restore_validation(
     )
     await track.connect(entry, edge=CONTAINS)
 
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=source_ws.id,
         selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
@@ -811,9 +830,434 @@ async def test_packaged_import_requires_app_owned_restore_validation(
     profile = await get_user_node(test_user.id)
     if profile is not None:
         await profile.connect(dest, edge=IS_MEMBER_OF, role="owner")
-    with pytest.raises(BadRequestError, match="App-owned restore validation"):
+    result = await import_resources(
+        user_id=test_user.id, workspace_id=dest.id, data=data
+    )
+    assert result["apps"] == 1
+    assert result["entries"] == 1
+    imported = await App.get(result["resource_ids"][0])
+    assert imported is not None
+    imported_tracks = await imported.nodes(edge=[CONTAINS], node=["Track"])
+    imported_entries = await imported_tracks[0].nodes(edge=[CONTAINS], node=["Entry"])
+    assert len(imported_entries) == 1
+    assert imported_entries[0].title == "Shelf A"
+    assert (imported_entries[0].custom_fields or {}).get("qty_on_hand") == 12
+
+
+@pytest.mark.asyncio
+async def test_packaged_import_materializes_on_fresh_host(
+    tmp_path, test_user, monkeypatch
+):
+    """Export on host A; import on host B with empty library and empty package root."""
+    import sys
+
+    from nacl.encoding import Base64Encoder
+    from nacl.signing import SigningKey
+
+    from app.services.attachment_metadata.service import get_metadata_extraction_service
+    from app.services.entry_create import create_entry_in_track
+    from app.services.operational_model_signature import compute_bundle_payload
+
+    source_packages = tmp_path / "source-packages"
+    dest_packages = tmp_path / "dest-packages"
+    source_packages.mkdir()
+    dest_packages.mkdir()
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(source_packages))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.setattr(
+        get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
+    )
+
+    bundle = _write_demo_bundle(source_packages, slug="portable-fresh")
+    key = SigningKey.generate()
+    monkeypatch.setenv(
+        "INTEGRAL_OPERATIONAL_MODEL_PUBKEY",
+        key.verify_key.encode(encoder=Base64Encoder).decode(),
+    )
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    (bundle / "signature.bin").write_bytes(
+        key.sign(compute_bundle_payload(bundle)).signature
+    )
+    library = await _admit_bundle(bundle)
+    source_ws = await ensure_personal_workspace_for_user_id(test_user.id)
+    installed = await install_app(
+        workspace_id=source_ws.id,
+        library_cp_id=library.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+        visibility="private",
+    )
+    app = await App.get(installed["app_id"])
+    tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
+    from app.services.app_graph import get_track_attached_operational_model
+
+    cp = await get_track_attached_operational_model(tracks[0])
+    types = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
+    await create_entry_in_track(
+        track=tracks[0],
+        user_id=test_user.id,
+        workspace_id=source_ws.id,
+        title="Travel note",
+        type_id=types[0].id,
+        custom_fields={"body": "cross-host"},
+    )
+    data, _skipped = await export_resources(
+        user_id=test_user.id,
+        workspace_id=source_ws.id,
+        selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
+    )
+    exported_fingerprint = compute_bundle_fingerprint(bundle)
+
+    # Fresh destination: different package root, no prior admission for this slug.
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(dest_packages))
+    from app.models.nodes import OperationalModel
+
+    for row in await OperationalModel.find(
+        {"context.metadata.slug": "portable-fresh", "context.library_package": True}
+    ):
+        row.library_package = False
+        md = dict(row.metadata or {})
+        md["seed_status"] = "inactive"
+        row.metadata = md
+        await row.save()
+
+    dest = await Workspace.create(
+        kind="organization",
+        workspace_type="company",
+        name="Fresh Dest",
+        name_fold="fresh dest",
+        created_at=utc_now_iso(),
+        updated_at=utc_now_iso(),
+    )
+    await catalog_workspace(dest)
+    profile = await get_user_node(test_user.id)
+    if profile is not None:
+        await profile.connect(dest, edge=IS_MEMBER_OF, role="owner")
+
+    assert not (dest_packages / "portable-fresh").exists()
+    result = await import_resources(
+        user_id=test_user.id, workspace_id=dest.id, data=data
+    )
+    assert result["apps"] == 1
+    assert result["entries"] == 1
+    materialized = dest_packages / "portable-fresh"
+    assert (materialized / "operational-model.yaml").is_file()
+    assert compute_bundle_fingerprint(materialized) == exported_fingerprint
+    imported = await App.get(result["resource_ids"][0])
+    assert imported.lifecycle_state == "active"
+    assert imported.workspace_id == dest.id
+
+    # Matching admission must not rewrite package files on a second host import
+    # into another workspace.
+    before_mtime = (materialized / "operational-model.yaml").stat().st_mtime_ns
+    dest2 = await Workspace.create(
+        kind="organization",
+        workspace_type="company",
+        name="Fresh Dest 2",
+        name_fold="fresh dest 2",
+        created_at=utc_now_iso(),
+        updated_at=utc_now_iso(),
+    )
+    await catalog_workspace(dest2)
+    if profile is not None:
+        await profile.connect(dest2, edge=IS_MEMBER_OF, role="owner")
+    result2 = await import_resources(
+        user_id=test_user.id, workspace_id=dest2.id, data=data
+    )
+    assert result2["apps"] == 1
+    assert (materialized / "operational-model.yaml").stat().st_mtime_ns == before_mtime
+
+
+@pytest.mark.asyncio
+async def test_packaged_import_admits_under_integral_core_only(
+    tmp_path, test_user, monkeypatch
+):
+    """Archive admit works even when the destination host filters ambient packages."""
+    import sys
+
+    from nacl.encoding import Base64Encoder
+    from nacl.signing import SigningKey
+
+    from app.models.nodes import OperationalModel
+    from app.services.attachment_metadata.service import get_metadata_extraction_service
+    from app.services.operational_model_signature import compute_bundle_payload
+
+    source_packages = tmp_path / "source-packages"
+    dest_packages = tmp_path / "dest-packages"
+    source_packages.mkdir()
+    dest_packages.mkdir()
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(source_packages))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.setattr(
+        get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
+    )
+
+    bundle = _write_demo_bundle(source_packages, slug="portable-core-only")
+    key = SigningKey.generate()
+    monkeypatch.setenv(
+        "INTEGRAL_OPERATIONAL_MODEL_PUBKEY",
+        key.verify_key.encode(encoder=Base64Encoder).decode(),
+    )
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    (bundle / "signature.bin").write_bytes(
+        key.sign(compute_bundle_payload(bundle)).signature
+    )
+    library = await _admit_bundle(bundle)
+    source_ws = await ensure_personal_workspace_for_user_id(test_user.id)
+    installed = await install_app(
+        workspace_id=source_ws.id,
+        library_cp_id=library.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+        visibility="private",
+    )
+    data, _skipped = await export_resources(
+        user_id=test_user.id,
+        workspace_id=source_ws.id,
+        selection=ExportSelection(
+            kind="app", ids=[installed["app_id"]], mode="configuration"
+        ),
+    )
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(dest_packages))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "1")
+    for row in await OperationalModel.find(
+        {
+            "context.metadata.slug": "portable-core-only",
+            "context.library_package": True,
+        }
+    ):
+        row.library_package = False
+        md = dict(row.metadata or {})
+        md["seed_status"] = "inactive"
+        row.metadata = md
+        await row.save()
+
+    dest = await Workspace.create(
+        kind="organization",
+        workspace_type="company",
+        name="Core Only Dest",
+        name_fold="core only dest",
+        created_at=utc_now_iso(),
+        updated_at=utc_now_iso(),
+    )
+    await catalog_workspace(dest)
+    profile = await get_user_node(test_user.id)
+    if profile is not None:
+        await profile.connect(dest, edge=IS_MEMBER_OF, role="owner")
+
+    result = await import_resources(
+        user_id=test_user.id, workspace_id=dest.id, data=data
+    )
+    assert result["apps"] == 1
+    assert (dest_packages / "portable-core-only" / "operational-model.yaml").is_file()
+    imported = await App.get(result["resource_ids"][0])
+    assert imported is not None
+    assert imported.lifecycle_state == "active"
+    assert imported.workspace_id == dest.id
+
+
+@pytest.mark.asyncio
+async def test_export_allows_legacy_fingerprint_with_local_junk(
+    tmp_path, test_user, monkeypatch
+):
+    """Apps stamped before junk-ignore alignment still export from dirty trees."""
+    import sys
+
+    from nacl.encoding import Base64Encoder
+    from nacl.signing import SigningKey
+
+    from app.services.attachment_metadata.service import get_metadata_extraction_service
+    from app.services.operational_model_signature import compute_bundle_payload
+
+    packages = tmp_path / "packages"
+    packages.mkdir()
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.setattr(
+        get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
+    )
+
+    bundle = _write_demo_bundle(packages, slug="portable-legacy-fp")
+    key = SigningKey.generate()
+    monkeypatch.setenv(
+        "INTEGRAL_OPERATIONAL_MODEL_PUBKEY",
+        key.verify_key.encode(encoder=Base64Encoder).decode(),
+    )
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    (bundle / "signature.bin").write_bytes(
+        key.sign(compute_bundle_payload(bundle)).signature
+    )
+    library = await _admit_bundle(bundle)
+    source_ws = await ensure_personal_workspace_for_user_id(test_user.id)
+    installed = await install_app(
+        workspace_id=source_ws.id,
+        library_cp_id=library.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+        visibility="private",
+    )
+    app = await App.get(installed["app_id"])
+    assert app is not None
+
+    cache = bundle / ".pytest_cache"
+    cache.mkdir()
+    (cache / "README").write_text("cache", encoding="utf-8")
+    (bundle / ".DS_Store").write_bytes(b"junk")
+    (bundle / "signature.bin").write_bytes(
+        key.sign(compute_bundle_payload(bundle)).signature
+    )
+    legacy = compute_bundle_fingerprint(bundle, legacy=True)
+    app.installed_artifact_fingerprint = legacy
+    await app.save()
+
+    data, _skipped = await export_resources(
+        user_id=test_user.id,
+        workspace_id=source_ws.id,
+        selection=ExportSelection(kind="app", ids=[app.id], mode="configuration"),
+    )
+    raw, files = decode_archive(data)
+    assert raw["version"] == 2
+    assert raw["package"]["fingerprint"] == compute_bundle_fingerprint(bundle)
+    assert any(name.startswith("package/portable-legacy-fp/") for name in files)
+
+
+@pytest.mark.asyncio
+async def test_export_refuses_real_package_file_change(
+    tmp_path, test_user, monkeypatch
+):
+    import sys
+
+    from nacl.encoding import Base64Encoder
+    from nacl.signing import SigningKey
+
+    from app.services.attachment_metadata.service import get_metadata_extraction_service
+    from app.services.operational_model_signature import compute_bundle_payload
+
+    packages = tmp_path / "packages"
+    packages.mkdir()
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.setattr(
+        get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
+    )
+
+    bundle = _write_demo_bundle(packages, slug="portable-mutated")
+    key = SigningKey.generate()
+    monkeypatch.setenv(
+        "INTEGRAL_OPERATIONAL_MODEL_PUBKEY",
+        key.verify_key.encode(encoder=Base64Encoder).decode(),
+    )
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    (bundle / "signature.bin").write_bytes(
+        key.sign(compute_bundle_payload(bundle)).signature
+    )
+    library = await _admit_bundle(bundle)
+    source_ws = await ensure_personal_workspace_for_user_id(test_user.id)
+    installed = await install_app(
+        workspace_id=source_ws.id,
+        library_cp_id=library.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+        visibility="private",
+    )
+    app = await App.get(installed["app_id"])
+    stamped = app.installed_artifact_fingerprint
+
+    (bundle / "tools" / "hello.py").write_text(
+        "def echo(message: str = '') -> dict:\n    return {'message': 'mutated'}\n",
+        encoding="utf-8",
+    )
+    (bundle / "signature.bin").write_bytes(
+        key.sign(compute_bundle_payload(bundle)).signature
+    )
+    assert compute_bundle_fingerprint(bundle) != stamped
+    assert compute_bundle_fingerprint(bundle, legacy=True) != stamped
+
+    with pytest.raises(BadRequestError, match="provenance does not match"):
+        await export_resources(
+            user_id=test_user.id,
+            workspace_id=source_ws.id,
+            selection=ExportSelection(kind="app", ids=[app.id], mode="configuration"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_packaged_import_refuses_conflicting_host_package(
+    tmp_path, test_user, monkeypatch
+):
+    import sys
+
+    from nacl.encoding import Base64Encoder
+    from nacl.signing import SigningKey
+
+    from app.services.attachment_metadata.service import get_metadata_extraction_service
+    from app.services.operational_model_signature import compute_bundle_payload
+
+    packages = tmp_path / "packages"
+    packages.mkdir()
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.setattr(
+        get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
+    )
+
+    bundle = _write_demo_bundle(packages, slug="portable-conflict-fp")
+    key = SigningKey.generate()
+    monkeypatch.setenv(
+        "INTEGRAL_OPERATIONAL_MODEL_PUBKEY",
+        key.verify_key.encode(encoder=Base64Encoder).decode(),
+    )
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    (bundle / "signature.bin").write_bytes(
+        key.sign(compute_bundle_payload(bundle)).signature
+    )
+    library = await _admit_bundle(bundle)
+    source_ws = await ensure_personal_workspace_for_user_id(test_user.id)
+    installed = await install_app(
+        workspace_id=source_ws.id,
+        library_cp_id=library.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+        visibility="private",
+    )
+    data, _skipped = await export_resources(
+        user_id=test_user.id,
+        workspace_id=source_ws.id,
+        selection=ExportSelection(
+            kind="app", ids=[installed["app_id"]], mode="configuration"
+        ),
+    )
+
+    # Mutate the host package so fingerprint no longer matches the archive.
+    (bundle / "tools" / "hello.py").write_text(
+        "def echo(message: str = '') -> dict:\n    return {'message': 'changed'}\n",
+        encoding="utf-8",
+    )
+    (bundle / "signature.bin").write_bytes(
+        key.sign(compute_bundle_payload(bundle)).signature
+    )
+    await _admit_bundle(bundle)
+
+    dest = await Workspace.create(
+        kind="organization",
+        workspace_type="company",
+        name="Conflict Dest",
+        name_fold="conflict dest",
+        created_at=utc_now_iso(),
+        updated_at=utc_now_iso(),
+    )
+    await catalog_workspace(dest)
+    profile = await get_user_node(test_user.id)
+    if profile is not None:
+        await profile.connect(dest, edge=IS_MEMBER_OF, role="owner")
+    with pytest.raises(BadRequestError, match="exact admitted package"):
         await import_resources(user_id=test_user.id, workspace_id=dest.id, data=data)
-    assert not await App.find({"context.workspace_id": dest.id})
 
 
 @pytest.mark.asyncio
@@ -845,7 +1289,7 @@ async def test_packaged_import_applies_settings_defaults(
     assert app.settings.get("allow_negative_stock") is True
     assert app.settings.get("default_currency") == "USD"
 
-    data = await export_resources(
+    data, _skipped = await export_resources(
         user_id=test_user.id,
         workspace_id=source_ws.id,
         selection=ExportSelection(kind="app", ids=[app.id], mode="configuration"),

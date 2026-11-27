@@ -15,7 +15,11 @@ beforeEach(() => {
   vi.mocked(portableApi.list).mockResolvedValue({ items: [{ id: 'a', name: 'Projects' }, { id: 'b', name: 'People' }], cursor: undefined });
   vi.mocked(portableApi.preview).mockResolvedValue(summary);
   vi.mocked(portableApi.import).mockResolvedValue(summary);
-  vi.mocked(portableApi.export).mockResolvedValue(new Blob(['zip']));
+  vi.mocked(portableApi.export).mockResolvedValue({
+    blob: new Blob(['zip']),
+    skipped_entry_count: 0,
+    skipped_entries: [],
+  });
   URL.createObjectURL = vi.fn(() => 'blob:export');
   URL.revokeObjectURL = vi.fn();
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
@@ -34,6 +38,22 @@ describe('portable resource dialog', () => {
     await waitFor(() => expect(click).toHaveBeenCalled());
     await waitFor(() => expect(props.onClose).toHaveBeenCalled());
     expect(toast).toHaveBeenCalledWith('Export downloaded.', 'success');
+  });
+
+  it('reports omitted records after a full-data export', async () => {
+    vi.mocked(portableApi.export).mockResolvedValue({
+      blob: new Blob(['zip']),
+      skipped_entry_count: 11,
+      skipped_entries: ['Broken milestone'],
+    });
+    render(<ResourceTransferDialog {...props} />);
+    fireEvent.click(await screen.findByText('People'));
+    fireEvent.click(screen.getByText('Configuration and data'));
+    fireEvent.click(screen.getByText('Download export'));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(
+      'Export downloaded. Omitted 11 records with missing required links.',
+      'success',
+    ));
   });
 
   it('exports multiple Apps in one call', async () => {

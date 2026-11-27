@@ -91,7 +91,7 @@ def test_package_fingerprint_uses_the_loader_order(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_preflight_rejects_missing_restore_validator_before_install(monkeypatch):
+async def test_preflight_allows_protected_apps_for_portable_restore(monkeypatch):
     from app.services.portable_preflight import preflight_packaged_apps
 
     monkeypatch.setattr(
@@ -100,17 +100,26 @@ async def test_preflight_rejects_missing_restore_validator_before_install(monkey
     monkeypatch.setattr(
         "app.services.operational_model_compile.compile_canonical_manifest",
         lambda **_: {
-            "package": {"slug": "ordinary"},
+            "package": {"slug": "ordinary", "version": "1.0.0"},
             "app": {"protected_state": {"record": {"top_level": ["status"]}}},
         },
     )
+    monkeypatch.setattr(
+        "app.services.app_install.validate_settings_against_schema", lambda *_: None
+    )
+    monkeypatch.setattr(
+        "app.services.app_install.apply_schema_defaults", lambda settings, *_: settings
+    )
+    monkeypatch.setattr(
+        "app.services.entitlements.require_active_entitlement", AsyncMock()
+    )
+    monkeypatch.setattr("app.services.app_install.check_requires_apps", AsyncMock())
     library = SimpleNamespace(id="library", name="Ordinary", manifest={})
-    with pytest.raises(BadRequestError, match="App-owned restore validation"):
-        await preflight_packaged_apps(
-            [PortableApp(ref="app", name="Ordinary", package_slug="ordinary")],
-            {"ordinary": library},
-            workspace_id="disposable",
-        )
+    await preflight_packaged_apps(
+        [PortableApp(ref="app", name="Ordinary", package_slug="ordinary")],
+        {"ordinary": library},
+        workspace_id="disposable",
+    )
 
 
 @pytest.mark.asyncio
@@ -125,6 +134,10 @@ async def test_import_context_does_not_bypass_protected_status(monkeypatch):
         "app.services.app_operation_authority.permits_mutation",
         AsyncMock(return_value=False),
     )
+    monkeypatch.setattr(
+        "app.services.entry_import_reservations.portable_restore_active",
+        lambda: False,
+    )
     with pytest.raises(BadRequestError, match="managed by its App"):
         await enforce_protected_field_write(
             workspace_id="disposable",
@@ -133,6 +146,31 @@ async def test_import_context_does_not_bypass_protected_status(monkeypatch):
             proposed_fields={"status": "active"},
             track_id="track",
         )
+
+
+@pytest.mark.asyncio
+async def test_portable_restore_allows_protected_status(monkeypatch):
+    from app.services.app_invariant_guards import enforce_protected_field_write
+
+    monkeypatch.setattr(
+        "app.services.app_invariant_guards._canonical_protected_state",
+        AsyncMock(return_value={"record": {"top_level": ["status"]}}),
+    )
+    monkeypatch.setattr(
+        "app.services.app_operation_authority.permits_mutation",
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "app.services.entry_import_reservations.portable_restore_active",
+        lambda: True,
+    )
+    await enforce_protected_field_write(
+        workspace_id="disposable",
+        entry_type_key="record",
+        proposed_custom_fields={},
+        proposed_fields={"status": "active"},
+        track_id="track",
+    )
 
 
 @pytest.mark.asyncio
@@ -184,7 +222,74 @@ async def test_skipped_record_removes_only_its_files_and_thumbnail(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_package_restore_requires_destination_admission(monkeypatch):
+async def test_package_restore_materializes_when_destination_missing(
+    tmp_path, monkeypatch
+):
+    from app.schemas.portable_transfer import PackagePayload
+    from app.services.portable_package import (
+        fingerprint_members,
+        resolve_admitted_package,
+    )
+
+    packages = tmp_path / "packages"
+    packages.mkdir()
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+
+    prefix = "package/ordinary/"
+    manifest = (
+        "integral_operational_model_version: 3\n"
+        "scope: app\n"
+        "package:\n"
+        "  name: Ordinary\n"
+        "  slug: ordinary\n"
+        "  class: community_app\n"
+        "  version: '1.0.0'\n"
+        "  trust_tier: trusted\n"
+        "  description: fixture\n"
+        "app:\n"
+        "  description: fixture\n"
+        "  tracks: []\n"
+    ).encode()
+    files = {prefix + "operational-model.yaml": manifest}
+    payload = PackagePayload(
+        slug="ordinary",
+        fingerprint=fingerprint_members(files, prefix),
+        member_prefix=prefix,
+    )
+    monkeypatch.setattr(
+        "app.models.nodes.OperationalModel.find", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(
+        "app.services.package_trust.assert_library_artifact_trusted",
+        lambda *_: None,
+    )
+
+    class _Lib:
+        metadata = {
+            "bundle_dir_path": "",
+            "bundle_fingerprint": payload.fingerprint,
+        }
+
+    async def _seed(bundle_dir, slug):
+        assert slug == "ordinary"
+        assert (bundle_dir / "operational-model.yaml").is_file()
+        _Lib.metadata["bundle_dir_path"] = str(bundle_dir.resolve())
+        return _Lib
+
+    monkeypatch.setattr(
+        "app.services.portable_package._seed_library_from_bundle", _seed
+    )
+
+    library = await resolve_admitted_package(
+        payload, files, user_id="caller", workspace_id="disposable"
+    )
+    assert library is _Lib
+    assert (packages / "ordinary" / "operational-model.yaml").is_file()
+
+
+@pytest.mark.asyncio
+async def test_package_restore_refuses_ambiguous_destination_admission(monkeypatch):
     from app.schemas.portable_transfer import PackagePayload
     from app.services.portable_package import (
         fingerprint_members,
@@ -198,8 +303,18 @@ async def test_package_restore_requires_destination_admission(monkeypatch):
         fingerprint=fingerprint_members(files, prefix),
         member_prefix=prefix,
     )
+
+    class _Candidate:
+        def __init__(self, model_id: str):
+            self.id = model_id
+
     monkeypatch.setattr(
-        "app.models.nodes.OperationalModel.find", AsyncMock(return_value=[])
+        "app.models.nodes.OperationalModel.find",
+        AsyncMock(return_value=[_Candidate("a"), _Candidate("b")]),
+    )
+    monkeypatch.setattr(
+        "app.services.library_package_visibility.visible_library_model",
+        AsyncMock(side_effect=lambda model_id, *_args, **_kwargs: object()),
     )
     with pytest.raises(BadRequestError, match="admitted by the destination host"):
         await resolve_admitted_package(

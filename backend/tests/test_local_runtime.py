@@ -697,3 +697,61 @@ def test_supervisor_owns_event_worker_lifecycle(
             state["state"] == "ready" and state["event_worker"] == "startup_ready"
             for state in states
         )
+
+
+def test_seed_admin_settings_from_env_is_idempotent_and_private(tmp_path):
+    source = tmp_path / "admin.env"
+    source.write_text(
+        "ADMIN_EMAIL=admin@example.com\n"
+        "ADMIN_PASSWORD=longpassword12\n"
+        "ADMIN_NAME=Admin\n"
+        "OTHER=not-copied\n",
+        encoding="utf-8",
+    )
+    home = tmp_path / "home"
+    home.mkdir()
+    assert (
+        runtime._seed_admin_settings(home, source, fresh=True, no_admin=False)
+        == "seeded"
+    )
+    settings = (home / "settings.env").read_text(encoding="utf-8")
+    assert "ADMIN_EMAIL=admin@example.com" in settings
+    assert "ADMIN_PASSWORD=longpassword12" in settings
+    assert "OTHER=" not in settings
+    assert (home / "settings.env").stat().st_mode & 0o777 == 0o600
+    assert (
+        runtime._seed_admin_settings(home, source, fresh=True, no_admin=False)
+        == "existing"
+    )
+
+    placeholder = tmp_path / "placeholder"
+    placeholder.mkdir()
+    (placeholder / "settings.env").write_text(
+        "KEEP=1\nADMIN_EMAIL=\nADMIN_PASSWORD=\n", encoding="utf-8"
+    )
+    assert (
+        runtime._seed_admin_settings(placeholder, source, fresh=True, no_admin=False)
+        == "seeded"
+    )
+    text = (placeholder / "settings.env").read_text(encoding="utf-8")
+    assert "KEEP=1" in text and text.count("ADMIN_EMAIL=") == 1
+
+    partial = tmp_path / "partial"
+    partial.mkdir()
+    (partial / "settings.env").write_text(
+        "ADMIN_EMAIL=old@example.com\n", encoding="utf-8"
+    )
+    with pytest.raises(runtime.RuntimeErrorDetail):
+        runtime._seed_admin_settings(partial, source, fresh=False, no_admin=False)
+
+    short = tmp_path / "short.env"
+    short.write_text("ADMIN_EMAIL=a@b.com\nADMIN_PASSWORD=short\n", encoding="utf-8")
+    short_home = tmp_path / "short"
+    short_home.mkdir()
+    with pytest.raises(runtime.RuntimeErrorDetail):
+        runtime._seed_admin_settings(short_home, short, fresh=True, no_admin=False)
+
+    assert (
+        runtime._seed_admin_settings(short_home, short, fresh=True, no_admin=True)
+        == "skipped"
+    )
