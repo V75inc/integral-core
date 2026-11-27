@@ -25,12 +25,18 @@ vi.mock('../../../api/agentive', () => ({
   getWhatsAppChannelBinding: vi.fn().mockResolvedValue({ binding: null }),
   saveWhatsAppChannelBinding: vi.fn(),
   disableWhatsAppChannelBinding: vi.fn(),
+  saveWhatsAppVoiceService: vi.fn(),
+  setWhatsAppCalling: vi.fn(),
 }));
 
 vi.mock('../../../api/managedChannels', () => ({
   managedChannelsApi: {
     credentialMetadata: vi.fn().mockResolvedValue({ binding: null }),
     configureCredentials: vi.fn().mockResolvedValue(undefined),
+    list: vi.fn().mockResolvedValue([]),
+    profileConfiguration: vi.fn(),
+    assignProfile: vi.fn(),
+    change: vi.fn(),
   },
 }));
 
@@ -352,7 +358,7 @@ describe('ConnectorPackageDetail', () => {
     await waitFor(() => expect(screen.getByLabelText(/jvconnect base URL/)).toHaveValue('https://old.example'));
     const url = screen.getByLabelText(/jvconnect base URL/);
     fireEvent.change(url, { target: { value: 'https://new.example' } });
-    fireEvent.change(screen.getByLabelText(/API key/), { target: { value: 'jvk_new' } });
+    fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'jvk_new' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save line' }));
     await waitFor(() => expect(saveWhatsAppChannelBinding).toHaveBeenCalledWith({
       jvconnect_base_url: 'https://new.example',
@@ -431,5 +437,81 @@ describe('ConnectorPackageDetail', () => {
     expect(await screen.findByRole('dialog', { name: 'Add Acme line' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Save line' })).toHaveLength(1);
     expect(screen.queryByRole('dialog', { name: 'Add WhatsApp' })).not.toBeInTheDocument();
+  });
+
+  it('shows the saved jvvoice service and the locked public profile on the line', async () => {
+    const { getWhatsAppChannelBinding, saveWhatsAppVoiceService } = await import('../../../api/agentive');
+    vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({
+      binding: {
+        id: 'b1',
+        jvconnect_base_url: 'https://connect.example',
+        enabled: true,
+        api_key_last4: '7Vxt',
+        calling_enabled: true,
+        calling_grant_id: 'grant-1',
+        calling_revision: 3,
+        jvvoice_base_url: 'https://voice.example',
+        jvvoice_api_key_last4: 'sFOk',
+        jvconnect_calling_status: 'ENABLED',
+      },
+    });
+    vi.mocked(saveWhatsAppVoiceService).mockResolvedValue({
+      binding: {
+        id: 'b1',
+        jvconnect_base_url: 'https://connect.example',
+        enabled: true,
+        calling_enabled: true,
+        calling_grant_id: 'grant-1',
+        calling_revision: 3,
+        jvvoice_base_url: 'https://voice.example',
+        jvvoice_api_key_last4: 'sFOk',
+      },
+    });
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{
+      definition: {
+        slug: 'whatsapp', provider: 'jvconnect', display_name: 'WhatsApp',
+        description: 'Line', setup_kind: 'managed-text-v1', version: 1,
+      },
+      connected: true, state: 'active', action: 'configure', can_enable: false,
+      enabled: true, provision_id: 'grant-1', route_epoch: '10:epoch',
+      configuration_kind: 'published-public-profile-v1',
+    }]);
+    vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue({
+      kind: 'published-public-profile-v1',
+      provision_id: 'grant-1', route_epoch: '10:epoch', profile_revision: 2,
+      profile_key: 'public', published_version: 1, editable: false,
+      eligible_profiles: [{ key: 'public', name: 'Public assistant' }],
+    });
+    list.mockResolvedValue({
+      packages: [{
+        id: 'whatsapp', name: 'WhatsApp', description: 'Workspace line.',
+        version: '1.0.0', capabilities: ['channel'], host_managed: true, configuration: [],
+        grant: { edge: 'USES_WHATSAPP_LINE', present: true, id: 'b1', enabled: true },
+      }],
+      rejected: [],
+      installations: [],
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ConfirmProvider><PackageDetailFixture id="whatsapp" /></ConfirmProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByLabelText('jvvoice base URL')).toHaveValue('https://voice.example');
+    expect(screen.getByText(/jvvoice key ending sFOk/)).toBeInTheDocument();
+    expect(screen.getByText(/key ending 7Vxt is saved/)).toBeInTheDocument();
+    expect(await screen.findByRole('combobox', { name: 'Published agent profile' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Disable line to change profile' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save voice service' }));
+    await waitFor(() => expect(saveWhatsAppVoiceService).toHaveBeenCalledWith({
+      jvvoice_base_url: 'https://voice.example', api_key: '',
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disable line to change profile' }));
+    await waitFor(() => expect(managedChannelsApi.change).toHaveBeenCalledWith(
+      'ws-1', 'whatsapp', {
+        kind: 'enabled', enabled: false,
+        generation: { provision_id: 'grant-1', route_epoch: '10:epoch' },
+      },
+    ));
   });
 });

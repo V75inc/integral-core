@@ -21,8 +21,10 @@ import { AppSettingsForm } from '../../../components/apps/AppSettingsForm';
 import { ConnectorBindingsPanel } from '../sections/ConnectorBindingsPanel';
 import type { JsonSchema } from '../../../components/apps/widgets';
 import { Button } from '../../../components/ui/Button';
+import { Field } from '../../../patterns';
 import { Input, Select, Surface, Text } from '../../../ui';
 import { Modal } from '../../../components/ui/Modal';
+import { WhatsAppLineSetup } from './WhatsAppLineSetup';
 
 type InstallationTargets = Partial<Record<ConnectorBindingScope, string>>;
 
@@ -153,6 +155,7 @@ function HostManagedCard({
     enabled: hasLineGrant,
   });
   const binding = bindingQuery.data?.binding ?? null;
+  const savedConnectKey = binding && 'api_key_last4' in binding ? binding.api_key_last4 : undefined;
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   useEffect(() => {
@@ -200,23 +203,33 @@ function HostManagedCard({
               onChange={event => setBaseUrl(event.target.value)}
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <Text as="span" variant="body-sm">API key</Text>
+          <Field
+            label="API key"
+            hint={savedConnectKey
+              ? `A key ending ${savedConnectKey} is saved. Type a new key only to replace it.`
+              : 'A saved key is not shown. Type a key only when you want to replace it.'}
+          >
             <Input
               type="password"
               value={apiKey}
               autoComplete="new-password"
+              placeholder={savedConnectKey
+                ? `Saved key ending ${savedConnectKey}`
+                : 'JV Connect API key'}
               onChange={event => setApiKey(event.target.value)}
             />
-          </label>
+          </Field>
           <Button
             type="button"
             size="sm"
             onClick={() => saveLine.mutate()}
-            disabled={!baseUrl.trim() || !apiKey.trim()}
+            disabled={!baseUrl.trim() || !apiKey.trim() || saveLine.isPending}
           >
             Save line
           </Button>
+          {pkg.id === 'whatsapp' && grant?.present ? (
+            <WhatsAppLineSetup workspaceId={workspaceId} />
+          ) : null}
         </>
       ) : null}
       {canDisconnect ? (
