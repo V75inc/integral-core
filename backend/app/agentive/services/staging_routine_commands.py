@@ -56,9 +56,10 @@ async def _admit_thread(user_id: str, workspace_id: str, thread_id: str) -> None
         )
 
 
-async def _admit_routine(
+async def admit_owned_routine(
     user_id: str, workspace_id: str, routine_id: str, *, require_thread: bool = True
 ) -> Any:
+    """Check ownership, workspace membership and the optional conversation binding."""
     from jvspatial.core.context import get_default_context
 
     from app.agentive.edges import HAS_ROUTINE_TASK
@@ -150,7 +151,7 @@ async def apply_routine_command(
                         raise StagingError(
                             "routine_scope_invalid", "Routine is unavailable"
                         )
-                    routine = await _admit_routine(
+                    routine = await admit_owned_routine(
                         user_id,
                         workspace_id,
                         payload["routine_id"],
@@ -208,7 +209,9 @@ async def readback(
                 and routine.user_id == sc.user_id
                 and routine.workspace_id == workspace_id
             ):
-                routine = await _admit_routine(sc.user_id, workspace_id, routine.id)
+                routine = await admit_owned_routine(
+                    sc.user_id, workspace_id, routine.id
+                )
                 result = {
                     **serialize_routine(routine),
                     "ok": True,

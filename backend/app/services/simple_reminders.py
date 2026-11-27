@@ -63,7 +63,7 @@ async def stage_simple_reminder(
     if not result.ok:
         return "I couldn’t prepare the reminder: " + result.message, [event]
     return (
-        "Please approve the reminder card. Once approved, it will deliver the saved message on your chosen schedule.",
+        "Your reminder is ready for approval. Once approved, it will deliver the saved message on your chosen schedule.",
         [event],
     )
 

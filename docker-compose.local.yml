@@ -1,7 +1,7 @@
 # Full local stack: Postgres + API + SPA (nginx proxies /api and /ws to the API).
 #
 # First run:
-#   cp .env.docker.example .env
+#   ./scripts/bootstrap_env.sh .env .env.docker.example
 #   docker compose -f docker-compose.local.yml up --build
 #
 # Open http://localhost:9006
@@ -29,10 +29,28 @@ services:
       timeout: 5s
       retries: 10
 
-  api:
-    build:
+  storage-init:
+    build: &api-build
       context: .
       dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.services.storage_indexes.provision"]
+    healthcheck:
+      disable: true
+    environment:
+      INTEGRAL_ENV_FILE: /dev/null
+      INTEGRAL_MIGRATION_POSTGRES_DSN: postgresql://integral:integral@db:5432/integral
+      JVSPATIAL_POSTGRES_DSN: postgresql://integral:integral@db:5432/integral
+      INTEGRAL_RUNTIME_POSTGRES_USER: integral_runtime
+      INTEGRAL_RUNTIME_POSTGRES_PASSWORD: ${INTEGRAL_LOCAL_POSTGRES_RUNTIME_PASSWORD:?run scripts/bootstrap_env.sh to generate the PostgreSQL runtime password}
+      INTEGRAL_INITIAL_INDEX_PLAN_PATH: /data/storage-initial-plan.json
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - integral_local_index_plans:/data
+
+  api:
+    build: *api-build
     restart: unless-stopped
     ports:
       - "4002:4000"
@@ -45,14 +63,15 @@ services:
       INTEGRAL_NATIVE_MODEL: ${INTEGRAL_NATIVE_MODEL:-ollama/deepseek-v4.1-flash:cloud}
       JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY: ${JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY:?run scripts/bootstrap_env.sh to generate the OAuth encryption key}
       JVSPATIAL_DB_TYPE: postgres
-      # main.py rebuilds the DSN from POSTGRES_* when POSTGRES_PASSWORD is set —
-      # keep these aligned with the `db` service below (not host .env dev values).
-      POSTGRES_USER: integral
-      POSTGRES_PASSWORD: integral
+      JVSPATIAL_POSTGRES_INDEX_CREATION: managed
+      JVSPATIAL_AUTO_CREATE_INDEXES: "false"
+      # main.py rebuilds the DSN from the restricted runtime credentials.
+      JVSPATIAL_POSTGRES_DSN: ""
+      POSTGRES_USER: integral_runtime
+      POSTGRES_PASSWORD: ${INTEGRAL_LOCAL_POSTGRES_RUNTIME_PASSWORD:?run scripts/bootstrap_env.sh to generate the PostgreSQL runtime password}
       POSTGRES_DB: integral
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
-      JVSPATIAL_POSTGRES_DSN: postgresql://integral:integral@db:5432/integral
       # Default long-running-process pool is min_size=2/max_size=10
       # (jvspatial/db/postgres.py) — too small for how many concurrent
       # requests one entry-detail page fires (attachments/comments/
@@ -94,6 +113,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
     volumes:
       - integral_local_data:/app/integral_data
       - integral_local_files:/tmp/integral_files
@@ -125,3 +146,4 @@ volumes:
   integral_local_data:
   integral_local_files:
   integral_local_pg:
+  integral_local_index_plans:

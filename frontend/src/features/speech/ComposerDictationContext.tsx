@@ -14,6 +14,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 
@@ -29,9 +30,33 @@ import { useDictationHotkey } from './useDictationHotkey';
 
 const DEFAULT_HOTKEY = 'Mod+Shift+Space';
 
+// Microphone activity is shared by every composer in this browser tab.
+let voiceOwner: symbol | null = null;
+const voiceInputListeners = new Set<() => void>();
+const dictationActivityChecks = new Set<() => boolean>();
+const voiceInputBlocked = () => voiceOwner !== null;
+
+function subscribeVoiceInput(listener: () => void) {
+  voiceInputListeners.add(listener);
+  return () => { voiceInputListeners.delete(listener); };
+}
+
+function claimVoiceInput(): (() => void) | null {
+  if (voiceOwner !== null) return null;
+  const owner = Symbol('live-voice');
+  voiceOwner = owner;
+  voiceInputListeners.forEach(listener => listener());
+  return () => {
+    if (voiceOwner !== owner) return;
+    voiceOwner = null;
+    voiceInputListeners.forEach(listener => listener());
+  };
+}
+
 export interface ComposerDictation extends DictationController {
   /** Hotkey as shown to the user, e.g. `⇧⌘Space`. */
   hotkeyLabel: string;
+  voiceInputBlocked?: boolean;
 }
 
 export interface ComposerDictationActions {
@@ -41,6 +66,7 @@ export interface ComposerDictationActions {
   /** Submit through the chat composer so an active dictation run can finish first. */
   submit: () => void;
   isListening: () => boolean;
+  acquireVoiceInput: () => (() => void) | null;
   stop: (cause?: StopCause) => Promise<void>;
 }
 
@@ -86,16 +112,38 @@ export function ComposerDictationProvider({ children }: { children: ReactNode })
 
   const hotkey = config?.preferences.hotkey ?? DEFAULT_HOTKEY;
   const { start, stop, isListening, available } = controller;
+  const blockedByVoice = useSyncExternalStore(subscribeVoiceInput, voiceInputBlocked, () => false);
+  const startingDictation = useRef(false);
+  const isDictating = useCallback(() => startingDictation.current || isListening(), [isListening]);
+  useEffect(() => {
+    dictationActivityChecks.add(isDictating);
+    return () => { dictationActivityChecks.delete(isDictating); };
+  }, [isDictating]);
+  const acquireVoiceInput = useCallback(() => {
+    return isDictating() || [...dictationActivityChecks].some(check => check())
+      ? null : claimVoiceInput();
+  }, [isDictating]);
+  const guardedStart = useCallback(async () => {
+    if (voiceInputBlocked() || startingDictation.current) return;
+    startingDictation.current = true;
+    try { await start(); }
+    finally { startingDictation.current = false; }
+  }, [start]);
+  const guardedToggle = useCallback(() => {
+    if (voiceInputBlocked()) return;
+    if (isListening()) void stop('user');
+    else void guardedStart();
+  }, [guardedStart, isListening, stop]);
   useDictationHotkey({
     hotkey,
     mode: config?.preferences.hotkey_mode ?? 'hold_or_toggle',
-    enabled: available,
+    enabled: available && !blockedByVoice,
     isActive: () => {
       const el = textareaRef.current;
       return !!el && isActiveSurface(el.closest<HTMLElement>(`[${CHAT_SURFACE_ATTR}]`));
     },
     isListening,
-    start: () => void start(),
+    start: () => void guardedStart(),
     stop: () => void stop('user'),
   });
 
@@ -108,10 +156,12 @@ export function ComposerDictationProvider({ children }: { children: ReactNode })
   const submit = useCallback(() => submitRef.current?.(), []);
 
   const hotkeyLabel = useMemo(() => formatHotkey(hotkey), [hotkey]);
-  const value = useMemo(() => ({ ...controller, hotkeyLabel }), [controller, hotkeyLabel]);
+  const value = useMemo(() => ({
+    ...controller, hotkeyLabel, voiceInputBlocked: blockedByVoice, start: guardedStart, toggle: guardedToggle,
+  }), [controller, hotkeyLabel, blockedByVoice, guardedStart, guardedToggle]);
   const actions = useMemo(
-    () => ({ registerTextarea, registerSubmit, submit, isListening, stop }),
-    [registerTextarea, registerSubmit, submit, isListening, stop],
+    () => ({ registerTextarea, registerSubmit, submit, isListening, stop, acquireVoiceInput }),
+    [registerTextarea, registerSubmit, submit, isListening, stop, acquireVoiceInput],
   );
 
   return (

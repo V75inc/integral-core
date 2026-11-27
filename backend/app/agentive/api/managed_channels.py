@@ -1,0 +1,485 @@
+"""Authenticated, explicitly composed managed channel catalogue and lifecycle."""
+
+import json
+from dataclasses import asdict
+from typing import Awaitable, TypeVar
+
+from fastapi import FastAPI, Request
+from jvspatial.api import endpoint
+from starlette.requests import ClientDisconnect
+from starlette.responses import JSONResponse
+
+from app.agentive.services import profile_management, public_web_chat
+from app.agentive.services.profile_management import require_profile_manager
+from app.agentive.services.web_chat_package import SLUG as WEB_CHAT_SLUG
+from app.api.errors import (
+    BadRequestError,
+    MissingAuthenticationError,
+    ResourceConflictError,
+    ResourceNotFoundError,
+    ServiceUnavailableError,
+)
+from app.api.utils import resolve_principal_id
+from app.connectors.channel_packages import (
+    PROFILE_CONFIGURATION,
+    ChannelInstallation,
+    ChannelPackage,
+    ChannelPackageRegistry,
+    ChannelProfileConfiguration,
+    ChannelProfileOption,
+    ChannelProfileSetup,
+    ChannelScope,
+)
+from app.connectors.channel_share_check import (
+    mounted_client_origin,
+    mounted_embed_descriptors,
+    mounted_private_test_model,
+    mounted_share_check_available,
+)
+from app.schemas.agentive.managed_channels import (
+    ManageChannelEnablement,
+    ManageChannelInstall,
+    ManageChannelProfileAssignment,
+    ManageChannelProvision,
+    ManageChannelShareQuery,
+    ManageWebChatAppearance,
+)
+from app.services.permissions import get_user_node
+from app.services.scope_header import parse_scope_header
+
+_PATH = "/agentive/managed-channels"
+_STATE_KEY = "integral_managed_channel_registry"
+
+
+def install_managed_channel_registry(
+    app: FastAPI, registry: ChannelPackageRegistry
+) -> None:
+    """Explicit trusted bootstrap injection; never import or install packages here."""
+    if not isinstance(registry, ChannelPackageRegistry):
+        raise TypeError("A managed channel package registry is required")
+    if hasattr(app.state, _STATE_KEY):
+        raise ValueError("Managed channel registry already configured")
+    setattr(app.state, _STATE_KEY, registry)
+
+
+def configure_default_managed_channel_registry(app: FastAPI) -> ChannelPackageRegistry:
+    """Register the management-only Web Chat package and bind it to the app.
+
+    This does not mount visitor routes or enable a workspace. A host that
+    serves Web Chat replaces this registry before requests with its own
+    composed registry. A missing registry is not an empty catalogue.
+    """
+    from app.connectors.package_channels import register_packaged_managed_text
+    from app.connectors.package_discovery import start_package_discovery
+
+    start_package_discovery()
+    registry = ChannelPackageRegistry()
+    if not register_packaged_managed_text(registry):
+        raise RuntimeError("No packaged managed channels were admitted at boot")
+    install_managed_channel_registry(app, registry)
+    return registry
+
+
+def _registry(request: Request) -> ChannelPackageRegistry:
+    registry = getattr(request.app.state, _STATE_KEY, None)
+    if not isinstance(registry, ChannelPackageRegistry):
+        raise ServiceUnavailableError("Managed channels are not configured")
+    return registry
+
+
+async def _scope(request: Request) -> ChannelScope:
+    actor = await get_user_node(resolve_principal_id(request))
+    if actor is None:
+        raise MissingAuthenticationError("Authentication required")
+    selected = parse_scope_header(request.headers.get("X-Integral-Scope"))
+    workspace = request.query_params.get("workspace_id")
+    if not workspace or selected is None or selected.get("workspace_id") != workspace:
+        raise BadRequestError("An exact workspace scope is required")
+    await require_profile_manager(actor.id, workspace)
+    return ChannelScope(actor.id, workspace)
+
+
+async def _projection(registry: ChannelPackageRegistry, scope: ChannelScope) -> dict:
+    rows = []
+    for row in await registry.discover(scope):
+        item = asdict(row)
+        item.pop("full_page_url", None)
+        package = registry.resolve(row.definition.slug)
+        if row.connected and package and package.profile_setup is not None:
+            item["configuration_kind"] = PROFILE_CONFIGURATION
+        rows.append(item)
+    return {"channels": rows}
+
+
+def _package(registry: ChannelPackageRegistry, slug: str) -> ChannelPackage:
+    package = registry.resolve(slug)
+    if package is None:
+        raise ResourceNotFoundError("Unknown managed channel")
+    return package
+
+
+_Result = TypeVar("_Result")
+
+
+async def _lifecycle(operation: Awaitable[_Result]) -> _Result:
+    """Do not expose arbitrary external adapter diagnostics over management APIs."""
+    try:
+        return await operation
+    except BadRequestError:
+        raise BadRequestError("Invalid managed channel operation") from None
+    except ResourceConflictError:
+        raise ResourceConflictError(
+            "Managed channel changed. Refresh and try again."
+        ) from None
+    except Exception:
+        raise ServiceUnavailableError(
+            "Managed channel operation is unavailable"
+        ) from None
+
+
+async def _installation(
+    package: ChannelPackage, scope: ChannelScope, match: ManageChannelProvision
+) -> ChannelInstallation:
+    current = await _lifecycle(package.lifecycle.observe(scope))
+    if (
+        not isinstance(current, ChannelInstallation)
+        or current.workspace_id != scope.workspace_id
+        or current.slug != package.definition.slug
+        or current.provision_id != match.provision_id
+        or current.route_epoch != match.route_epoch
+        or type(current.enabled) is not bool
+    ):
+        raise ResourceConflictError("Managed channel changed. Refresh and try again.")
+    return current
+
+
+@endpoint(_PATH, methods=["GET"], auth=True, tags=["Agentive"])
+async def list_managed_channels(request: Request) -> dict:
+    """Show management-safe channel catalogue data for a workspace manager."""
+    return await _projection(_registry(request), await _scope(request))
+
+
+def _exact_install_fields(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate channel install field")
+        result[key] = value
+    return result
+
+
+async def _install_request(request: Request) -> ManageChannelInstall:
+    """A legacy empty body and an explicit shared install mean the same thing."""
+    error = "Managed channel install accepts only the Workspace connection scope"
+    if (
+        "connection_mode" in request.query_params
+        or "install_scope" in request.query_params
+    ):
+        raise BadRequestError(error)
+    try:
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > 256:
+                raise ValueError("Channel install body too large")
+            data.extend(chunk)
+        if not data:
+            return ManageChannelInstall()
+        return ManageChannelInstall.model_validate(
+            json.loads(data, object_pairs_hook=_exact_install_fields)
+        )
+    except (ClientDisconnect, ValueError):
+        raise BadRequestError(error) from None
+
+
+@endpoint(f"{_PATH}/{{slug}}/install", methods=["POST"], auth=True, tags=["Agentive"])
+async def install_managed_channel(request: Request, slug: str) -> dict:
+    """Install an authorized package in its disabled state without publishing it."""
+    scope = await _scope(request)
+    registry = _registry(request)
+    package = _package(registry, slug)
+    installation_request = await _install_request(request)
+    if installation_request.connection_mode != package.definition.install_scope:
+        raise BadRequestError("Managed channel install scope is not supported")
+    row = await registry.describe_one(scope, slug)
+    if row is None or not row.can_install:
+        raise ResourceConflictError("Managed channel is not available to install")
+    await require_profile_manager(scope.actor_id, scope.workspace_id)
+    installed = await _lifecycle(package.lifecycle.install(scope))
+    if (
+        not isinstance(installed, ChannelInstallation)
+        or installed.workspace_id != scope.workspace_id
+        or installed.slug != slug
+        or installed.enabled is not False
+        or not isinstance(installed.provision_id, str)
+        or not installed.provision_id.strip()
+        or not isinstance(installed.route_epoch, str)
+        or not installed.route_epoch.strip()
+    ):
+        raise ServiceUnavailableError(
+            "Managed channel installation could not be verified"
+        )
+    return await _projection(registry, scope)
+
+
+@endpoint(
+    f"{_PATH}/{{slug}}/credentials", methods=["GET"], auth=True, tags=["Agentive"]
+)
+async def read_managed_channel_credentials(request: Request, slug: str) -> dict:
+    """Read the installed adapter's management-safe credential metadata."""
+    scope = await _scope(request)
+    package = _package(_registry(request), slug)
+    if package.read_credentials is None:
+        raise BadRequestError("This channel does not expose credential metadata")
+    return await _lifecycle(package.read_credentials(scope))
+
+
+@endpoint(
+    f"{_PATH}/{{slug}}/credentials", methods=["PUT"], auth=True, tags=["Agentive"]
+)
+async def configure_managed_channel_credentials(request: Request, slug: str) -> dict:
+    """Save credentials through the installed package's disabled setup path."""
+    scope = await _scope(request)
+    registry = _registry(request)
+    package = _package(registry, slug)
+    if package.configure_credentials is None:
+        raise BadRequestError("This channel does not accept credentials")
+    data = bytearray()
+    try:
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > 16_384:
+                raise ValueError("Credential configuration body too large")
+            data.extend(chunk)
+        values = json.loads(data, object_pairs_hook=_exact_install_fields)
+        if not isinstance(values, dict):
+            raise ValueError("Credential configuration must be an object")
+    except (ClientDisconnect, ValueError):
+        raise BadRequestError("Invalid managed channel credentials") from None
+    await require_profile_manager(scope.actor_id, scope.workspace_id)
+    await _lifecycle(
+        package.configure_credentials(scope, values, str(request.base_url))
+    )
+    return await _projection(registry, scope)
+
+
+@endpoint(f"{_PATH}/{{slug}}/enabled", methods=["PUT"], auth=True, tags=["Agentive"])
+async def set_managed_channel_enabled(request: Request, slug: str) -> dict:
+    """Change exact installed enablement; disabling does not require readiness."""
+    scope = await _scope(request)
+    registry = _registry(request)
+    package = _package(registry, slug)
+    try:
+        change = ManageChannelEnablement.model_validate(await request.json())
+    except ValueError:
+        raise BadRequestError("Invalid managed channel enablement") from None
+    current = await _installation(package, scope, change)
+    if change.enabled:
+        row = await registry.describe_one(scope, slug)
+        if (
+            row is None
+            or (row.provision_id, row.route_epoch)
+            != (current.provision_id, current.route_epoch)
+            or (not row.can_enable and row.state != "active")
+        ):
+            raise ResourceConflictError("Managed channel is not ready to enable")
+    await require_profile_manager(scope.actor_id, scope.workspace_id)
+    # Adapter must atomically compare the same provision/epoch at commit.
+    if current.enabled != change.enabled:
+        await _lifecycle(package.lifecycle.set_enabled(scope, current, change.enabled))
+    return await _projection(registry, scope)
+
+
+@endpoint(f"{_PATH}/{{slug}}", methods=["DELETE"], auth=True, tags=["Agentive"])
+async def remove_managed_channel(request: Request, slug: str) -> dict:
+    """Remove only the exact authorized provision, including during outages."""
+    scope = await _scope(request)
+    registry = _registry(request)
+    package = _package(registry, slug)
+    match = _provision_query(request)
+    current = await _installation(package, scope, match)
+    await require_profile_manager(scope.actor_id, scope.workspace_id)
+    await _lifecycle(package.lifecycle.remove(scope, current))
+    return await _projection(registry, scope)
+
+
+def _provision_query(request: Request) -> ManageChannelProvision:
+    try:
+        return ManageChannelProvision.model_validate(
+            {
+                "provision_id": request.query_params.get("provision_id"),
+                "route_epoch": request.query_params.get("route_epoch"),
+            }
+        )
+    except ValueError:
+        raise BadRequestError("Invalid managed channel provision") from None
+
+
+def _configuration_setup(package: ChannelPackage) -> ChannelProfileSetup:
+    setup = package.profile_setup
+    if setup is None:
+        raise ResourceNotFoundError("Managed channel configuration is unavailable")
+    return setup
+
+
+async def _configuration_snapshot(
+    setup: ChannelProfileSetup,
+    scope: ChannelScope,
+    current: ChannelInstallation,
+) -> ChannelProfileConfiguration:
+    data = await _lifecycle(setup.describe(scope, current))
+    if (
+        not isinstance(data, ChannelProfileConfiguration)
+        or type(data.profile_revision) is not int
+        or data.profile_revision < 0
+        or (data.profile_key is not None and not _profile_text(data.profile_key))
+        or not isinstance(data.eligible_profiles, tuple)
+        or (
+            data.published_version is not None
+            and (
+                type(data.published_version) is not int
+                or not 1 <= data.published_version <= 9_007_199_254_740_991
+                or data.profile_key is None
+            )
+        )
+        or type(data.editable) is not bool
+        or (current.enabled and data.editable)
+        or not all(
+            isinstance(item, ChannelProfileOption)
+            and _profile_text(item.key)
+            and _profile_text(item.name)
+            for item in data.eligible_profiles
+        )
+        or (
+            data.published_version is not None
+            and sum(item.key == data.profile_key for item in data.eligible_profiles)
+            != 1
+        )
+    ):
+        raise ServiceUnavailableError("Managed channel configuration is unavailable")
+    return data
+
+
+def _profile_text(value: str) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and value == value.strip()
+
+
+@endpoint(
+    f"{_PATH}/{{slug}}/configuration", methods=["GET"], auth=True, tags=["Agentive"]
+)
+async def get_managed_channel_configuration(
+    request: Request, slug: str
+) -> JSONResponse:
+    """Describe the one Core-supported optional setup at an exact provision."""
+    scope = await _scope(request)
+    package = _package(_registry(request), slug)
+    setup = _configuration_setup(package)
+    match = _provision_query(request)
+    current = await _installation(package, scope, match)
+    snapshot = await _configuration_snapshot(setup, scope, current)
+    client_origin = None
+    share_available = False
+    embed_descriptors = ()
+    private_test_model = None
+    if snapshot.profile_key is not None and snapshot.published_version is not None:
+        exact = ManageChannelShareQuery(
+            workspace_id=scope.workspace_id,
+            provision_id=current.provision_id,
+            route_epoch=current.route_epoch,
+            profile_key=snapshot.profile_key,
+            published_version=snapshot.published_version,
+        )
+        private_test_model = await mounted_private_test_model(request, slug, exact)
+        if current.enabled:
+            client_origin = await mounted_client_origin(request, slug, exact)
+            share_available = await mounted_share_check_available(request, slug, exact)
+            embed_descriptors = await mounted_embed_descriptors(request, slug, exact)
+    if (
+        client_origin or share_available or embed_descriptors or private_test_model
+    ) and await _configuration_snapshot(setup, scope, current) != snapshot:
+        raise ResourceConflictError(
+            "Managed channel profile changed. Refresh and try again."
+        )
+    if await _installation(package, scope, match) != current:
+        raise ResourceConflictError("Managed channel changed. Refresh and try again.")
+    await require_profile_manager(scope.actor_id, scope.workspace_id)
+    projection = asdict(snapshot)
+    if slug == WEB_CHAT_SLUG:
+        found = await profile_management.record(scope.workspace_id)
+        if found is None or found.revision != snapshot.profile_revision:
+            raise ResourceConflictError(
+                "Web Chat configuration changed. Reload and try again."
+            )
+        projection["theme"] = found.public_web_chat.get("theme", "system")
+    if snapshot.published_version is None:
+        projection.pop("published_version")
+    if private_test_model:
+        projection["private_test_model"] = private_test_model
+        projection["private_test_available"] = True
+    if client_origin:
+        projection["client_api_origin"] = client_origin
+    if share_available:
+        projection["full_page_share_check_available"] = True
+    if embed_descriptors:
+        projection["approved_embed_policies"] = [
+            asdict(entry) for entry in embed_descriptors
+        ]
+    return JSONResponse(
+        {
+            "kind": PROFILE_CONFIGURATION,
+            **projection,
+            "provision_id": current.provision_id,
+            "route_epoch": current.route_epoch,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@endpoint(
+    f"{_PATH}/{{slug}}/configuration", methods=["PUT"], auth=True, tags=["Agentive"]
+)
+async def assign_managed_channel_profile(request: Request, slug: str) -> dict:
+    """Assign a current eligible public profile only to a disabled provision."""
+    scope = await _scope(request)
+    registry = _registry(request)
+    package = _package(registry, slug)
+    setup = _configuration_setup(package)
+    try:
+        change = ManageChannelProfileAssignment.model_validate(await request.json())
+    except ValueError:
+        raise BadRequestError("Invalid managed channel profile assignment") from None
+    current = await _installation(package, scope, change)
+    snapshot = await _configuration_snapshot(setup, scope, current)
+    if (
+        current.enabled
+        or not snapshot.editable
+        or snapshot.profile_revision != change.expected_profile_revision
+        or (
+            change.profile_key is not None
+            and not any(
+                item.key == change.profile_key for item in snapshot.eligible_profiles
+            )
+        )
+    ):
+        raise ResourceConflictError("Managed channel profile changed or is ineligible")
+    await require_profile_manager(scope.actor_id, scope.workspace_id)
+    await _lifecycle(
+        setup.assign(
+            scope, current, change.expected_profile_revision, change.profile_key
+        )
+    )
+    return await _projection(registry, scope)
+
+
+@endpoint(
+    f"{_PATH}/{WEB_CHAT_SLUG}/appearance", methods=["PUT"], auth=True, tags=["Agentive"]
+)
+async def save_web_chat_appearance(request: Request) -> dict:
+    """Save the scoped Web Chat theme without activating the channel."""
+    scope = await _scope(request)
+    package = _package(_registry(request), WEB_CHAT_SLUG)
+    try:
+        change = ManageWebChatAppearance.model_validate(await request.json())
+    except ValueError:
+        raise BadRequestError("Invalid Web Chat appearance") from None
+    await _installation(package, scope, change)
+    await public_web_chat.set_appearance(scope.actor_id, scope.workspace_id, change)
+    return {"theme": change.theme}

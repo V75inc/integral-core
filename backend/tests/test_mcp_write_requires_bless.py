@@ -79,6 +79,52 @@ def test_catalog_can_certify_a_tool_read_only(monkeypatch):
     assert is_write_tool(_spec("create_invoice"), auth_state=auth) is True
 
 
+def test_package_read_only_list_overrides_the_catalog(monkeypatch):
+    """An admitted package list classifies the tool. A stale catalog copy does not."""
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: {
+            "capabilities": {"mcp": {"read_only_tools": ["search_files"]}}
+        },
+    )
+    auth = {"catalog_slug": "google_drive"}
+    assert is_write_tool(_spec("search_files"), auth_state=auth) is False
+    assert is_write_tool(_spec("download_file_content"), auth_state=auth) is True
+
+
+def test_stored_read_only_list_wins(monkeypatch):
+    """A stored read-only list wins. An older snapshot uses the admitted list."""
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: {
+            "capabilities": {"mcp": {"read_only_tools": ["admitted_read"]}}
+        },
+    )
+    stored = {
+        "id": "acme_files",
+        "capabilities": {"mcp": {"read_only_tools": ["snapshot_read"]}},
+    }
+    auth = {"catalog_slug": "google_drive", "access_token": "tok"}
+    assert (
+        is_write_tool(_spec("snapshot_read"), auth_state=auth, manifest=stored) is False
+    )
+    assert (
+        is_write_tool(_spec("admitted_read"), auth_state=auth, manifest=stored) is True
+    )
+    assert auth["access_token"] == "tok"
+    older = {"capabilities": {"mcp": {"transport": "streamable_http"}}}
+    assert (
+        is_write_tool(_spec("admitted_read"), auth_state=auth, manifest=older) is False
+    )
+    broken = {"capabilities": {"mcp": {"read_only_tools": "search"}}}
+    with pytest.raises(ValueError, match="does not declare read-only tools"):
+        is_write_tool(
+            _spec("search"),
+            auth_state={"catalog_slug": "acme_files"},
+            manifest=broken,
+        )
+
+
 def test_unnamed_tool_is_a_write():
     """If we cannot identify the tool we cannot vouch for it."""
     assert is_write_tool({"_mcp_connector_id": "n.Connector.abc"}, auth_state={})

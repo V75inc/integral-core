@@ -593,6 +593,10 @@ def _environment(
         # Windows uses a legacy code page for redirected Python streams.
         env.setdefault("PYTHONIOENCODING", "utf-8")
     package_path = apps or config.get("apps_path") or str(home / "integral-apps")
+    connector_paths = env.get("INTEGRAL_CONNECTOR_PATHS", "")
+    if apps or config.get("apps_path"):
+        project_connectors = str(Path(package_path).parent / "integral-connectors")
+        connector_paths = ",".join(filter(None, (project_connectors, connector_paths)))
     core_only = (
         not apps and config.get("deployment_profile", "server") != "desktop_single_user"
     )
@@ -612,7 +616,7 @@ def _environment(
         "JVSPATIAL_DB_TYPE": "postgres",
         "JVSPATIAL_POSTGRES_DSN": dsn,
         "JVSPATIAL_POSTGRES_INDEX_CREATION": "managed",
-        "JVSPATIAL_AUTO_CREATE_INDEXES": "true",
+        "JVSPATIAL_AUTO_CREATE_INDEXES": "false",
         "JVSPATIAL_DB_LOGGING_ENABLED": (
             "true"
             if config.get("deployment_profile") == "desktop_single_user"
@@ -639,6 +643,7 @@ def _environment(
             else env.get("INTEGRAL_SERVICE_KEY", "")
         ),
         "INTEGRAL_PACKAGE_PATHS": package_path,
+        "INTEGRAL_CONNECTOR_PATHS": connector_paths,
         "INTEGRAL_ENV_FILE": str(home / "settings.env"),
         "INTEGRAL_RECOVERY_MARKER": str(home / "recovery.json"),
         "JVSPATIAL_FILES_ROOT_PATH": str(home / "files"),

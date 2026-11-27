@@ -1,0 +1,96 @@
+--- a/jvmessenger/src/app/chat/Thread.tsx
++++ b/jvmessenger/src/app/chat/Thread.tsx
+@@ -9 +9 @@
+-import { useEffect, useState, type FC } from "react";
++import { useEffect, useMemo, useState, type FC } from "react";
+@@ -17,0 +18 @@
++  type TextMessagePartComponent,
+@@ -57,0 +59,5 @@
++  /** Optional host override for assistant message text presentation. */
++  assistantText?: TextMessagePartComponent;
++  visitorInput?: { label: string; maxLength: number; locked: boolean };
++  visitorLog?: boolean;
++  retryLabel?: string;
+@@ -60,0 +67,7 @@
++  const { assistantText } = props;
++  const messages = useMemo(() => ({
++    UserMessage,
++    AssistantMessage: assistantText
++      ? () => <AssistantMessage TextPart={assistantText} />
++      : AssistantMessage,
++  }), [assistantText]);
+@@ -95 +108,3 @@
+-          <ThreadPrimitive.Viewport className="relative flex flex-1 flex-col overflow-y-scroll scroll-smooth px-4 pt-4">
++          <ThreadPrimitive.Viewport
++            {...(props.visitorLog ? { turnAnchor: "bottom" as const, scrollToBottomOnRunStart: false } : {})}
++            className="relative flex flex-1 flex-col overflow-y-scroll scroll-smooth px-4 pt-4">
+@@ -100,3 +115,5 @@
+-            <ThreadPrimitive.Messages
+-              components={{ UserMessage, AssistantMessage }}
+-            />
++            {props.visitorLog ? (
++              <div role="log" aria-label="Conversation" tabIndex={0}>
++                <ThreadPrimitive.Messages components={messages} />
++              </div>
++            ) : <ThreadPrimitive.Messages components={messages} />}
+@@ -119 +136 @@
+-              {turnError && <ErrorBanner message={turnError} onRetry={retry} />}
++              {turnError && <ErrorBanner message={turnError} onRetry={retry} label={props.retryLabel} />}
+@@ -128,0 +146 @@
++                visitorInput={props.visitorInput}
+@@ -222 +240 @@
+-const ErrorBanner: FC<{ message: string; onRetry: () => void }> = ({
++const ErrorBanner: FC<{ message: string; onRetry: () => void; label?: string }> = ({
+@@ -224,0 +243 @@
++  label,
+@@ -236 +255 @@
+-      Retry
++      {label ?? "Retry"}
+@@ -301 +320,2 @@
+-}> = ({ config, sendText, attachments, addAttachment, removeAttachment }) => {
++  visitorInput?: ThreadServices["visitorInput"];
++}> = ({ config, sendText, attachments, addAttachment, removeAttachment, visitorInput }) => {
+@@ -315 +335 @@
+-    if (!value.trim() && !hasAttachments) return;
++    if (visitorInput?.locked || (!value.trim() && !hasAttachments)) return;
+@@ -319,0 +340 @@
++  const ComposerRoot = visitorInput ? "div" : ComposerPrimitive.Root;
+@@ -321 +342 @@
+-    <ComposerPrimitive.Root className="border-border bg-background flex w-full flex-col rounded-2xl border px-2 pt-1.5 pb-1.5">
++    <ComposerRoot className="border-border bg-background flex w-full flex-col rounded-2xl border px-2 pt-1.5 pb-1.5">
+@@ -329 +350,4 @@
+-        autoFocus
++        autoFocus={!visitorInput}
++        aria-label={visitorInput?.label}
++        maxLength={visitorInput?.maxLength}
++        readOnly={visitorInput?.locked}
+@@ -335 +359 @@
+-          if (e.key === "Enter" && !e.shiftKey) {
++          if (e.key === "Enter" && !e.shiftKey && (!visitorInput || (!e.nativeEvent.isComposing && e.keyCode !== 229))) {
+@@ -352 +376 @@
+-            disabled={!canSend}
++            disabled={!canSend || visitorInput?.locked}
+@@ -370 +394 @@
+-    </ComposerPrimitive.Root>
++    </ComposerRoot>
+@@ -414 +438,3 @@
+-const AssistantMessage: FC = () => {
++const DefaultAssistantText = () => <MarkdownText />;
++
++const AssistantMessage: FC<{ TextPart?: TextMessagePartComponent }> = ({ TextPart = DefaultAssistantText }) => {
+@@ -421 +447 @@
+-            Text: MarkdownText,
++            Text: TextPart,
+--- a/jvmessenger/src/components/assistant-ui/markdown-text.tsx
++++ b/jvmessenger/src/components/assistant-ui/markdown-text.tsx
+@@ -4,0 +5 @@
++  type MarkdownTextPrimitiveProps,
+@@ -16 +17,3 @@
+-const MarkdownTextImpl = () => {
++const MarkdownTextImpl = ({ components, ...props }: Pick<
++  MarkdownTextPrimitiveProps, "components" | "preprocess" | "skipHtml" | "smooth" | "urlTransform"
++>) => {
+@@ -22 +25,2 @@
+-      components={defaultComponents}
++      components={components ? { ...defaultComponents, ...components } : defaultComponents}
++      {...props}

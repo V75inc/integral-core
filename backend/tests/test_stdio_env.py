@@ -134,6 +134,7 @@ def test_spawn_env_from_quickbooks_oauth_maps_tokens(monkeypatch):
     monkeypatch.delenv("QUICKBOOKS_CLIENT_ID", raising=False)
     env = spawn_env_from_quickbooks_oauth(
         auth_state={
+            "catalog_slug": "quickbooks_mcp",
             "client_id": "cid",
             "client_secret": "sec",
             "environment": "sandbox",
@@ -152,3 +153,52 @@ def test_spawn_env_from_quickbooks_oauth_maps_tokens(monkeypatch):
     assert env["QUICKBOOKS_REALM_ID"] == "realm-1"
     assert env["QUICKBOOKS_DISABLE_WRITE"] == "false"
     assert env["QUICKBOOKS_DISABLE_UPDATE"] == "true"
+
+
+def test_spawn_env_reads_client_credentials_from_the_package(monkeypatch):
+    """A blank install uses the admitted package env list, not a fixed settings name."""
+    from app.connectors.stdio_env import spawn_env_from_quickbooks_oauth
+
+    monkeypatch.setenv("ORG_INTUIT_ID", "from-package")
+    monkeypatch.setenv("ORG_INTUIT_SECRET", "secret-from-package")
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_oauth",
+        lambda package_id: {
+            "client": {
+                "id_env": ["ORG_INTUIT_ID"],
+                "secret_env": ["ORG_INTUIT_SECRET"],
+            }
+        },
+    )
+    env = spawn_env_from_quickbooks_oauth(
+        auth_state={"catalog_slug": "quickbooks_mcp"},
+        refresh_token="rtok",
+        realm_id="realm-1",
+    )
+    assert env["QUICKBOOKS_CLIENT_ID"] == "from-package"
+    assert env["QUICKBOOKS_CLIENT_SECRET"] == "secret-from-package"
+    assert env["QUICKBOOKS_ENVIRONMENT"] == "sandbox"
+
+
+def test_spawn_env_writes_only_generated_env_keys(monkeypatch):
+    """A credential key is not written unless the package lists it."""
+    from app.connectors.stdio_env import spawn_env_from_quickbooks_oauth
+
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: {
+            "capabilities": {"mcp": {"generated_env": ["QUICKBOOKS_REALM_ID"]}}
+        },
+    )
+    env = spawn_env_from_quickbooks_oauth(
+        auth_state={
+            "catalog_slug": "quickbooks_mcp",
+            "client_id": "cid",
+            "client_secret": "sec",
+        },
+        refresh_token="rtok",
+        realm_id="realm-1",
+    )
+    assert env["QUICKBOOKS_REALM_ID"] == "realm-1"
+    assert "QUICKBOOKS_CLIENT_SECRET" not in env
+    assert "QUICKBOOKS_REFRESH_TOKEN" not in env

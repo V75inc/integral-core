@@ -30,6 +30,8 @@ _DEFAULT_SIZES: tuple = (32, 64, 128, 256)
 def resize_avatar(
     image_bytes: bytes,
     sizes: Iterable[int] = _DEFAULT_SIZES,
+    *,
+    max_pixels: int | None = None,
 ) -> Dict[int, bytes]:
     """Center-crop to square, resize to each requested size, return PNG bytes.
 
@@ -51,6 +53,8 @@ def resize_avatar(
         # Enforce the upload contract using decoded format, not a spoofable MIME
         # label. In particular, never dispatch TIFF/EPS/PPM Pillow decoders here.
         with Image.open(BytesIO(image_bytes), formats=("PNG", "JPEG", "WEBP")) as src:
+            if max_pixels is not None and src.width * src.height > max_pixels:
+                raise AvatarValidationError("Image dimensions are too large")
             src.verify()
         with Image.open(BytesIO(image_bytes), formats=("PNG", "JPEG", "WEBP")) as src:
             img = src.convert("RGBA")

@@ -12,6 +12,7 @@ import json
 from typing import Any
 
 from app.services.authority_facts import primary_node_record, required_node_text
+from app.services.chat_conversation_updates import signal_committed_conversation_update
 from app.utils.time import utc_now_iso
 
 _queues: dict[int, asyncio.Queue] = {}
@@ -32,6 +33,11 @@ def queue_committed_chat_event(event: Any) -> None:
     if event.action != "chat.message.create" or event.resource_type != "ChatThread":
         return
     from app.agentive.services.agent_events import _agent_event_connections
+
+    if event.scope.startswith("user:"):
+        signal_committed_conversation_update(
+            event.scope.removeprefix("user:"), event.resource_id, event.workspace_id
+        )
 
     # Scope selects a candidate audience only. Each actual frame still needs
     # current identity, membership, ownership and graph checks below.

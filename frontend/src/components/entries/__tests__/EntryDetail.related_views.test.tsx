@@ -167,10 +167,10 @@ describe('RelatedViewsSection — Phase 3.1 ANC-06', () => {
     expect(slotCalls).toHaveLength(0);
   });
 
-  it('forwards bindings with currentUser + entryId injected', () => {
+  it('forwards the entry ID, saved values and app read-only state with the bindings', () => {
     render(
       <RelatedViewsSection
-        entry={{ id: 'e-42' }}
+        entry={{ id: 'e-42', custom_fields: { phase: 'closed' }, app_record_readonly: true }}
         entryTypeSpec={{
           related_views: [
             { view: 'board', bind: { customKey: 'customVal' } },
@@ -184,6 +184,8 @@ describe('RelatedViewsSection — Phase 3.1 ANC-06', () => {
       customKey: 'customVal',
       currentUser: 'u-99',
       entryId: 'e-42',
+      entryValues: { phase: 'closed' },
+      entryAppReadonly: true,
       __refreshKey: 0,
       onActionComplete: expect.any(Function),
     });

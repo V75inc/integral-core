@@ -70,13 +70,13 @@ describe("ConnectorInstallSheet", () => {
     expect(screen.getByText("Client ID")).toBeInTheDocument();
   });
 
-  it("submits label and shared mode", async () => {
+  it("submits the Workspace choice as the existing shared mode", async () => {
     installMock.mockResolvedValue({ action: "created", slug: "drive_native" });
     renderSheet();
     fireEvent.change(screen.getByPlaceholderText("Google Drive"), {
       target: { value: "Team Drive" },
     });
-    fireEvent.click(screen.getByRole("radio", { name: /shared/i }));
+    fireEvent.click(screen.getByRole("radio", { name: /workspace/i }));
     fireEvent.click(screen.getByRole("button", { name: /connect/i }));
     await waitFor(() => expect(installMock).toHaveBeenCalledTimes(1));
     expect(installMock).toHaveBeenCalledWith("drive_native", {
@@ -150,5 +150,55 @@ describe("ConnectorInstallSheet", () => {
     expect(screen.queryByText(/environment \(sandbox/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /advanced options/i }));
     expect(screen.getByText(/environment \(sandbox/i)).toBeInTheDocument();
+  });
+
+  it("renders a toggle only when the field declares that control", () => {
+    render(
+      <ConnectorInstallSheet
+        entry={
+          {
+            ...entry,
+            slug: "acme",
+            display_name: "Acme",
+            platform_configured: [],
+            auth: {
+              type: "api_key",
+              fields: [
+                {
+                  name: "QUICKBOOKS_DISABLE_SOMETHING",
+                  label: "Named disable",
+                  secret: false,
+                  required: false,
+                },
+                {
+                  name: "QUICKBOOKS_DISABLE_WRITE",
+                  label: "Disable create tools (true/false)",
+                  secret: false,
+                  required: false,
+                },
+                {
+                  name: "pause_sync",
+                  label: "Pause sync",
+                  secret: false,
+                  required: false,
+                  control: "toggle",
+                },
+              ],
+            },
+          } as unknown as CatalogEntry
+        }
+        onClose={() => undefined}
+        onInstalled={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Pause sync" })).toHaveAttribute(
+      "aria-pressed",
+    );
+    expect(screen.queryByRole("button", { name: "Named disable" })).toBeNull();
+    expect(screen.getByText("Named disable")).toBeInTheDocument();
+    expect(screen.getByText("Disable create tools (true/false)")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Disable create tools" }),
+    ).toBeNull();
   });
 });

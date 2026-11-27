@@ -1,0 +1,43 @@
+.visitor-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-width: 0;
+  color: var(--text);
+  background: var(--bg);
+}
+.visitor-header {
+  flex: none;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--panel);
+}
+.visitor-header-inner {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin: auto;
+  padding: .65rem 1rem;
+}
+.visitor-header h1 { overflow-wrap: anywhere; line-height: 1.3; }
+.visitor-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--cta-bg);
+  color: var(--cta-fg);
+  border-radius: .65rem;
+  width: 2rem;
+  height: 2rem;
+}
+.visitor-state { margin: auto; max-width: min(92%, 34rem); }
+.visitor-thread { flex: 1; min-height: 0; }
+.visitor-chat-page { --visitor-inline: max(1rem, calc((100vw - 44rem) / 2)); }
+.visitor-chat-page .visitor-header-inner { padding-inline: var(--visitor-inline); }
+.visitor-chat-page .visitor-upstream-thread .aui-root > .overflow-y-scroll { padding-inline: var(--visitor-inline); }
+.visitor-upstream-thread .aui-root > .overflow-y-scroll { overscroll-behavior: contain; }
+@media (prefers-reduced-motion: reduce) {
+  .visitor-upstream-thread *, .visitor-upstream-thread *::before, .visitor-upstream-thread *::after {
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

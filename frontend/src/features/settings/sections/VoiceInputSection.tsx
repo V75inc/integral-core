@@ -26,6 +26,7 @@ import { startLevelMeter } from '../../speech/audio/levelMeter';
 import { resolveEngine } from '../../speech/resolveEngine';
 import { mapMediaError } from '../../speech/useDictation';
 import { SettingsSection, StatusPill, ToggleRow } from '../components/Field';
+import { FormDialog } from '../../../templates';
 import { HotkeyInput } from '../components/HotkeyInput';
 
 export const LANGUAGE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
@@ -146,29 +147,48 @@ function MicTest() {
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const stopRef = useRef<(() => void) | null>(null);
+  const mounted = useRef(true);
+  const requesting = useRef(false);
 
-  useEffect(() => () => stopRef.current?.(), []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      stopRef.current?.();
+    };
+  }, []);
 
   const start = async () => {
+    if (requesting.current) return;
     setError(null);
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("This browser can't capture audio.");
       return;
     }
+    requesting.current = true;
+    let stream: MediaStream | undefined;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const meter = startLevelMeter(stream, setLevel);
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mounted.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      const activeStream = stream;
+      const meter = startLevelMeter(activeStream, setLevel);
       setDevice(stream.getAudioTracks()[0]?.label || 'Default microphone');
       setTesting(true);
       stopRef.current = () => {
         meter.stop();
-        for (const track of stream.getTracks()) track.stop();
+        for (const track of activeStream.getTracks()) track.stop();
         setLevel(0);
         setTesting(false);
         stopRef.current = null;
       };
     } catch (err) {
-      setError(mapMediaError(err).message);
+      stream?.getTracks().forEach(track => track.stop());
+      if (mounted.current) setError(mapMediaError(err).message);
+    } finally {
+      requesting.current = false;
     }
   };
 
@@ -212,21 +232,34 @@ function MicTest() {
 
 export function VoiceInputSection({
   navigateToSection,
+  embedded = false,
 }: {
   navigateToSection?: (id: string) => void;
+  embedded?: boolean;
 }) {
   const prefsQuery = useSpeechPreferences();
   const configQuery = useSpeechConfig();
   const update = useUpdateSpeechPreferences();
   const { showToast } = useToast();
 
-  const prefs = prefsQuery.data;
+  const [draft, setDraft] = useState<Partial<SpeechPreferences> | null>(null);
+  const saved = prefsQuery.data;
+  const prefs = saved && { ...saved, ...draft };
+  const close = () => { if (!update.isPending) setDraft(null); };
   const config = configQuery.data;
-  const save = (patch: Partial<SpeechPreferences>) =>
-    update.mutate(patch, {
-      onSuccess: () => showToast('Voice input preferences saved.', 'success'),
-      onError: err => showToast(errorMessage(err), 'error'),
+  const edit = (patch: Partial<SpeechPreferences>) =>
+    setDraft(current => ({ ...current, ...patch }));
+  const changed = Boolean(saved && draft &&
+    (Object.keys(draft) as (keyof SpeechPreferences)[]).some(key => draft[key] !== saved[key]));
+  const save = () => {
+    if (!draft || !changed) return;
+    update.mutate(draft, {
+      onSuccess: () => {
+        setDraft(null);
+        showToast('Dictation preferences saved.', 'success');
+      },
     });
+  };
 
   const browserNote = config?.engines.find(e => e.source === 'browser')?.privacy_note;
   const resolved = resolveEngine(config);
@@ -237,13 +270,9 @@ export function VoiceInputSection({
       ? [...LANGUAGE_OPTIONS, { value: prefs.language, label: prefs.language }]
       : LANGUAGE_OPTIONS;
 
-  return (
-    <SettingsSection
-      title="Voice input"
-      description="Dictate into the agent chat with the mic button or a keyboard shortcut. What you say lands in the message box for you to review before sending."
-    >
+  const controls = (
       <Stack gap="md">
-        {config ? (
+        {embedded ? null : config ? (
           <ProviderStatus
             config={config}
             onSetUp={navigateToSection ? () => navigateToSection('ai-models') : undefined}
@@ -257,12 +286,21 @@ export function VoiceInputSection({
         {prefsQuery.isError ? (
           <div role="alert"><Text as="p" variant="body-sm" tone="danger">Could not load voice preferences.</Text><Button variant="secondary" size="sm" onClick={() => void prefsQuery.refetch()}>Retry voice preferences</Button></div>
         ) : !prefs ? (
-          <Skeleton className="h-48 w-full" />
+          <Skeleton className={embedded ? "h-8 w-36" : "h-16 w-full"} />
         ) : (
+          <div>
+            <Button type="button" variant={embedded ? "ghost" : "secondary"} size="sm"
+              onClick={() => { update.reset(); setDraft({}); }}>
+              {embedded ? "Dictation preferences" : "Edit dictation preferences"}
+            </Button>
+          </div>
+        )}
+        {draft && prefs && <FormDialog open title="Dictation preferences" onClose={close}
+          onSubmit={save} submitLabel="Save preferences" submitDisabled={!changed} submitLoading={update.isPending}>
           <fieldset disabled={update.isPending} className="flex min-w-0 flex-col gap-3">
             <ToggleRow
               checked={prefs.enabled}
-              onChange={enabled => save({ enabled })}
+              onChange={enabled => edit({ enabled })}
               label="Show the mic in the chat box"
               hint="Turn off to hide voice input entirely."
             />
@@ -271,7 +309,7 @@ export function VoiceInputSection({
                 <Select
                   id="voice-engine"
                   value={prefs.engine}
-                  onChange={e => save({ engine: e.target.value as SpeechEngineChoice })}
+                  onChange={e => edit({ engine: e.target.value as SpeechEngineChoice })}
                 >
                   {(Object.keys(ENGINE_LABELS) as SpeechEngineChoice[]).map(value => (
                     <option key={value} value={value}>
@@ -284,7 +322,7 @@ export function VoiceInputSection({
                 <Select
                   id="voice-language"
                   value={prefs.language}
-                  onChange={e => save({ language: e.target.value })}
+                  onChange={e => edit({ language: e.target.value })}
                 >
                   {languageOptions.map(option => (
                     <option key={option.value} value={option.value}>
@@ -297,14 +335,14 @@ export function VoiceInputSection({
                 <HotkeyInput
                   id="voice-hotkey"
                   value={prefs.hotkey}
-                  onChange={hotkey => save({ hotkey })}
+                  onChange={hotkey => edit({ hotkey })}
                 />
               </LabeledField>
               <LabeledField id="voice-mode" label="Shortcut behavior">
                 <Select
                   id="voice-mode"
                   value={prefs.hotkey_mode}
-                  onChange={e => save({ hotkey_mode: e.target.value as HotkeyMode })}
+                  onChange={e => edit({ hotkey_mode: e.target.value as HotkeyMode })}
                 >
                   {(Object.keys(MODE_LABELS) as HotkeyMode[]).map(value => (
                     <option key={value} value={value}>
@@ -317,7 +355,7 @@ export function VoiceInputSection({
                 <Select
                   id="voice-silence"
                   value={String(prefs.silence_timeout_seconds)}
-                  onChange={e => save({ silence_timeout_seconds: Number(e.target.value) })}
+                  onChange={e => edit({ silence_timeout_seconds: Number(e.target.value) })}
                 >
                   {SILENCE_OPTIONS.map(seconds => (
                     <option key={seconds} value={seconds}>
@@ -329,7 +367,7 @@ export function VoiceInputSection({
             </div>
             <ToggleRow
               checked={prefs.auto_send_on_stop}
-              onChange={autoSend => save({ auto_send_on_stop: autoSend })}
+              onChange={autoSend => edit({ auto_send_on_stop: autoSend })}
               label="Send when I stop talking"
               hint="Off by default so you can review first. Never sends while the agent is still answering."
             />
@@ -339,10 +377,20 @@ export function VoiceInputSection({
               </Text>
             ) : null}
           </fieldset>
-        )}
+          {embedded && <MicTest />}
+          {update.isError && <Text as="p" role="alert" tone="danger">{errorMessage(update.error)}</Text>}
+        </FormDialog>}
 
-        <MicTest />
+        {!embedded && <MicTest />}
       </Stack>
+  );
+
+  return embedded ? controls : (
+    <SettingsSection
+      title="Dictation preferences"
+      description="Dictate into the agent chat with the mic button or a keyboard shortcut. What you say lands in the message box for you to review before sending."
+    >
+      {controls}
     </SettingsSection>
   );
 }

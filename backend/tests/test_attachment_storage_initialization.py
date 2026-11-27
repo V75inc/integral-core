@@ -1,5 +1,6 @@
 """Storage failures must not persist detached attachment nodes."""
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -23,6 +24,12 @@ async def test_storage_initialization_precedes_attachment_create(monkeypatch, pa
     )
     monkeypatch.setattr(attachments, "check_quota_for_entry", no_duplicate)
     monkeypatch.setattr(chat_attachment_upload, "check_workspace_quota", no_duplicate)
+
+    @asynccontextmanager
+    async def admitted_attachment(entry, _user_id):
+        yield entry
+
+    monkeypatch.setattr(attachments, "attachment_entry_write", admitted_attachment)
     monkeypatch.setattr(
         attachments,
         "_read_upload_streaming",

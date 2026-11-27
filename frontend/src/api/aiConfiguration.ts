@@ -1,4 +1,5 @@
 import api from "./client";
+import type { AxiosRequestConfig } from "axios";
 import type { ModelProvider } from "./modelCredentials";
 
 export const AI_CONFIGURATION_QUERY_KEY = ["ai-configuration"] as const;
@@ -30,12 +31,14 @@ export interface ModelConnection {
   last_tested_at?: string;
 }
 export interface HarnessModelAssessment {
-  tier: "heavy" | "light" | "unverified";
+  tier: "heavy" | "light" | "unverified" | "voice" | "embedding";
   recommended: boolean;
   evidence: string;
   message: string;
 }
 export interface ModelProfile {
+  supports_vision?: boolean;
+  embedding_only?: boolean;
   harness_policy?: HarnessModelAssessment;
   id: string;
   name: string;
@@ -64,8 +67,16 @@ export interface ModelRouting {
   light_profile_id: string;
   revision: string;
 }
+export type ChatLimitKey = "request_limit" | "tool_call_limit" | "token_limit" | "run_seconds" | "request_timeout" | "idle_timeout";
+export type DeploymentLimitSettings = {
+  whole_answer_protection?: boolean;
+  revision: number;
+  host: Record<ChatLimitKey, number>;
+  overrides: Partial<Record<ChatLimitKey, number>>;
+  effective: Record<ChatLimitKey, number>;
+};
 export interface AIConfiguration {
-  model_policy?: { version: string; note: string; providers: Record<string, { preferred_heavy: string; models: Array<{ id: string; label: string; role: string; evidence: string; recommended: boolean }> }> };
+  model_policy?: { specialists?: Partial<Record<ModelProvider, Partial<Record<"light" | "vision" | "embedding" | "transcription" | "realtime", string>>>>; version: string; note: string; providers: Record<string, { preferred_heavy: string; models: Array<{ id: string; label: string; role: string; evidence: string; recommended: boolean }> }> };
   routing?: ModelRouting;
   connections: ModelConnection[];
   profiles: ModelProfile[];
@@ -87,7 +98,9 @@ export interface AIConfiguration {
       light_generation_settings?: GenerationSettings;
     };
   };
+  deployment_limit_settings?: DeploymentLimitSettings;
   harness_limits: {
+    tool_call_limit?: number;
     request_limit: number;
     token_limit: number;
     run_seconds: number;
@@ -104,12 +117,15 @@ export type ConnectionWrite = Omit<
   | "last_test_ok"
   | "last_tested_at"
 > & { id?: string; api_key?: string; without_key: boolean };
-export type ProfileWrite = Omit<ModelProfile, "id" | "updated_at" | "harness_policy"> & {
+export type ProfileWrite = Omit<ModelProfile, "id" | "updated_at" | "harness_policy" | "supports_vision"> & {
   id?: string;
 };
 export const aiConfigurationApi = {
-  async get(): Promise<AIConfiguration> {
-    return (await api.get("/users/me/ai-configuration")).data;
+  async saveDeploymentLimits(body: Pick<DeploymentLimitSettings, "revision" | "overrides" | "whole_answer_protection">): Promise<DeploymentLimitSettings> {
+    return (await api.post("/admin/chat-limits", body)).data;
+  },
+  async get(request?: AxiosRequestConfig): Promise<AIConfiguration> {
+    return (await api.get("/users/me/ai-configuration", request)).data;
   },
   async capabilities(
     provider: ModelProvider,
@@ -118,8 +134,8 @@ export const aiConfigurationApi = {
     return (await api.post("/users/me/model-capabilities", { provider, model }))
       .data;
   },
-  async saveConnection(body: ConnectionWrite) {
-    return (await api.post("/users/me/model-connections", body)).data;
+  async saveConnection(body: ConnectionWrite, request?: AxiosRequestConfig) {
+    return (await api.post("/users/me/model-connections", body, request)).data;
   },
   async testConnection(
     id: string,
@@ -129,11 +145,11 @@ export const aiConfigurationApi = {
   async removeConnection(id: string) {
     await api.post("/users/me/model-connections/remove", { id });
   },
-  async saveProfile(body: ProfileWrite) {
-    return (await api.post("/users/me/model-profiles", body)).data;
+  async saveProfile(body: ProfileWrite, request?: AxiosRequestConfig) {
+    return (await api.post("/users/me/model-profiles", body, request)).data;
   },
-  async saveRouting(body: ModelRouting) {
-    return (await api.post("/users/me/model-routing", body)).data;
+  async saveRouting(body: ModelRouting, request?: AxiosRequestConfig) {
+    return (await api.post("/users/me/model-routing", body, request)).data;
   },
   async activateProfile(id: string) {
     await api.post("/users/me/model-profiles/activate", { id });
@@ -202,26 +218,27 @@ export interface EmbeddingConfiguration {
   changed?: boolean;
 }
 export const embeddingConfigurationApi = {
-  async get(): Promise<EmbeddingConfiguration> {
-    return (await api.get("/users/me/embedding-configuration")).data;
+  async get(request?: AxiosRequestConfig): Promise<EmbeddingConfiguration> {
+    return (await api.get("/users/me/embedding-configuration", request)).data;
   },
   async save(
     body: EmbeddingChoice & {
       revision: number;
       continue_previous_provider?: boolean;
     },
+    request?: AxiosRequestConfig,
   ): Promise<EmbeddingConfiguration> {
-    return (await api.post("/users/me/embedding-configuration", body)).data;
+    return (await api.post("/users/me/embedding-configuration", body, request)).data;
   },
-  async cancel(revision: number): Promise<EmbeddingConfiguration> {
+  async cancel(revision: number, request?: AxiosRequestConfig): Promise<EmbeddingConfiguration> {
     return (
-      await api.post("/users/me/embedding-configuration/cancel", { revision })
+      await api.post("/users/me/embedding-configuration/cancel", { revision }, request)
     ).data;
   },
   async test(
-    body: EmbeddingChoice,
+    body: EmbeddingChoice, request?: AxiosRequestConfig,
   ): Promise<{ valid: boolean; message: string }> {
-    return (await api.post("/users/me/embedding-configuration/test", body))
+    return (await api.post("/users/me/embedding-configuration/test", body, request))
       .data;
   },
 };
@@ -233,14 +250,17 @@ export interface AttachmentAnalysisConfiguration {
   editable: boolean;
   revision: number;
   available: boolean;
-  configuration: { enabled: boolean };
+  configuration: { enabled: boolean; profile_id?: string };
+  can_choose_profile?: boolean;
+  recommended_model?: string;
+  recommended_profile_id?: string;
 }
 export const attachmentAnalysisApi = {
-  async get(): Promise<AttachmentAnalysisConfiguration> {
-    return (await api.get("/users/me/attachment-analysis")).data;
+  async get(request?: AxiosRequestConfig): Promise<AttachmentAnalysisConfiguration> {
+    return (await api.get("/users/me/attachment-analysis", request)).data;
   },
-  async save(body: { enabled: boolean; revision: number }): Promise<AttachmentAnalysisConfiguration> {
-    return (await api.post("/users/me/attachment-analysis", body)).data;
+  async save(body: { enabled: boolean; revision: number; profile_id?: string }, request?: AxiosRequestConfig): Promise<AttachmentAnalysisConfiguration> {
+    return (await api.post("/users/me/attachment-analysis", body, request)).data;
   },
 };
 export interface VoiceChoice {
@@ -257,12 +277,34 @@ export interface VoiceConfigurationData {
   effective_provider: string;
 }
 export const voiceConfigurationApi = {
-  async get(): Promise<VoiceConfigurationData> {
-    return (await api.get("/users/me/voice-configuration")).data;
+  async get(request?: AxiosRequestConfig): Promise<VoiceConfigurationData> {
+    return (await api.get("/users/me/voice-configuration", request)).data;
   },
   async save(
     body: VoiceChoice & { revision: number },
+    request?: AxiosRequestConfig,
   ): Promise<VoiceConfigurationData> {
-    return (await api.post("/users/me/voice-configuration", body)).data;
+    return (await api.post("/users/me/voice-configuration", body, request)).data;
+  },
+};
+
+export const REALTIME_VOICE_QUERY_KEY = ["realtime-voice-configuration"] as const;
+export interface RealtimeVoiceChoice {
+  mode: "provider" | "disabled";
+  connection_id: string;
+  model: "" | "gpt-realtime-2.1-mini" | "gpt-realtime" | "gpt-realtime-mini";
+}
+export interface RealtimeVoiceConfiguration {
+  editable: boolean;
+  revision: number;
+  configuration: Partial<RealtimeVoiceChoice> & Pick<RealtimeVoiceChoice, "mode">;
+  effective_model: string;
+}
+export const realtimeVoiceConfigurationApi = {
+  async get(request?: AxiosRequestConfig): Promise<RealtimeVoiceConfiguration> {
+    return (await api.get("/users/me/realtime-voice-configuration", request)).data;
+  },
+  async save(body: RealtimeVoiceChoice & { revision: number }, request?: AxiosRequestConfig): Promise<RealtimeVoiceConfiguration> {
+    return (await api.post("/users/me/realtime-voice-configuration", body, request)).data;
   },
 };

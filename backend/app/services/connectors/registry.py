@@ -2,8 +2,7 @@
 
 Mirrors Phase 1 ``register_connector`` at app/agentive/connectors/registry.py
 verbatim, but renamed ``agent_type`` → ``slug``. Lives in core per locked
-decision #12 (CON-02 — reachable by non-agent runtime MCP clients regardless of
-AGENTIVE_ENABLED).
+decision #12 (CON-02 — shared by sync and the agent runtime).
 
 Test helpers (``reset_sync_registry``) mirror Phase 2's
 ``reset_consumer_hooks`` pattern at ``app/services/event_subscription_registry.py``.

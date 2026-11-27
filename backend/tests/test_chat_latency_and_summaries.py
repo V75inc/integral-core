@@ -142,7 +142,8 @@ def test_profile_budgets_include_adaptive_pass_and_never_extend_host_limits():
         assert limits.request_limit == 2
         assert limits.tool_calls_limit == 5
         assert limits.total_tokens_limit == 4200
-        assert turn_usage_limits(light=True).request_limit == 1
+        assert turn_usage_limits(light=True).request_limit == 2
+        assert turn_usage_limits(light=True, adaptive_requests=2).request_limit == 1
         timing.model_settings = {
             "model_request_limit": 1000,
             "turn_token_limit": 9_000_000,
@@ -239,3 +240,18 @@ async def test_preparation_spans_remain_content_free_and_task_local():
     assert second.phase_counts == {"workspaceProfile": 1}
     assert first.phase_totals["routingDiscovery"] >= 0
     assert second.phase_totals["workspaceProfile"] >= 0
+
+
+def test_core_skill_cache_observes_file_edits_and_isolates_callers(
+    tmp_path, monkeypatch
+):
+    from app.agentive.services import agent_skills
+
+    monkeypatch.setattr(agent_skills, "_core_skill_dir", lambda name: str(tmp_path))
+    path = tmp_path / "SKILL.md"
+    path.write_text("---\ndescription: First\nallowed-tools: read\n---\nOld")
+    first = agent_skills._parse_core_skill_disk("fixture")
+    first[2].append("caller edit")
+    assert agent_skills._parse_core_skill_disk("fixture") == ("First", "Old", ["read"])
+    path.write_text("---\ndescription: Other\nallowed-tools: list\n---\nNew")
+    assert agent_skills._parse_core_skill_disk("fixture") == ("Other", "New", ["list"])

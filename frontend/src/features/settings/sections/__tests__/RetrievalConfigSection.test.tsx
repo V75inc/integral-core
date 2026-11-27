@@ -28,6 +28,7 @@ import {
 } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('../../../../api/retrievalConfig', () => ({
   retrievalConfigApi: {
@@ -55,13 +56,13 @@ function makeConfig(
   };
 }
 
-function renderPanel() {
+function renderPanel(embedded = false) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={qc}>
-      <RetrievalConfigSection />
+      <MemoryRouter><RetrievalConfigSection embedded={embedded} /></MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -149,6 +150,15 @@ describe('<RetrievalConfigSection />', () => {
         screen.getAllByText(/read-only/i).length,
       ).toBeGreaterThan(0);
     });
+  });
+
+  it('links to the embedding assignment beside the model information without adding editing controls', async () => {
+    mockedGet.mockResolvedValueOnce(makeConfig());
+    renderPanel(true);
+    const link = await screen.findByRole('link', { name: 'Manage embedding model' });
+    expect(link).toHaveAttribute('href', '/settings#embedding-models');
+    expect(link.parentElement).toHaveTextContent('When enabled, the semantic model is ready');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
   it('read-only invariant — no mutation buttons / inputs rendered', async () => {

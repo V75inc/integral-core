@@ -28,6 +28,8 @@ describe('workspace email settings', () => {
   it('requires saving and testing the exact revision before activation', async () => {
     mount();
     await screen.findByLabelText('Sender email');
+    expect(screen.getByRole('heading', { name: 'Workspace email', level: 2 })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Delivery history', level: 3 })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Activate' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Sender name'), { target: { value: 'Changed' } });
     expect(screen.getByRole('button', { name: 'Send test email' })).toBeDisabled();

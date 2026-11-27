@@ -131,13 +131,14 @@ async def _workspace_scope_header(authenticated_client) -> dict:
     ws_resp = await authenticated_client.get("/api/workspaces")
     assert ws_resp.status_code == 200, ws_resp.text
     ws_payload = ws_resp.json()
-    if isinstance(ws_payload, list):
-        ws_id = ws_payload[0]["id"]
-    else:
-        ws_id = (ws_payload.get("workspaces") or ws_payload.get("items") or [{}])[0][
-            "id"
-        ]
-    return {"X-Integral-Scope": f"ws:{ws_id}"}
+    personal = next(
+        row
+        for row in (
+            ws_payload if isinstance(ws_payload, list) else ws_payload["workspaces"]
+        )
+        if row["kind"] == "personal"
+    )
+    return {"X-Integral-Scope": f"ws:{personal['id']}"}
 
 
 def test_invalid_catalog_yaml_raises(tmp_path):
@@ -229,7 +230,10 @@ async def test_catalog_install_github_issues(authenticated_client):
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/github_issues/install",
-        json={"secrets": {"owner": "acme", "repo": "widgets"}},
+        json={
+            "connection_mode": "per_user",
+            "secrets": {"owner": "acme", "repo": "widgets"},
+        },
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -244,24 +248,20 @@ async def test_catalog_install_github_issues(authenticated_client):
 
 @pytest.mark.asyncio
 async def test_catalog_install_gmail_returns_oauth(authenticated_client, monkeypatch):
-    def fake_consent(user_id, **kwargs):
-        return "https://accounts.google.com/fake", "state-token"
-
     monkeypatch.setenv("GMAIL_OAUTH_CLIENT_ID", "g-client")
-    monkeypatch.setattr(
-        "app.services.connectors.gmail_oauth.build_consent_url",
-        fake_consent,
-    )
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/gmail/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["action"] == "oauth"
-    assert data["consent_url"] == "https://accounts.google.com/fake"
+    assert data["consent_url"].startswith(
+        "https://accounts.google.com/o/oauth2/v2/auth"
+    )
+    assert "access_type=offline" in data["consent_url"]
     assert data["connector"]["subclass_slug"] == "gmail"
     assert data["connector"]["auth_state"]["catalog_slug"] == "gmail"
 
@@ -270,37 +270,34 @@ async def test_catalog_install_gmail_returns_oauth(authenticated_client, monkeyp
 async def test_catalog_install_quickbooks_accepts_ui_credentials(
     authenticated_client, monkeypatch
 ):
-    seen = {}
-
-    def fake_consent(user_id, **kwargs):
-        seen["client_id"] = kwargs.get("client_id")
-        seen["connector_id"] = kwargs.get("connector_id")
-        return "https://appcenter.intuit.com/connect/oauth2?fake=1", "state-token"
-
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "ab" * 32)
     monkeypatch.delenv("QUICKBOOKS_CLIENT_ID", raising=False)
     monkeypatch.delenv("QUICKBOOKS_CLIENT_SECRET", raising=False)
-    monkeypatch.setattr(
-        "app.services.connectors.quickbooks_oauth.build_consent_url",
-        fake_consent,
-    )
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/quickbooks/install",
         json={
+            "connection_mode": "per_user",
             "secrets": {
                 "client_id": "ui-client-id",
                 "client_secret": "ui-client-secret",
                 "environment": "sandbox",
-            }
+            },
         },
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
+    from urllib.parse import parse_qs, urlparse
+
+    from app.services.connectors.gmail_oauth import connector_id_from_state
+
     assert data["action"] == "oauth"
-    assert data["consent_url"].startswith("https://appcenter.intuit.com/")
-    assert seen["client_id"] == "ui-client-id"
-    assert seen["connector_id"] == data["connector"]["id"]
+    parsed = urlparse(data["consent_url"])
+    assert parsed.scheme == "https" and parsed.netloc == "appcenter.intuit.com"
+    query = parse_qs(parsed.query)
+    assert query["client_id"] == ["ui-client-id"]
+    assert connector_id_from_state(query["state"][0]) == data["connector"]["id"]
     assert data["connector"]["subclass_slug"] == "quickbooks"
     assert data["connector"]["auth_state"]["client_id"] == "ui-client-id"
     assert "client_secret" not in data["connector"]["auth_state"]
@@ -319,7 +316,7 @@ async def test_catalog_install_quickbooks_requires_client_id_without_env(
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/quickbooks/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 400, resp.text
@@ -370,6 +367,7 @@ auth:
         headers=None,
         connection_mode="per_user",
         label="",
+        require_oauth=False,
     ):
         class _C:
             id = "c-mcp"
@@ -453,6 +451,7 @@ auth:
         headers=None,
         connection_mode="per_user",
         label="",
+        require_oauth=False,
     ):
         class _C:
             id = "c-oauth"
@@ -604,14 +603,29 @@ async def test_catalog_install_google_drive_returns_oauth(
         "app.agentive.connectors.mcp_oauth.probe_mcp_authorization",
         boom_probe,
     )
-    monkeypatch.setattr(
-        "app.agentive.connectors.mcp_oauth.google_oauth_client_credentials",
-        lambda: ("g-client", "g-secret"),
-    )
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "g-client")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "g-secret")
+
+    def package_url(package_id):
+        from app.connectors.package_discovery import current_admission, rescan
+
+        admission = current_admission()
+        if package_id not in admission.packages and not admission.packages:
+            admission = rescan()
+        manifest = admission.packages.get(package_id)
+        if not manifest or package_id != "google_drive":
+            return manifest
+        capabilities = dict(manifest.get("capabilities") or {})
+        mcp = dict(capabilities.get("mcp") or {})
+        mcp["url"] = "https://pkg.example/mcp"
+        capabilities["mcp"] = mcp
+        return {**manifest, "capabilities": capabilities}
+
+    monkeypatch.setattr("app.connectors.package_runtime.admitted_manifest", package_url)
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/google_drive/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -626,6 +640,7 @@ async def test_catalog_install_google_drive_returns_oauth(
     assert data["connector"]["kind"] == "mcp"
     assert data["connector"]["subclass_slug"] == "mcp"
     assert data["connector"]["auth_state"]["catalog_slug"] == "google_drive"
+    assert data["connector"]["auth_state"]["url"] == "https://pkg.example/mcp"
     assert data["connector"]["auth_state"]["oauth"]["status"] == "pending"
     assert probed["called"] is False
 
@@ -634,14 +649,12 @@ async def test_catalog_install_google_drive_returns_oauth(
 async def test_catalog_install_google_gmail_requests_gmail_scopes(
     authenticated_client, monkeypatch
 ):
-    monkeypatch.setattr(
-        "app.agentive.connectors.mcp_oauth.google_oauth_client_credentials",
-        lambda: ("g-client", "g-secret"),
-    )
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "g-client")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "g-secret")
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/google_gmail/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -657,14 +670,12 @@ async def test_catalog_install_google_gmail_requests_gmail_scopes(
 async def test_catalog_install_google_sheets_requests_sheets_scopes(
     authenticated_client, monkeypatch
 ):
-    monkeypatch.setattr(
-        "app.agentive.connectors.mcp_oauth.google_oauth_client_credentials",
-        lambda: ("g-client", "g-secret"),
-    )
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "g-client")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "g-secret")
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/google_sheets/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -679,14 +690,20 @@ async def test_catalog_install_google_sheets_requests_sheets_scopes(
 async def test_catalog_install_google_drive_requires_client_id(
     authenticated_client, monkeypatch
 ):
-    monkeypatch.setattr(
-        "app.agentive.connectors.mcp_oauth.google_oauth_client_credentials",
-        lambda: ("", ""),
-    )
+    from app.config import settings
+
+    for name in (
+        "GOOGLE_OAUTH_CLIENT_ID",
+        "GMAIL_OAUTH_CLIENT_ID",
+        "GOOGLE_OAUTH_CLIENT_SECRET",
+        "GMAIL_OAUTH_CLIENT_SECRET",
+    ):
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr(settings, name, "")
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/google_drive/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 400, resp.text
@@ -755,24 +772,18 @@ async def test_catalog_get_quickbooks_mcp_slug(authenticated_client):
 async def test_catalog_install_quickbooks_mcp_returns_oauth(
     authenticated_client, monkeypatch
 ):
-    def fake_consent(user_id, **kwargs):
-        return "https://appcenter.intuit.com/connect/oauth2?fake=1", "state-token"
-
     monkeypatch.setenv("QUICKBOOKS_CLIENT_ID", "env-client")
-    monkeypatch.setattr(
-        "app.services.connectors.quickbooks_oauth.build_consent_url",
-        fake_consent,
-    )
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/quickbooks_mcp/install",
-        json={"secrets": {"environment": "sandbox"}},
+        json={"connection_mode": "per_user", "secrets": {"environment": "sandbox"}},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["action"] == "oauth"
-    assert data["consent_url"].startswith("https://appcenter.intuit.com/")
+    assert data["consent_url"].startswith("https://appcenter.intuit.com/connect/oauth2")
+    assert "com.intuit.quickbooks.accounting" in data["consent_url"]
     assert data["slug"] == "quickbooks_mcp"
     assert data["connector"]["kind"] == "mcp"
     assert data["connector"]["subclass_slug"] == "mcp"
@@ -792,7 +803,7 @@ async def test_catalog_install_quickbooks_mcp_requires_client_id(
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/quickbooks_mcp/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 400, resp.text
@@ -830,8 +841,12 @@ async def test_quickbooks_callback_finishes_mcp_stdio_mount(
         "app.connectors.stdio_env.TOKEN_STORE_ROOT",
         tmp_path / "mcp-stdio",
     )
+    from app.config import settings
+
     monkeypatch.setenv("QUICKBOOKS_CLIENT_ID", "mock-client-id")
     monkeypatch.setenv("QUICKBOOKS_CLIENT_SECRET", "mock-client-secret")
+    monkeypatch.delenv("QUICKBOOKS_ENVIRONMENT", raising=False)
+    monkeypatch.setattr(settings, "QUICKBOOKS_ENVIRONMENT", "")
     monkeypatch.setenv("SECRET_KEY", "mock-secret-key")
 
     import httpx as _httpx
@@ -866,7 +881,10 @@ async def test_quickbooks_callback_finishes_mcp_stdio_mount(
     headers = await _workspace_scope_header(authenticated_client)
     install = await authenticated_client.post(
         "/api/agentive/connectors/catalog/quickbooks_mcp/install",
-        json={"secrets": {"client_id": "mock-client-id"}},
+        json={
+            "connection_mode": "per_user",
+            "secrets": {"client_id": "mock-client-id"},
+        },
         headers=headers,
     )
     assert install.status_code == 200, install.text
@@ -885,6 +903,7 @@ async def test_quickbooks_callback_finishes_mcp_stdio_mount(
     assert token_exchange_response["refresh_token"] not in str(body)
     assert seen["command"] == "npx"
     assert seen["env"]["QUICKBOOKS_REALM_ID"] == realm_id
+    assert seen["env"]["QUICKBOOKS_ENVIRONMENT"] == "sandbox"
     # Read-only by default; the spawn env carries the catalog's toggle.
     assert seen["env"]["QUICKBOOKS_DISABLE_WRITE"] == "true"
     files = list((tmp_path / "mcp-stdio").rglob("*.env"))
@@ -1061,7 +1080,11 @@ def test_finishing_oauth_grants_the_connector_tool_invoke_immediately(monkeypatc
             return None
 
     conn = FakeConnector(
-        id="n.Connector.abc", owner="u1", subclass_slug="mcp", auth_state={}
+        id="n.Connector.abc",
+        owner="u1",
+        subclass_slug="mcp",
+        auth_state={},
+        mapping_profile="",
     )
 
     class Registry:

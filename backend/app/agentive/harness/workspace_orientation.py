@@ -34,6 +34,7 @@ async def workspace_orientation(ctx: Any, thread: Any) -> str:
     extra = ctx.extra_data or {}
     if (
         not ctx.text.strip()
+        or extra.get("voice_delegate") is True
         or extra.get("origin") not in (None, "", "interactive_chat")
         or extra.get("staging_outcome_continuation")
         or thread.user_id != ctx.user_id

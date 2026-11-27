@@ -237,6 +237,7 @@ function CreatedNavLink({
         if (entryId && stagingToken) stashEntryUndoToken(entryId, stagingToken);
         requestOpenCompanionChat({
           threadId: peekLastActiveChatThreadId(),
+          navigating: true,
         });
       }}
     >

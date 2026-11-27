@@ -343,8 +343,10 @@ def test_github_issues_module_does_not_touch_provenance_directly():
 async def test_sync_pull_filters_pull_requests():
     """sync_pull must drop items carrying a "pull_request" key."""
     from app.agentive.connectors.github_issues import GitHubIssuesConnector
+    from app.connectors.package_discovery import rescan
     from app.services.connectors import ExternalRecord  # noqa: F401
 
+    rescan()
     conn = GitHubIssuesConnector()
 
     # Mock connector node with owner/repo and no sync_cursor.
@@ -358,11 +360,11 @@ async def test_sync_pull_filters_pull_requests():
     fake_resp = MagicMock()
     fake_resp.raise_for_status = MagicMock()
     fake_resp.json = MagicMock(return_value=mixed_payload)
+    fake_resp.content = b"[]"
     fake_resp.headers = {}  # No Link header → single-page
 
     fake_client = MagicMock()
-    # client.get returns an awaitable resolving to fake_resp.
-    fake_client.get = AsyncMock(return_value=fake_resp)
+    fake_client.request = AsyncMock(return_value=fake_resp)
 
     # Make AsyncClient(...) return our fake (as an async context manager).
     fake_client.__aenter__ = AsyncMock(return_value=fake_client)
@@ -380,6 +382,60 @@ async def test_sync_pull_filters_pull_requests():
     assert len(out) == 2
     ext_ids = {r.external_id for r in out}
     assert ext_ids == {str(ISSUE_FIXTURE["id"]), str(ISSUE_FIXTURE_MIN["id"])}
+
+
+@pytest.mark.asyncio
+async def test_github_token_comes_from_the_package_env(monkeypatch):
+    """The operator env name is the package's, and the token is not stored."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from app.agentive.connectors.github_issues import GitHubIssuesConnector
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("ORG_GITHUB_TOKEN", "from-package")
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: {
+            "http": {"base_url": "https://api.github.com"},
+            "auth": {"type": "operator", "env": "ORG_GITHUB_TOKEN"},
+            "capabilities": {
+                "actions": [
+                    {
+                        "name": "list_issues",
+                        "request": {
+                            "method": "GET",
+                            "path": "/repos/{{config.owner}}/{{config.repo}}/issues",
+                            "query": {"state": "all", "per_page": "100"},
+                            "headers": {"Accept": "application/vnd.github+json"},
+                        },
+                    }
+                ]
+            },
+        },
+    )
+    connector = MagicMock()
+    connector.auth_state = {"owner": "example", "repo": "repo"}
+    connector.sync_cursor = None
+    connector.package_config = {}
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json = MagicMock(return_value=[])
+    response.content = b"[]"
+    response.headers = {}
+    client = MagicMock()
+    client.request = AsyncMock(return_value=response)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=None)
+    with patch(
+        "app.agentive.connectors.github_issues.httpx.AsyncClient",
+        return_value=client,
+    ):
+        async for _record in GitHubIssuesConnector().sync_pull(connector=connector):
+            pass
+    headers = client.request.await_args.kwargs["headers"]
+    assert headers["Authorization"] == "Bearer from-package"
+    assert "ORG_GITHUB_TOKEN" not in connector.auth_state
+    assert "token" not in connector.auth_state
 
 
 # ---------------------------------------------------------------------------

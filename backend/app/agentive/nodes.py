@@ -30,6 +30,27 @@ class ChannelIdentity(Node):
     created_at: Optional[str] = None
 
 
+class WhatsAppChannelBinding(Node):
+    """User-owned jvconnect credentials for the personal WhatsApp channel.
+
+    Secrets live only in the ciphertext fields. Callers that return this
+    node over HTTP use ``public_binding_view`` and never the raw record.
+    """
+
+    user_id: str = ""
+    workspace_id: str = ""
+    jvconnect_base_url: str = ""
+    api_key_ciphertext: str = ""
+    api_key_last4: str = ""
+    webhook_secret_ciphertext: str = ""
+    phone_number_id: str = ""
+    display_phone: str = ""
+    enabled: bool = False
+    last_error: str = ""
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 class AgentConfig(Node):
     """Per-user or per-workspace agent configuration.
 
@@ -127,7 +148,7 @@ class Connector(Node):
     """Per-user connector instance — actor-of-record for downstream audit/policy phases.
 
     Phase 1: stored only; sync semantics + IS_CONNECTED_TO edge land in Phase 5 (D-07).
-    Per D-08, registered conditionally only when AGENTIVE_ENABLED=1 (in main.py).
+    Registered at startup. The agentive layer is always loaded.
 
     Seven canonical fields (CON-01 + D-10):
     - kind: AgentType Literal — same enum as AgentConfig.agent_type (D-09)
@@ -181,6 +202,20 @@ class Connector(Node):
     # the catalog display_name when blank. Kept off auth_state so renames
     # never rewrite credential material.
     label: str = ""
+    # ADR 018 drop-in package installation. Empty for catalog connectors.
+    # enabled is desired serving state; health_status is the last probe.
+    enabled: bool = False
+    standalone_mcp_paused: bool = False
+    legacy_sync_paused: bool = False
+    legacy_sync_revision: int = 0
+    package_version: str = ""
+    package_config: Dict[str, Any] = Field(default_factory=dict)
+    package_manifest: Dict[str, Any] = Field(default_factory=dict)
+    package_fingerprint: str = ""
+    package_previous: Dict[str, Any] = Field(default_factory=dict)
+    catalog_migration: Dict[str, Any] = Field(default_factory=dict)
+    package_revision: int = 0
+    pending_review: Dict[str, Any] = Field(default_factory=dict)
 
 
 class RoutineTask(Node):
@@ -243,8 +278,22 @@ class RoutineTask(Node):
     # Empty for user-created chat routines.
     source_app_id: str = ""
     source_schedule_key: str = ""
+    # Nonempty only while a bundle-owned routine is awaiting its first run.
+    pending_thread_title: str = ""
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+    @property
+    def awaits_app_schedule_thread(self) -> bool:
+        """Only an unstarted bundle-owned agent routine may bind at dispatch."""
+        return bool(
+            self.delivery_mode == "agent"
+            and not self.thread_id
+            and not self.source_staging_token
+            and self.source_app_id
+            and self.source_schedule_key
+            and self.pending_thread_title
+        )
 
     @classmethod
     def get_indexes(cls) -> List[Dict[str, Any]]:

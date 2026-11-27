@@ -82,6 +82,7 @@ RUN useradd --create-home --uid 10001 --shell /bin/false integral
 #   curl         — HEALTHCHECK probe (~1 MB).
 #   libmagic1    — MIME sniffing via python-magic (services/attachment_content_sniffer.py).
 #   ffmpeg       — provides ffprobe for audio/video metadata (services/attachment_metadata/extractors.py).
+#   espeak-ng    — offline exact voice-review playback when the browser has no local voice.
 #   libreoffice-core, libreoffice-writer, libreoffice-calc, libreoffice-impress
 #                — headless office-format preview (services/attachment_preview.py).
 # LibreOffice is the largest cost (~350 MB). If image size becomes a problem,
@@ -91,6 +92,7 @@ RUN apt-get update \
       curl \
       libmagic1 \
       ffmpeg \
+      espeak-ng \
       libreoffice-core \
       libreoffice-writer \
       libreoffice-calc \

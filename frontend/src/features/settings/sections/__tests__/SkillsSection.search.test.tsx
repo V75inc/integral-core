@@ -8,6 +8,7 @@ import {
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SkillsSection } from '../SkillsSection';
+import { SETTINGS_PANEL_BORDER } from '../../components/settingsPanelBorder';
 
 const { browse, effective, tools, update, toast, scope } = vi.hoisted(() => ({
   browse: vi.fn(),
@@ -81,6 +82,10 @@ describe('Paged Skills browsing', () => {
   it('makes one bounded browse read and leaves technical catalogues unloaded', async () => {
     mount();
     const list = await screen.findByRole('list', { name: 'Skills' });
+    const heading = screen.getByRole('heading', { name: 'Agent Skills', level: 2 });
+    expect(heading.closest('header')).toHaveTextContent('Skills guide how Integral handles tasks');
+    expect(heading.closest('header')?.nextElementSibling).toHaveClass(SETTINGS_PANEL_BORDER);
+    expect(list.parentElement).toHaveClass(SETTINGS_PANEL_BORDER);
     expect(within(list).getAllByRole('listitem')).toHaveLength(10);
     expect(effective).not.toHaveBeenCalled();
     expect(tools).not.toHaveBeenCalled();

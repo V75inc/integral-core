@@ -55,6 +55,7 @@ class ScopedStepStore:
                 scope.principal_id,
                 scope.thread_id,
                 scope.session_id,
+                *((scope.connection_scope_key,) if scope.connection_scope_key else ()),
             )
         ).encode("utf-8")
         self._prefix = f"integral_{hashlib.sha256(value).hexdigest()}_"

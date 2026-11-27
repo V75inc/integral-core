@@ -1,3 +1,5 @@
+import { peekVoiceSession } from "../../features/ai-chat/nativeVoiceSession";
+import { useVoiceDepartureGuard } from "../../features/ai-chat/useVoiceDepartureGuard";
 import { useDeployment } from '../../hooks/useDeployment';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -117,6 +119,7 @@ export function CreateWorkspaceModal({
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { setScope } = useScope();
+  const { confirmDeparture } = useVoiceDepartureGuard();
   const [step, setStep] = useState<1 | 2>(1);
   const [profiles, setProfiles] = useState<OperationalModelNode[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
@@ -195,6 +198,10 @@ export function CreateWorkspaceModal({
     resetForm();
     onClose();
     if (destination === 'manage-apps') {
+      if (peekVoiceSession() && !await confirmDeparture(voice => voice.workspaceId !== created.id)) {
+        await onCreated?.(created, destination);
+        return;
+      }
       setScope({ workspaceId: created.id });
       await onCreated?.(created, destination);
       navigate('/apps?manage=1');

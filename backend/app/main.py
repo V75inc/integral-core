@@ -5,6 +5,7 @@ import importlib
 import logging as std_logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -547,11 +548,10 @@ def _collect_index_classes() -> list[type]:
 
 async def _ensure_model_indexes() -> None:
     """Run ``ensure_indexes`` for every indexed model class plus credentials."""
-    from app.services.storage_indexes.runtime import managed, monitor, verify
+    from app.services.storage_indexes.runtime import managed, verify
 
     if managed():
         await verify()
-        _background_tasks.append(asyncio.create_task(monitor()))
         return
     log = std_logging.getLogger(__name__)
     work_index_fatal: Optional[Exception] = None
@@ -604,6 +604,15 @@ async def _ensure_model_indexes() -> None:
             log.warning(
                 "ensure_indexes failed for OperationIdempotencyRecord: %s",
                 op_idem_err,
+            )
+        try:
+            from app.models.whatsapp_inbound import WhatsAppInboundReceipt
+
+            await ctx_for_indexes.ensure_indexes(WhatsAppInboundReceipt)
+        except Exception as wa_receipt_err:  # noqa: BLE001
+            log.warning(
+                "ensure_indexes failed for WhatsAppInboundReceipt: %s",
+                wa_receipt_err,
             )
         try:
             from app.agentive.services.execution_runs import AgentRun, RunStep
@@ -802,16 +811,15 @@ async def _startup() -> None:
         await get_change_event_logger().ensure_indexes()
         await identity_adapter().audit_ready()
 
-    # I-PERF-IDX: materialize jvspatial-default + per-class indexes for
-    # every Integral Node/Edge model registered at boot. Class-level
-    # annotations (`attribute(indexed=True)`, `@compound_index`,
-    # `get_indexes()` overrides) live on the models; jvspatial's
-    # `_ensured_indexes` registry makes the loop idempotent. Gated ONLY by
-    # JVSPATIAL_AUTO_CREATE_INDEXES so serverless / cold-start deploys can
-    # opt out — it used to sit under DB_LOGGING_ENABLED, so turning off DB
-    # logging silently turned off every index. Failures are isolated
-    # per-class so one bad index def doesn't block boot.
-    if _auto_create_indexes_enabled():
+    # Managed readiness is mandatory even when the framework's automatic
+    # per-class index loop is disabled. Only transitional/non-PG bootstrap
+    # follows JVSPATIAL_AUTO_CREATE_INDEXES.
+    from app.services.storage_indexes.runtime import managed, monitor
+
+    if managed():
+        # The outer lifespan already checked the catalog before framework boot.
+        _background_tasks.append(asyncio.create_task(monitor()))
+    elif _auto_create_indexes_enabled():
         await _ensure_model_indexes()
 
     projection_track_id = settings.ENTRY_COUNT_PROJECTION_TRACK_ID.strip()
@@ -934,6 +942,11 @@ async def _startup() -> None:
         from app.agentive.connectors.mcp_mount import rehydrate_mcp_connectors
 
         await rehydrate_mcp_connectors()
+        from app.agentive.services.connector_packages import (
+            rehydrate_package_action_tools,
+        )
+
+        await rehydrate_package_action_tools()
         std_logging.getLogger("app.agentive.connectors.mcp_mount").info(
             "mcp connectors: rehydrated at startup"
         )
@@ -1496,6 +1509,38 @@ if not server.disable_auth_endpoint("/register"):  # pragma: no cover - boot gua
     )
 
 app = server.get_app()
+
+# jvspatial startup hooks log and consume exceptions. A missing managed
+# catalog must instead prevent ASGI startup, before those hooks or traffic.
+_framework_lifespan = app.router.lifespan_context
+
+
+@asynccontextmanager
+async def _storage_lifespan(application):
+    from app.services.storage_indexes.runtime import managed
+
+    if not (os.getenv("TESTING") or _running_under_pytest()) and managed():
+        try:
+            await _ensure_model_indexes()
+        except Exception:
+            std_logging.getLogger(__name__).error(
+                "Managed PostgreSQL startup blocked: verify the reviewed index "
+                "catalog and restricted serving role with indexes status."
+            )
+            raise
+    async with _framework_lifespan(application) as state:
+        yield state
+
+
+app.router.lifespan_context = _storage_lifespan
+
+# ADR 018 phase 0: the managed-channel API must not invent an empty registry.
+# Management-only Web Chat is configurable and never serves visitors.
+from app.agentive.api.managed_channels import (  # noqa: E402
+    configure_default_managed_channel_registry,
+)
+
+configure_default_managed_channel_registry(app)
 # WebSocket is the documented jvspatial endpoint exception.
 app.include_router(events_ws_router)
 app.add_exception_handler(RequestValidationError, _unify_request_validation_error)
@@ -1532,6 +1577,7 @@ from app.agentive.nodes import (
     Connector,
     ConversationContext,
     RoutineTask,
+    WhatsAppChannelBinding,
 )
 
 for node_cls in (
@@ -1540,6 +1586,7 @@ for node_cls in (
     AgentConfig,
     Connector,
     RoutineTask,
+    WhatsAppChannelBinding,
 ):
     server.add_node_type(node_cls)
 

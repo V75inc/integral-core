@@ -30,9 +30,13 @@ In managed mode adapter initialization opens connections and checks relations;
 it cannot create tables, repair indexes, add vector columns, enable RLS or install
 a binding projection. Model unique declarations verify durable catalog receipts.
 Core startup verifies PostgreSQL's valid/ready state and stored definition hashes,
-then caches integrity verification. A background task repeats checks every minute;
+even when `JVSPATIAL_AUTO_CREATE_INDEXES=false`, then caches integrity
+verification. Managed PostgreSQL defaults the framework's automatic index loop
+to disabled, and the local launchers pin it off. A background task repeats
+checks every minute;
 saves do not inspect pg_catalog. Missing integrity or an owning/DDL-capable runtime
-role fails readiness. Missing optional access paths are reported as degraded.
+role blocks ASGI startup and fails ongoing readiness. Missing optional access
+paths are reported as degraded.
 Core explicitly selects `JVSPATIAL_POSTGRES_INDEX_CATALOG_TABLE=integral_index_catalog`
 for its graph and framework-created log adapters. The foundation's neutral default
 is `jvspatial_index_catalog`; Core rejects conflicting catalog configuration rather

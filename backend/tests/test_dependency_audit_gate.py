@@ -291,6 +291,9 @@ def test_candidate_review_is_enforced_by_real_audit_wrapper(
     shutil.copy2(
         REPO_ROOT / "frontend/package-lock.json", root / "frontend/package-lock.json"
     )
+    review["lock_sha256"] = policy.canonical_digest(
+        json.loads((root / "frontend/package-lock.json").read_text())
+    )
     review["build_inputs_sha256"] = policy.build_inputs_digest(root)
     if state == "unapproved":
         review["approval"] = None

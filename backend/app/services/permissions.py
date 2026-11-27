@@ -1297,6 +1297,11 @@ async def _resolve_role_for_user(
     if location is None:
         return None
     workspace_id = location.workspace_id
+    if (
+        getattr(user, "service_workspace_id", "")
+        and user.service_workspace_id != workspace_id
+    ):
+        return None
     from app.services.workspace_suspension import workspace_suspended
 
     if await workspace_suspended(user.id, workspace_id):

@@ -85,8 +85,9 @@ async def test_sandbox_does_not_follow_symlinks(sandbox, tmp_path):
 async def test_unchanged_review_attaches_exact_bytes(sandbox, monkeypatch):
     """Unchanged reviewed bytes become the entry attachment."""
     from app.models.edges import CONTAINS, HAS_ATTACHMENT
-    from app.models.nodes import Attachment, Entry, Track
+    from app.models.nodes import Attachment, Entry
     from app.services import attachment_storage
+    from tests.test_entry_create_type_id import _bootstrap_track_with_type
 
     class Storage:
         content = None
@@ -104,12 +105,20 @@ async def test_unchanged_review_attaches_exact_bytes(sandbox, monkeypatch):
     monkeypatch.setattr(
         attachment_storage, "get_attachment_storage_service", lambda: storage
     )
-    track = await Track.create(title="Reports", visibility="private")
-    entry = await Entry.create(title="Research", track_id=track.id)
+    user_id, track, entry_type = await _bootstrap_track_with_type(
+        "review-files@example.com"
+    )
+    (sandbox.parent / user_id).mkdir()
+    (sandbox.parent / user_id / "report.md").write_bytes(
+        (sandbox / "report.md").read_bytes()
+    )
+    entry = await Entry.create(
+        title="Research", track_id=track.id, type_id=entry_type.id
+    )
     await track.connect(entry, edge=CONTAINS)
-    reviewed = await attachment_agent.inspect_sandbox_file("user-1", "report.md")
+    reviewed = await attachment_agent.inspect_sandbox_file(user_id, "report.md")
     result = await attachment_agent.attach_sandbox_file_to_entry(
-        user_id="user-1",
+        user_id=user_id,
         entry_id=entry.id,
         sandbox_path="report.md",
         expected_sha256=reviewed["sha256"],

@@ -325,6 +325,10 @@ async def test_reauthorize_keeps_the_existing_mount(
     monkeypatch.setattr(mcp_oauth, "start_mcp_oauth_session", start)
     if oauth_kind == "catalog":
         auth_state["catalog_slug"] = "test-catalog"
+        auth_state["oauth"] = {
+            "client_id": "test-client",
+            "client_secret": "test-secret",
+        }
         monkeypatch.setattr(
             catalog_loader,
             "get_catalog_entry",
@@ -334,11 +338,6 @@ async def test_reauthorize_keeps_the_existing_mount(
                     "token_endpoint": "https://auth.example/token",
                 }
             },
-        )
-        monkeypatch.setattr(
-            mcp_oauth,
-            "google_oauth_client_credentials",
-            lambda: ("test-client", "test-secret"),
         )
 
     connector = await create_connector(
@@ -376,3 +375,62 @@ async def test_reauthorize_keeps_the_existing_mount(
     else:
         probe.assert_awaited_once_with(url)
         start.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_reauthorize_uses_the_admitted_package_endpoints(
+    authenticated_client: AsyncClient, test_user, monkeypatch
+):
+    """Re-authorize follows the admitted package when the catalog copy differs."""
+    from urllib.parse import urlsplit
+
+    from app.agentive.nodes import Connector
+    from app.agentive.services.connector_registry_node import create_connector
+    from app.connectors import catalog_loader
+
+    workspace_id = await _workspace_id(authenticated_client)
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_oauth",
+        lambda package_id: {
+            "authorize_url": "https://pkg.example/authorize",
+            "token_url": "https://pkg.example/token",
+            "scopes": ["pkg.read"],
+            "client": {
+                "id_env": ["ORG_MCP_CLIENT_ID"],
+                "secret_env": ["ORG_MCP_CLIENT_SECRET"],
+            },
+        },
+    )
+    monkeypatch.setenv("ORG_MCP_CLIENT_ID", "pkg-client")
+    monkeypatch.setenv("ORG_MCP_CLIENT_SECRET", "pkg-secret")
+    monkeypatch.setattr(
+        catalog_loader,
+        "get_catalog_entry",
+        lambda slug: {
+            "oauth": {
+                "authorization_endpoint": "https://catalog.example/authorize",
+                "token_endpoint": "https://catalog.example/token",
+            }
+        },
+    )
+    connector = await create_connector(
+        owner=test_user.id,
+        kind="mcp",
+        workspace_id=workspace_id,
+        auth_state={
+            "transport": "streamable_http",
+            "url": "https://mcp.example/mcp",
+            "catalog_slug": "desk_mcp",
+        },
+    )
+    connector.subclass_slug = "mcp"
+    await connector.save()
+    response = await authenticated_client.post(
+        f"/api/agentive/connectors/{connector.id}/mcp/reauthorize",
+        headers={"X-Integral-Scope": f"ws:{workspace_id}"},
+    )
+    assert response.status_code == 200, response.text
+    consent = urlsplit(response.json()["consent_url"])
+    assert (consent.netloc, consent.path) == ("pkg.example", "/authorize")
+    saved = await Connector.get(connector.id)
+    assert saved is not None

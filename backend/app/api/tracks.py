@@ -194,6 +194,9 @@ async def list_tracks(
 
     async def _enrich_one(t: Track) -> Dict[str, Any]:
         data = await export_node(t)
+        data["resident_permission_eligible"] = t.allows_resident_write_permission(
+            user_id, target_ws
+        )
         # anchor_source is cheap and screens use it to tell entry-spawned Tracks (pay runs,
         # line items) from curated ones, so it is always attached.
         await asyncio.gather(

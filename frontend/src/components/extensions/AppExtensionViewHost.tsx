@@ -1,3 +1,4 @@
+import { guardAppDeparture } from "../../features/ai-chat/useVoiceDepartureGuard";
 import {
   forwardRef,
   useCallback,
@@ -262,7 +263,7 @@ export const AppExtensionViewHost = forwardRef<
         const result = await extensionsApi.resolveNavigation(ctx.appId, target);
         if (activeScope.current !== signature) throw new Error('View changed.');
         if (onNavigatePathRef.current) onNavigatePathRef.current(result.path);
-        else window.location.assign(result.path);
+        else guardAppDeparture(() => window.location.assign(result.path));
         return result;
       },
     },

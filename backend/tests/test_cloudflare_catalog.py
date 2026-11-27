@@ -18,7 +18,10 @@ def test_cloudflare_catalog_uses_official_dynamic_oauth_endpoint():
     assert entry["kind"] == "mcp"
     assert entry["transport"] == "streamable_http"
     assert entry["url"] == "https://mcp.cloudflare.com/mcp"
-    assert entry["auth"] == {"type": "none", "fields": []}
+    assert entry["auth"] == {"type": "mcp_oauth", "fields": []}
+    from app.agentive.api.connectors import _catalog_entry_wire
+
+    assert _catalog_entry_wire(entry).auth.type == "mcp_oauth"
     assert entry["oauth"] is None  # Provider metadata is discovered at mount.
     assert entry["vetted"] is True
     assert entry["hidden"] is False
@@ -79,7 +82,7 @@ async def test_cloudflare_catalog_install_stops_at_owner_consent(
     payload = workspace_response.json()
     workspaces = payload if isinstance(payload, list) else payload.get("workspaces", [])
     assert workspaces
-    workspace_id = workspaces[0]["id"]
+    workspace_id = next(row["id"] for row in workspaces if row["kind"] == "personal")
     headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
     catalog = await authenticated_client.get(
         "/api/agentive/connectors/catalog", headers=headers
@@ -89,7 +92,7 @@ async def test_cloudflare_catalog_install_stops_at_owner_consent(
     response = await authenticated_client.post(
         "/api/agentive/connectors/catalog/cloudflare/install",
         headers=headers,
-        json={"label": "Disposable cloud qualification"},
+        json={"label": "Disposable cloud qualification", "connection_mode": "per_user"},
     )
     assert response.status_code == 200, response.text
     result = response.json()

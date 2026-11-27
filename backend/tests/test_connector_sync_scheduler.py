@@ -48,7 +48,7 @@ class _StubConnector:
 # ---------------------------------------------------------------------------
 
 
-def test_testing_gate_short_circuits_startup_before_sync_loop_spawn():
+def test_testing_gate_short_circuits_startup_before_sync_loop_spawn(monkeypatch):
     """The function-scope TESTING gate at main.py:_startup runs FIRST.
 
     Under pytest (``PYTEST_CURRENT_TEST`` is set), ``_startup`` returns
@@ -58,6 +58,8 @@ def test_testing_gate_short_circuits_startup_before_sync_loop_spawn():
     """
     import inspect
 
+    for variable in ("JVSPATIAL_DB_PATH", "JVSPATIAL_LOG_DB_PATH"):
+        monkeypatch.setenv(variable, os.environ[variable])
     from app.main import _startup
 
     src = inspect.getsource(_startup)
@@ -129,6 +131,21 @@ async def test_dispatch_when_interval_elapsed():
 # ---------------------------------------------------------------------------
 # Test 4 — skip dispatch when interval not yet elapsed
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_package_interval_comes_from_the_captured_manifest():
+    """A package interval holds even when the connector field is shorter."""
+    recent = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    connector = _StubConnector(
+        cid="c-package",
+        last_synced_at=recent,
+        sync_interval_seconds=30,
+    )
+    connector.mapping_profile = "package"
+    connector.package_manifest = {"capabilities": {"sync": {"interval_seconds": 3600}}}
+    dispatched = await _maybe_dispatch_one(connector)
+    assert dispatched is False
 
 
 @pytest.mark.asyncio

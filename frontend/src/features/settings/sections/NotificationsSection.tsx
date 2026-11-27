@@ -10,8 +10,7 @@ import { PageMeta } from '../../../components/ui';
  * WhatsApp column gating (A3):
  *   • whatsapp.opted_in_at === null →
  *       — every WhatsApp cell is `disabled` with `opacity-50`,
- *       — column header renders a "verify phone" pointer link
- *         (the OTP flow is directly below the notification matrix).
+ *       — column header renders a "verify phone" link to Workspace → WhatsApp.
  *   • whatsapp.opted_in_at set →
  *       — cells are interactive,
  *       — header shows a "verified" pill with the opt-in timestamp.
@@ -26,11 +25,8 @@ import { PageMeta } from '../../../components/ui';
  * intentionally NOT shown as a user toggle.
  */
 import { useMemo } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { WhatsAppSettings } from '../../../components/settings/WhatsAppSettings';
 
 import {
-  NOTIFICATION_PREFS_KEY,
   useNotificationPreferences,
   useUpdateNotificationPreferences,
   type ChannelName,
@@ -97,8 +93,9 @@ function cellChecked(
   return Boolean(matrix?.[channel]);
 }
 
-export function NotificationsSection() {
-  const qc = useQueryClient();
+export function NotificationsSection({
+  navigateToSection,
+}: { navigateToSection?: (id: string) => void } = {}) {
   const { data: prefs, isLoading, isError, error, refetch } = useNotificationPreferences();
   const update = useUpdateNotificationPreferences();
   const waOptedIn = useMemo(
@@ -125,7 +122,7 @@ export function NotificationsSection() {
         <Text variant="heading-md" weight="semibold" as="h2">Notifications</Text>
         <PageMeta as="p">
           Choose which channels deliver each notification kind. WhatsApp
-          requires a verified phone number. Manage your number below.
+          requires a verified phone number. Manage that number under Workspace.
         </PageMeta>
       </div>
 
@@ -169,8 +166,8 @@ export function NotificationsSection() {
                           <span className="inline-flex flex-col items-center gap-0.5">
                             <span>WhatsApp</span>
                             <a
-                              href="#notifications"
-                              onClick={e => { e.preventDefault(); const target = document.getElementById('whatsapp-settings'); target?.scrollIntoView({ behavior: 'auto', block: 'start' }); target?.querySelector<HTMLButtonElement>('button')?.focus(); }}
+                              href="#whatsapp"
+                              onClick={e => { e.preventDefault(); navigateToSection?.('whatsapp'); }}
                               className="text-[10px] font-normal normal-case text-[var(--brand-accent)] underline"
                             >
                               verify phone
@@ -230,7 +227,6 @@ export function NotificationsSection() {
         )}
         {update.isError && <div role="alert"><Text as="p" variant="body-sm" tone="danger">Could not save this preference. Please try again.</Text></div>}
       </SettingsSection>
-      <div id="whatsapp-settings" className="scroll-mt-20"><WhatsAppSettings onChange={() => void qc.invalidateQueries({ queryKey: NOTIFICATION_PREFS_KEY })} /></div>
     </div>
   );
 }

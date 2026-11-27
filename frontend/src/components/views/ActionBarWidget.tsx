@@ -222,6 +222,7 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
   const bindings = (config.__bindings || {}) as Record<string, unknown>;
   const allButtons = (bindings.buttons ?? config.buttons ?? []) as ActionBarButtonSpec[];
   const entryId = typeof bindings.entryId === 'string' ? bindings.entryId : undefined;
+  const entryAppReadonly = bindings.entryAppReadonly === true;
   const entryValues = bindings.entryValues as Record<string, unknown> | undefined;
   const buttons = allButtons.filter(
     b => !b.visible_if || !entryValues || isVisible(b.visible_if, entryValues)
@@ -318,7 +319,7 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
       }
       if (button.produces_file && isActionFile(output.file)) {
         downloadActionFile(output.file);
-        if (button.persist_as_attachment && entryId) {
+        if (button.persist_as_attachment && entryId && !entryAppReadonly) {
           try {
             await attachmentsApi.uploadForEntry(entryId, actionFileToFile(output.file));
           } catch (attachErr) {

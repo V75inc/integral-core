@@ -1,0 +1,8 @@
+.managed-channel-summary:hover,
+.managed-channel-summary-icon {
+  background: var(--panel-2);
+}
+.managed-channel-summary-icon,
+.managed-channel-summary-chevron {
+  color: var(--text-muted);
+}

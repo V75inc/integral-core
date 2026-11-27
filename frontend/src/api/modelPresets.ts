@@ -15,6 +15,10 @@ export const RECOMMENDED_MODELS: Record<ModelProvider, ModelPreset[]> = {
     { id: 'gpt-5', label: 'GPT-5 (reasoning)' },
     { id: 'gpt-5.4', label: 'GPT-5.4 (reasoning)' },
   ],
+  gemini: [
+    { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', recommended: true },
+    { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  ],
   anthropic: [
     {
       id: 'claude-sonnet-4-20250514',

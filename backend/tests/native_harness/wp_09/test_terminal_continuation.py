@@ -106,7 +106,7 @@ async def test_new_user_turn_continues_without_replaying_uncertain_terminal_work
     async def no_receipts(query):
         return []
 
-    async def public_messages(thread):
+    async def public_messages(thread, *, current_message_id=None):
         assert thread.id == "thread-a"
         return [
             SimpleNamespace(

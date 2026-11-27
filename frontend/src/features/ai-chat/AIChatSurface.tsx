@@ -3,7 +3,7 @@ import type { ChatEntityRef } from "../../types/chatEntityRefs";
 import { createContext, useContext, type ReactNode } from "react";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { useAIChatRuntime } from "./useAIChatRuntime";
-import type { AIChatThread as ChatThreadRecord } from "../../api/aiChat";
+import { aiChatApi, type ChatAgentIdentity, type AIChatThread as ChatThreadRecord } from "../../api/aiChat";
 import type { ThreadGroupInfo } from "./threadGrouping";
 import { AIChatThread } from "./components/Thread";
 import { MockEchoProvider } from "./providers/MockEchoProvider";
@@ -12,6 +12,8 @@ import {
   ChatEntityRefsProvider,
   useChatEntityRefs,
 } from "../../context/ChatEntityRefsContext";
+import { useQuery } from "@tanstack/react-query";
+import { useAuthOptional } from "../../context/AuthContext";
 import { useScope } from "../../context/ScopeContext";
 import { useNavigate } from "react-router-dom";
 import { requestOpenCompanionChat } from "./chatHandoff";
@@ -39,7 +41,16 @@ const ChatActivityContext = createContext<{
   /** ChatThread node id for the open thread — what the questions/staging
    *  REST surface keys on (distinct from the provider session id). */
   activeThreadId: string | null;
+  voiceAwareComposerKey?: string;
+  adoptNativeVoiceThread?: (threadId: string, opening: { workspace_id: string; profile_key: string; thread_id: string }) => Promise<void>;
+  refreshNativeVoiceThread?: (threadId: string, workspace: string) => void;
   composerReady: boolean;
+  switchProfile?: (key: string) => Promise<void>;
+  profileFilter?: string;
+  profileChoices?: readonly ChatAgentIdentity[];
+  workspaceAssistant?: ChatAgentIdentity;
+  needsDraftAgent?: boolean;
+  profileSelectionReady?: boolean;
   followUps?: readonly FollowUp[];
   queueFollowUp?: (text: string, refs: ChatEntityRef[]) => Promise<boolean>;
   removeFollowUp?: (id: string) => Promise<void>;
@@ -156,6 +167,15 @@ function AIChatRuntimeBoundaryInner({
   startNewThread?: boolean;
   handoffEnabled?: boolean;
 }) {
+  const workspaceId = useScope().scope?.workspaceId;
+  const principalId = useAuthOptional()?.user?.id;
+  const managedDraft = handoffEnabled && provider.id === "integral_native" && Boolean(workspaceId && principalId);
+  const profiles = useQuery({
+    queryKey: ["native-chat-profiles", workspaceId, principalId],
+    queryFn: () => aiChatApi.listAgentProfiles(workspaceId!),
+    enabled: managedDraft,
+    refetchOnMount: "always",
+  });
   const navigate = useNavigate();
   const { consumePendingEntityRefs, resetComposerEntityRefs } =
     useChatEntityRefs();
@@ -167,7 +187,14 @@ function AIChatRuntimeBoundaryInner({
     appendAssistantNote,
     activeProviderSessionId,
     activeThreadId,
+    voiceAwareComposerKey,
+    adoptNativeVoiceThread,
+    refreshNativeVoiceThread,
     composerReady,
+    switchProfile,
+    profileFilter,
+    needsDraftAgent,
+    profileSelectionReady,
     followUps,
     followUpsPaused,
     resumeFollowUps,
@@ -183,7 +210,7 @@ function AIChatRuntimeBoundaryInner({
     threads,
   } = useAIChatRuntime(provider, {
     onNavigate: (path, threadId) => {
-      requestOpenCompanionChat({ threadId });
+      requestOpenCompanionChat({ threadId, navigating: true });
       navigate(path);
     },
     consumeEntityRefs: consumePendingEntityRefs,
@@ -191,6 +218,8 @@ function AIChatRuntimeBoundaryInner({
     initialThreadId,
     startNewThread,
     handoffEnabled,
+    managedDraft,
+    profileChoices: profiles.data?.profiles,
   });
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -203,7 +232,16 @@ function AIChatRuntimeBoundaryInner({
           activeProviderSessionId,
           activeProviderId: provider.id,
           activeThreadId,
+          voiceAwareComposerKey,
+          adoptNativeVoiceThread,
+          refreshNativeVoiceThread,
           composerReady,
+          switchProfile,
+          profileFilter,
+          profileChoices: profiles.data?.profiles,
+          workspaceAssistant: profiles.data?.workspace_assistant ?? undefined,
+          needsDraftAgent,
+          profileSelectionReady,
           followUps,
           followUpsPaused,
           resumeFollowUps,

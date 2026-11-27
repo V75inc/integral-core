@@ -53,6 +53,15 @@ _LABEL_FIELDS = ("title", "name", "display_name", "filename", "content", "text")
 _SNIPPET_MAX = 80
 
 
+def spoken_resource_labels(text: str) -> str:
+    """Keep resource names in speech while leaving the canonical linked text intact."""
+    text = _MD_LINK_RE.sub(r"\1", text)
+    # A bounded peer projection can end inside a Markdown destination.
+    text = re.sub(r"\[([^\]\n]*)\]\((?:/|https?://)[^\s)]*$", r"\1", text)
+    text = _INTERNAL_ROUTE_RE.sub("the linked resource", text)
+    return _ID_RE.sub(lambda match: match[1].split(".")[1], text)
+
+
 def _short(node_id: str) -> str:
     """Last-resort label for an unresolvable id: ``<Type> …<last4>``."""
     parts = node_id.split(".")

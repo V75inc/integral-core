@@ -218,7 +218,7 @@ function StagedChangeCardBody({ staged, onTerminal, onRevised }: StagedChangeCar
             {executionFailed
               ? 'Could not apply this authorized change.'
               : staged.autonomy_grant_used
-                ? 'Auto-approved (session grant).'
+                ? 'Approved by your saved permission.'
                 : 'Approved — not yet applied.'}
           </span>
           <button

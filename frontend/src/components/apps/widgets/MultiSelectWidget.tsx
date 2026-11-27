@@ -27,6 +27,7 @@ export function MultiSelectWidget(props: WidgetProps) {
   const { name, schema, value, onChange, disabled } = props;
   const itemSchema = (schema.items as { enum?: unknown[] } | undefined) || {};
   const options = (itemSchema.enum as unknown[] | undefined) || [];
+  const labels = (schema['x-option-labels'] || {}) as Record<string, string>;
   const current = Array.isArray(value) ? (value as unknown[]).map(String) : [];
   const remaining = options.filter(o => !current.includes(String(o)));
 
@@ -50,7 +51,7 @@ export function MultiSelectWidget(props: WidgetProps) {
         )}
         {current.map(opt => (
           <span key={opt} className={CHIP_CLASS}>
-            {opt}
+            {labels[opt] || opt}
             {!disabled && (
               <button
                 type="button"
@@ -78,7 +79,7 @@ export function MultiSelectWidget(props: WidgetProps) {
             const optString = String(opt);
             return (
               <option key={`${optString}-${i}`} value={optString}>
-                {optString}
+                {labels[optString] || optString}
               </option>
             );
           })}

@@ -5,6 +5,7 @@ import { useScopeOptional } from '../../../context/ScopeContext';
 import { Button } from '../../../components/ui/Button';
 import { Input, Select, Text } from '../../../ui';
 import { Field, Section } from '../../../patterns';
+import { SettingsPageHeader } from '../components/SettingsPageHeader';
 
 const blank: EmailConfiguration = { provider: 'resend', from_email: '', from_name: '', reply_to: '', smtp_host: '', smtp_port: 587, smtp_username: '', smtp_tls: 'starttls' };
 const states: Record<string, string> = { queued: 'Queued', dispatching: 'Sending', accepted: 'Accepted', delivered: 'Delivered', delayed: 'Delayed', bounced: 'Bounced', complaint: 'Complaint', failed: 'Failed', unknown: 'Outcome unknown' };
@@ -19,10 +20,13 @@ export function EmailSection() {
   const workspace = scope?.activeWorkspace;
   if (!workspace) return <Text as="p">Select a workspace to configure email.</Text>;
   if (!['owner', 'admin'].includes(workspace.your_role ?? '')) return <Text as="p">Only workspace owners and admins can manage email delivery.</Text>;
-  return <EmailWorkspace key={workspace.id} workspaceId={workspace.id} workspaceName={workspace.name} />;
+  return <div className="flex flex-col gap-5">
+    <SettingsPageHeader title="Workspace email" description={`Configure outbound email for ${workspace.name}. Account recovery and verification use the platform provider.`} />
+    <EmailWorkspace key={workspace.id} workspaceId={workspace.id} />
+  </div>;
 }
 
-function EmailWorkspace({ workspaceId, workspaceName }: { workspaceId: string; workspaceName: string }) {
+function EmailWorkspace({ workspaceId }: { workspaceId: string }) {
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['workspace-email', workspaceId], queryFn: () => workspaceEmailApi.get(workspaceId) });
   const [form, setForm] = useState<EmailConfiguration>({ ...blank });
@@ -75,7 +79,7 @@ function EmailWorkspace({ workspaceId, workspaceName }: { workspaceId: string; w
   const textField = (key: 'from_email' | 'from_name' | 'reply_to' | 'smtp_host' | 'smtp_username', label: string) => <Field label={label} htmlFor={`email-${key}`}><Input id={`email-${key}`} disabled={busy} value={form[key]} onChange={e => update(key, e.target.value)} /></Field>;
   const secretField = (key: 'api_key' | 'smtp_password' | 'webhook_key', label: string, configured: boolean) => <Field label={label} htmlFor={`email-${key}`} hint={configured ? 'A credential is stored. Leave unchanged to keep it, or enter a replacement.' : 'Stored securely on the server.'}><div className="flex gap-2"><Input id={`email-${key}`} type="password" autoComplete="new-password" disabled={busy} value={form[key] ?? ''} onChange={e => update(key, e.target.value)} /><Button variant="secondary" disabled={busy} onClick={() => update(key, '')}>Remove</Button></div>{form[key] === '' && <Text as="p" variant="body-sm">Credential will be removed when you save.</Text>}</Field>;
   return <div className="flex flex-col gap-8">
-    <Section title="Workspace email" description={`Configure outbound email for ${workspaceName}. Account recovery and verification use the platform provider.`}>
+    <Section title="Outbound delivery">
       <Text as="p">{settings?.mode === 'custom' ? `Active: ${settings.active?.provider} · ${settings.active?.from_email}` : 'Using platform delivery'}</Text>
       {settings?.platform_delivery_configured === false && <Text as="p" variant="body-sm">Platform email is not configured. Set up a workspace provider for workspace messages; your server operator must configure account recovery email separately.</Text>}
       {unavailable && <div role="status"><Text as="p">Native workspace email requires PostgreSQL transactional storage on this server. Platform account email remains available.</Text></div>}

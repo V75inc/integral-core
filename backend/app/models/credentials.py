@@ -68,5 +68,14 @@ class UserModelProfile(Object):
     connection_id: str = ""
     name: str = ""
     model: str = ""
+    embedding_only: bool = False
     generation_settings: Dict[str, Any] = Field(default_factory=dict)
     updated_at: str = ""
+
+
+class DeploymentChatLimitRevision(Object):
+    whole_answer_protection: bool = False
+    revision: int
+    overrides: dict[str, int] = Field(default_factory=dict)
+    actor_id: str
+    updated_at: str

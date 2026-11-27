@@ -27,7 +27,9 @@ async def test_remote_error_precedes_every_payload_projection(
             )
 
     @asynccontextmanager
-    async def session(auth, *, timeout=mcp_client._DEFAULT_TIMEOUT):
+    async def session(
+        auth, *, timeout=mcp_client._DEFAULT_TIMEOUT, config=None, manifest=None
+    ):
         yield Session()
 
     monkeypatch.setattr(mcp_client, "open_mcp_session", session)
@@ -47,7 +49,9 @@ async def test_successful_structured_payload_is_preserved(monkeypatch):
             )
 
     @asynccontextmanager
-    async def session(auth, *, timeout=mcp_client._DEFAULT_TIMEOUT):
+    async def session(
+        auth, *, timeout=mcp_client._DEFAULT_TIMEOUT, config=None, manifest=None
+    ):
         yield Session()
 
     monkeypatch.setattr(mcp_client, "open_mcp_session", session)
@@ -79,7 +83,9 @@ async def test_remote_http_failure_is_actionable_without_releasing_remote_text(
             )
 
     @asynccontextmanager
-    async def session(auth, *, timeout=mcp_client._DEFAULT_TIMEOUT):
+    async def session(
+        auth, *, timeout=mcp_client._DEFAULT_TIMEOUT, config=None, manifest=None
+    ):
         yield Session()
 
     monkeypatch.setattr(mcp_client, "open_mcp_session", session)

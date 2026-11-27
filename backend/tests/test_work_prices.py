@@ -1,6 +1,8 @@
 """Host admission quotes; synthetic tariffs are not live provider billing proof."""
 
 import asyncio
+import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, localcontext
 from unittest.mock import AsyncMock
@@ -11,7 +13,11 @@ from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.services import work_prices
 from app.schemas.agentive.work import WorkError
 from app.schemas.agentive.work_mandate import MandateModelRoute
-from app.schemas.agentive.work_price import ModelPriceRequest, ModelTokenPriceEvidence
+from app.schemas.agentive.work_price import (
+    ModelPriceBinding,
+    ModelPriceRequest,
+    ModelTokenPriceEvidence,
+)
 from app.services import host_hooks
 
 
@@ -66,6 +72,52 @@ def evidence(price_request, **updates):
     )
     values.update(updates)
     return ModelTokenPriceEvidence(**values)
+
+
+def test_old_native_price_digest_survives_optional_connection_scope(price_request):
+    """Legacy receipts remain valid and bound receipts retain their discriminator."""
+    native_scope = {
+        "tenant_id": "workspace-1",
+        "workspace_id": "workspace-1",
+        "principal_id": "user-1",
+        "thread_id": "thread-1",
+        "session_id": "session-1",
+        "run_id": "run-1",
+        "permission_revision": "permission-v1",
+        "capability_version": "capability-v1",
+    }
+    payload = price_request.model_dump(mode="json")
+    assert payload["scope"] == native_scope
+    legacy_digest_payload = {
+        **payload,
+        "scope": native_scope,
+        "bounds_valid_until": price_request.bounds_valid_until.isoformat(),
+    }
+    legacy_digest = hashlib.sha256(
+        json.dumps(
+            legacy_digest_payload, sort_keys=True, separators=(",", ":")
+        ).encode()
+    ).hexdigest()
+    binding = ModelPriceBinding.model_validate(
+        {
+            "request": payload,
+            "evidence": evidence(price_request, request_digest=legacy_digest),
+        }
+    )
+    assert binding.request.digest() == legacy_digest
+
+    connection_fields = {
+        "connection_scope_key": "c" * 64,
+        "connection_audience": "staff",
+    }
+    bound = ModelPriceRequest.model_validate(
+        {**payload, "scope": {**native_scope, **connection_fields}}
+    )
+    assert bound.model_dump(mode="json")["scope"] == {
+        **native_scope,
+        **connection_fields,
+    }
+    assert bound.digest() != legacy_digest
 
 
 @pytest.mark.asyncio

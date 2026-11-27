@@ -214,7 +214,9 @@ async def _require_workspace_role(
 
 
 @endpoint("/workspaces", methods=["GET"], auth=True, tags=["Workspaces"])
-async def list_workspaces(request: Request) -> Dict[str, Any]:
+async def list_workspaces(
+    request: Request, limit: Optional[int] = None
+) -> Dict[str, Any]:
     """List every workspace the user can read (Personal + each org membership)."""
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -222,6 +224,29 @@ async def list_workspaces(request: Request) -> Dict[str, Any]:
     user = await get_user_node(user_id)
     if not user:
         return {"workspaces": [], "total": 0}
+    if limit is not None:
+        # Bounded navigation projection without per-row export/host enrichers.
+        from app.services.request_scope import resolve_workspace_id_from_request
+
+        page_size = min(max(limit, 1), 20)
+        current = await resolve_workspace_id_from_request(request, user_id)
+        workspaces = await list_accessible_workspaces(user_id, limit=page_size + 1)
+        rows = {workspace.id: workspace for workspace in workspaces}
+        if current and current not in rows:
+            active = await Workspace.get(current)
+            if active is not None and await can_access_workspace(user_id, current) in {
+                "owner",
+                "admin",
+                "member",
+            }:
+                rows[current] = active
+        ordered = sorted(rows.values(), key=lambda ws: ws.id != current)
+        return {
+            "workspaces": [
+                {"id": row.id, "name": row.name} for row in ordered[:page_size]
+            ],
+            "has_more": len(ordered) > page_size,
+        }
     workspaces = await list_accessible_workspaces(user_id)
     items: List[Dict[str, Any]] = []
     for ws in workspaces:

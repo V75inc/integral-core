@@ -230,6 +230,46 @@ def test_row_helpers():
     assert row_display_name(FakeRow("a", "u", "weird_thing")) == "weird thing"
 
 
+def test_row_display_name_uses_the_admitted_package(monkeypatch):
+    """A package name wins over the catalog display name."""
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: (
+            {"name": "Package Notion"} if package_id == "notion" else None
+        ),
+    )
+    assert (
+        row_display_name(FakeRow("a", "u", "mcp", {"catalog_slug": "notion"}))
+        == "Package Notion"
+    )
+
+
+def test_row_display_name_uses_the_stored_package_name(monkeypatch):
+    """A stored package name wins. An older snapshot uses the admitted name."""
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: (
+            {"name": "Admitted Mail"} if package_id == "gmail" else None
+        ),
+    )
+    stored = FakeRow("a", "u", "gmail", {"access_token": "tok"})
+    stored.package_manifest = {"id": "acme_mail", "name": "Acme Mail"}
+    assert row_display_name(stored) == "Acme Mail"
+    assert stored.subclass_slug == "gmail"
+    assert stored.auth_state["access_token"] == "tok"
+    older = FakeRow("b", "u", "gmail", {"catalog_slug": "gmail"})
+    older.package_manifest = {"capabilities": {"sync": {}}}
+    assert row_display_name(older) == "Admitted Mail"
+    missing = FakeRow("c", "u", "gmail")
+    missing.package_manifest = {"id": "gmail"}
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: {},
+    )
+    with pytest.raises(ValueError, match="does not declare a name"):
+        row_display_name(missing)
+
+
 # ---------------------------------------------------------------------------
 # Canonical keys — MCP builders + refcounts
 # ---------------------------------------------------------------------------
@@ -494,10 +534,25 @@ async def test_shared_install_refused_in_personal_workspace(
     assert "per-user" in resp.text
 
 
+async def _legacy_private_issue_row(test_user, workspace_id):
+    from app.agentive.api.connectors import _catalog_install_sync
+    from app.connectors.catalog_loader import get_catalog_entry
+
+    return await _catalog_install_sync(
+        user_id=test_user.id,
+        workspace_id=workspace_id,
+        entry=get_catalog_entry("github_issues"),
+        secrets={"owner": "acme", "repo": "legacy"},
+    )
+
+
 @pytest.mark.asyncio
-async def test_member_shared_install_forbidden_per_user_allowed(
+async def test_member_install_requires_their_personal_workspace(
     authenticated_client, test_user, test_user2
 ):
+    from app.services.personal_workspace import ensure_personal_workspace
+
+    personal = await ensure_personal_workspace(test_user2)
     ws_id = await _org_ws(test_user, "member-install")
     member, _ = await _member_client(test_user2, ws_id)
     try:
@@ -507,10 +562,20 @@ async def test_member_shared_install_forbidden_per_user_allowed(
             headers=_ws_headers(ws_id),
         )
         assert denied.status_code == 403, denied.text
+        body = {
+            "secrets": {"owner": "me", "repo": "mine"},
+            "connection_mode": "per_user",
+        }
+        wrong_workspace = await member.post(
+            "/api/agentive/connectors/catalog/github_issues/install",
+            json=body,
+            headers=_ws_headers(ws_id),
+        )
+        assert wrong_workspace.status_code == 400, wrong_workspace.text
         ok = await member.post(
             "/api/agentive/connectors/catalog/github_issues/install",
-            json={"secrets": {"owner": "me", "repo": "mine"}},
-            headers=_ws_headers(ws_id),
+            json=body,
+            headers=_ws_headers(personal.id),
         )
         assert ok.status_code == 200, ok.text
         assert ok.json()["connector"]["connection_mode"] == "per_user"
@@ -524,13 +589,7 @@ async def test_member_sees_shared_not_others_per_user(
 ):
     ws_id = await _org_ws(test_user, "visibility")
     admin_headers = _ws_headers(ws_id)
-    mine = await authenticated_client.post(
-        "/api/agentive/connectors/catalog/github_issues/install",
-        json={"secrets": {"owner": "a", "repo": "mine"}},
-        headers=admin_headers,
-    )
-    assert mine.status_code == 200, mine.text
-    mine_id = mine.json()["connector"]["id"]
+    mine_id = (await _legacy_private_issue_row(test_user, ws_id)).id
     shared = await authenticated_client.post(
         "/api/agentive/connectors/catalog/github_issues/install",
         json={
@@ -579,7 +638,11 @@ async def test_owner_can_rename_label(authenticated_client):
     ws_id = await _workspace_id_for(authenticated_client)
     created = await authenticated_client.post(
         "/api/agentive/connectors/catalog/github_issues/install",
-        json={"secrets": {"owner": "a", "repo": "r"}, "label": "Old"},
+        json={
+            "secrets": {"owner": "a", "repo": "r"},
+            "label": "Old",
+            "connection_mode": "per_user",
+        },
         headers=_ws_headers(ws_id),
     )
     cid = created.json()["connector"]["id"]
@@ -613,12 +676,7 @@ async def test_policy_member_may_invoke_shared_only(
         headers=admin_headers,
     )
     shared_id = shared.json()["connector"]["id"]
-    mine = await authenticated_client.post(
-        "/api/agentive/connectors/catalog/github_issues/install",
-        json={"secrets": {"owner": "a", "repo": "m"}},
-        headers=admin_headers,
-    )
-    mine_id = mine.json()["connector"]["id"]
+    mine_id = (await _legacy_private_issue_row(test_user, ws_id)).id
 
     member, member_id = await _member_client(test_user2, ws_id)
     try:
@@ -723,18 +781,12 @@ async def test_member_cannot_delete_or_patch_shared(
 async def test_member_manages_own_per_user_row(
     authenticated_client, test_user, test_user2
 ):
-    """Per-user install is member-level; lifecycle must not demand admin."""
+    """Legacy private rows remain manageable by their owner."""
     ws_id = await _org_ws(test_user, "member-own")
     member, _ = await _member_client(test_user2, ws_id)
     headers = _ws_headers(ws_id)
     try:
-        created = await member.post(
-            "/api/agentive/connectors/catalog/github_issues/install",
-            json={"secrets": {"owner": "me", "repo": "mine"}, "label": "Mine"},
-            headers=headers,
-        )
-        assert created.status_code == 200, created.text
-        cid = created.json()["connector"]["id"]
+        cid = (await _legacy_private_issue_row(test_user2, ws_id)).id
 
         renamed = await member.patch(
             f"/api/agentive/connectors/{cid}",

@@ -152,9 +152,17 @@ async def execute_query_spec(
     idempotency_key: Optional[str] = None,
     result_set_id: Optional[str] = None,
     declared_app_id: Optional[str] = None,
+    audience_principal: Optional[str] = None,
 ) -> QuerySpecResult:
     """Validate and execute a one-hop query over workspace-authorized roots."""
 
+    if audience_principal is not None and (
+        not audience_principal
+        or not declared_app_id
+        or idempotency_key
+        or result_set_id
+    ):
+        raise QuerySpecError("Profile audiences require a fresh declared App query")
     scoped_app = None
     if declared_app_id:
         # Only the App-query broker adapter supplies this scope. Generic Core
@@ -169,6 +177,12 @@ async def execute_query_spec(
             != "active"
             or not str(getattr(scoped_app, "installed_package_slug", "") or "").strip()
             or not await permissions.can_view_app(principal_id, declared_app_id)
+            or (
+                audience_principal
+                and not await permissions.can_view_app(
+                    audience_principal, declared_app_id
+                )
+            )
         ):
             raise QuerySpecError("declared App query is unavailable")
 
@@ -251,6 +265,9 @@ async def execute_query_spec(
     fingerprint_source = json.dumps(
         {
             "canonical_plan": canonical_plan,
+            **(
+                {"audience_principal": audience_principal} if audience_principal else {}
+            ),
             "principal_id": principal_id,
             "workspace_id": workspace_id,
             **({"declared_app_id": declared_app_id} if declared_app_id else {}),
@@ -475,14 +492,14 @@ async def execute_query_spec(
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             raise QuerySpecError("invalid query cursor") from exc
 
-    async def authorized_items(resource: str) -> List[Any]:
+    async def items_for(resource: str, subject_id: str) -> List[Any]:
         if resource == "entry":
             try:
                 entry_kwargs = {"workspace_id": workspace_id, "strict": True}
                 if scoped_app is not None:
                     entry_kwargs["app_id"] = declared_app_id
                 items = list(
-                    await get_user_accessible_entries(principal_id, **entry_kwargs)
+                    await get_user_accessible_entries(subject_id, **entry_kwargs)
                 )
             except Exception as exc:
                 raise QuerySpecExecutionError(
@@ -491,7 +508,7 @@ async def execute_query_spec(
         elif resource == "track":
             items = [
                 item
-                for item in await get_user_accessible_tracks(principal_id)
+                for item in await get_user_accessible_tracks(subject_id)
                 if str(getattr(item, "workspace_id", "")) == workspace_id
             ]
             if scoped_app is not None:
@@ -506,7 +523,7 @@ async def execute_query_spec(
         else:
             items = [
                 item
-                for item in await get_user_accessible_apps(principal_id)
+                for item in await get_user_accessible_apps(subject_id)
                 if str(getattr(item, "workspace_id", "")) == workspace_id
             ]
             if scoped_app is not None:
@@ -521,6 +538,19 @@ async def execute_query_spec(
                 f"{MAX_AUTHORIZED_SCAN}"
             )
         return items
+
+    admitted: dict[str, set[str]] = {}
+
+    async def authorized_items(resource: str) -> List[Any]:
+        items = await items_for(resource, principal_id)
+        if not audience_principal:
+            return items
+        audience_ids = {
+            item.id for item in await items_for(resource, audience_principal)
+        }
+        joint = [item for item in items if item.id in audience_ids]
+        admitted[resource] = {item.id for item in joint}
+        return joint
 
     from app.services.query_boundary import keep_open_entries, relation_visible
 
@@ -837,6 +867,18 @@ async def execute_query_spec(
     normalized_plan["cost_model"]["edge_scans"] = edge_scan_count
     normalized_plan["cost_model"]["actual_cost"] = dynamic_base_cost + edge_scan_count
 
+    if audience_principal:
+        # Recheck both ACLs after reading values and before persisting or releasing
+        # rows, relation targets, counts or cursors from the shared projection.
+        from app.middleware.permissions_cache import isolated_permissions_cache
+
+        with isolated_permissions_cache():
+            for resource, ids in admitted.items():
+                for subject_id in (principal_id, audience_principal):
+                    if not ids.issubset(
+                        {item.id for item in await items_for(resource, subject_id)}
+                    ):
+                        raise QuerySpecError("Profile audience access changed")
     result_set_id = str(uuid.uuid4())
     item_provenance = [item.model_dump(mode="json") for item in provenance]
     now = datetime.now(timezone.utc)

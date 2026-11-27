@@ -255,6 +255,36 @@ def _load_catalog(*, catalog_dir: Optional[Path] = None) -> List[Dict[str, Any]]
     return entries
 
 
+def apply_package_mount(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a catalog row whose identity and MCP mount come from the package."""
+    from app.connectors.package_runtime import admitted_manifest, mcp_mount_fields
+
+    shown = dict(entry)
+    manifest = admitted_manifest(str(entry.get("slug") or "")) or {}
+    name = str(manifest.get("name") or "").strip()
+    description = str(manifest.get("description") or "").strip()
+    if name:
+        shown["display_name"] = name
+    if description:
+        shown["description"] = description
+    package_auth = (
+        manifest.get("auth") if isinstance(manifest.get("auth"), dict) else {}
+    )
+    if package_auth.get("type") == "mcp_oauth":
+        auth = dict(shown.get("auth") or {})
+        auth["type"] = "mcp_oauth"
+        shown["auth"] = auth
+    mount = mcp_mount_fields(entry)
+    if mount.get("url"):
+        shown["url"] = mount["url"]
+    if mount.get("transport"):
+        shown["transport"] = mount["transport"]
+    if mount.get("command"):
+        shown["command"] = mount["command"]
+    shown["args"] = list(mount.get("args") or [])
+    return shown
+
+
 def get_catalog_entry(
     slug: str, *, catalog_dir: Optional[Path] = None
 ) -> Dict[str, Any]:
@@ -264,7 +294,7 @@ def get_catalog_entry(
         raise ValueError("catalog slug required")
     for entry in load_catalog(catalog_dir=catalog_dir):
         if entry["slug"] == key:
-            return entry
+            return apply_package_mount(entry)
     raise KeyError(key)
 
 
@@ -275,4 +305,8 @@ def load_visible_catalog(*, catalog_dir: Optional[Path] = None) -> List[Dict[str
     mounts keep working — they just never appear in the library list and refuse
     installs at the API layer.
     """
-    return [e for e in load_catalog(catalog_dir=catalog_dir) if not e.get("hidden")]
+    return [
+        apply_package_mount(e)
+        for e in load_catalog(catalog_dir=catalog_dir)
+        if not e.get("hidden")
+    ]

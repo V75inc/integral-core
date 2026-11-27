@@ -51,6 +51,7 @@ OPERATION_GROUPS = MappingProxyType(
         "conflict.resolve": "records",
         "connector.create": "records",
         "connector.delete": "records",
+        "connector.package.call": "records",
         "connector.read": "records",
         "connector.sync": "records",
         "connector.sync.complete": "records",

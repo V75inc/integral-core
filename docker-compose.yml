@@ -8,6 +8,9 @@
 #   PG   localhost:5433
 #
 # Create .env with ./scripts/bootstrap_env.sh .env .env.example before start.
+# A dedicated init container provisions the reviewed storage catalog on
+# a fresh database. The API performs verification only; existing databases
+# without a catalog require reviewed migration.
 # Compose requires an operator-provided JWT secret and never supplies a fallback.
 services:
   # Postgres 16 + pgvector — the integral default DB. jvspatial Phase C
@@ -32,11 +35,29 @@ services:
       timeout: 5s
       retries: 10
 
-  api:
-    build:
+  storage-init:
+    build: &api-build
       context: .
       dockerfile: backend/Dockerfile
       target: core
+    command: ["python", "-m", "app.services.storage_indexes.provision"]
+    healthcheck:
+      disable: true
+    environment:
+      INTEGRAL_ENV_FILE: /dev/null
+      INTEGRAL_MIGRATION_POSTGRES_DSN: postgresql://integral:integral@db:5432/integral
+      JVSPATIAL_POSTGRES_DSN: postgresql://integral:integral@db:5432/integral
+      INTEGRAL_RUNTIME_POSTGRES_USER: integral_runtime
+      INTEGRAL_RUNTIME_POSTGRES_PASSWORD: ${INTEGRAL_LOCAL_POSTGRES_RUNTIME_PASSWORD:?run scripts/bootstrap_env.sh to generate the PostgreSQL runtime password}
+      INTEGRAL_INITIAL_INDEX_PLAN_PATH: /data/storage-initial-plan.json
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - integral_index_plans:/data
+
+  api:
+    build: *api-build
     ports:
       - "4000:4000"
     env_file:
@@ -56,9 +77,12 @@ services:
       # service listens on its own :5432 here (container port, not the
       # :5433 host mapping).
       JVSPATIAL_DB_TYPE: postgres
-      JVSPATIAL_POSTGRES_DSN: postgresql://integral:integral@db:5432/integral
-      POSTGRES_USER: integral
-      POSTGRES_PASSWORD: integral
+      JVSPATIAL_POSTGRES_INDEX_CREATION: managed
+      JVSPATIAL_AUTO_CREATE_INDEXES: "false"
+      # main.py builds the encoded DSN from these runtime-only credentials.
+      JVSPATIAL_POSTGRES_DSN: ""
+      POSTGRES_USER: integral_runtime
+      POSTGRES_PASSWORD: ${INTEGRAL_LOCAL_POSTGRES_RUNTIME_PASSWORD:?run scripts/bootstrap_env.sh to generate the PostgreSQL runtime password}
       POSTGRES_DB: integral
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
@@ -83,6 +107,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
     volumes:
       # Attachment bytes live under /data/files (the image's writable root).
       # Keep this volume with the Postgres backup for a complete restore.
@@ -106,3 +132,4 @@ services:
 volumes:
   integral_db:
   integral_pg:
+  integral_index_plans:

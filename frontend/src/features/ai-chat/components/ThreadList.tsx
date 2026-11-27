@@ -14,6 +14,8 @@ import { groupThreadsByRecency, type ThreadGroupInfo } from "../threadGrouping";
 
 import { ConversationLabel } from "./ConversationLabel";
 
+import { ALL_WORKSPACE_ASSISTANTS, WORKSPACE_ASSISTANT } from "../../../api/chatAssistantIdentity";
+import { ChatProfileChooser } from "./ChatProfileChooser";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { useActiveChatProvider } from "../useActiveChatProvider";
 import { useChatActivity } from "../AIChatSurface";
@@ -36,14 +38,14 @@ export function AIChatThreadList() {
   const provider = useActiveChatProvider();
   const { scope } = useScope();
   const workspaceId = scope?.workspaceId ?? "";
-  const { isRunning, streamingThreadIds, threads } = useChatActivity();
+  const { isRunning, streamingThreadIds, threads, profileFilter } = useChatActivity();
   const [search, setSearch] = useState("");
   const visibleGroups = useMemo(() => {
     const terms = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-    return groupThreadsByRecency(threads.filter(t => !t.archived && terms.every(term =>
+    return groupThreadsByRecency(threads.filter(t => !t.archived && (provider.id !== "integral_native" || !profileFilter || profileFilter === ALL_WORKSPACE_ASSISTANTS || (t.agent_profile_key || WORKSPACE_ASSISTANT.key) === profileFilter) && terms.every(term =>
       (t.title || "New conversation").toLocaleLowerCase().includes(term),
     )).map(t => ({ id: t.id, ts: t.last_message_at || t.updated_at || t.created_at ? new Date((t.last_message_at ?? t.updated_at ?? t.created_at)!).getTime() : null })), Date.now());
-  }, [threads, search]);
+  }, [threads, search, profileFilter, provider.id]);
 
   return (
     <aside
@@ -52,12 +54,11 @@ export function AIChatThreadList() {
         border-r border-[var(--border-subtle)] bg-[var(--panel)]
       "
     >
-      <AgentSwitcher
+      {provider.id === "integral_native" ? <ChatProfileChooser /> : <AgentSwitcher
         provider={provider}
         workspaceId={workspaceId}
         isStreaming={isRunning || streamingThreadIds.length > 0}
-      />
-
+      />}
       <header
         className="
           flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-3 pt-4 pb-2
@@ -148,7 +149,7 @@ function ThreadGroupHeader({ label }: { label: string }) {
 
 function ThreadListItem() {
   const threadId = useAuiState((s) => s.threadListItem.id);
-  const { threadGroups, threads, isThreadStreaming } = useChatActivity();
+  const { threadGroups, threads, isThreadStreaming, workspaceAssistant } = useChatActivity();
   const title = useThreadListItem(s => s.title);
   const thread = threads.find(t => t.id === threadId);
   const lastActivity = thread?.last_message_at ?? thread?.updated_at ?? thread?.created_at;
@@ -177,7 +178,11 @@ function ThreadListItem() {
       >
         <ThreadListItemStreamingSpinner />
         <ConversationLabel threadId={threadId} title={title || "New conversation"} lastActivity={lastActivity}
-          createdAt={thread?.created_at} messageCount={thread?.message_count} working={isThreadStreaming(threadId)} />
+          createdAt={thread?.created_at} messageCount={thread?.message_count}
+          agentName={thread?.provider_id === "integral_native"
+            ? thread.agent_profile_key ? thread.agent_profile?.name ?? "Unavailable profile" : workspaceAssistant?.name ?? thread.agent_profile?.name ?? WORKSPACE_ASSISTANT.name
+            : undefined}
+          working={isThreadStreaming(threadId)} />
       </ThreadListItemPrimitive.Trigger>
         <ThreadListItemMore />
       </ThreadListItemPrimitive.Root>

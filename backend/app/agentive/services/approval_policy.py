@@ -74,13 +74,20 @@ def effect_class(
     normalized = str(kind or "").strip().lower()
     data = payload or {}
     if normalized == "batch":
-        nested = data.get("ops")
+        if "operations" in data and "ops" in data:
+            # Ambiguous envelopes never downgrade a destructive child.
+            return ApprovalEffectClass.DESTRUCTIVE_SECURITY
+        nested = data.get("operations", data.get("ops"))
         if isinstance(nested, list):
-            classes = [
-                effect_class(str(op.get("kind") or ""), op)
-                for op in nested
-                if isinstance(op, Mapping)
-            ]
+            classes = set()
+            for op in nested:
+                if not isinstance(op, Mapping):
+                    classes.add(ApprovalEffectClass.MATERIAL_EXTERNAL)
+                    continue
+                child_payload = op.get("payload", op)
+                if not isinstance(child_payload, Mapping):
+                    return ApprovalEffectClass.DESTRUCTIVE_SECURITY
+                classes.add(effect_class(str(op.get("kind") or ""), child_payload))
             if ApprovalEffectClass.DESTRUCTIVE_SECURITY in classes:
                 return ApprovalEffectClass.DESTRUCTIVE_SECURITY
             if ApprovalEffectClass.MATERIAL_EXTERNAL in classes:

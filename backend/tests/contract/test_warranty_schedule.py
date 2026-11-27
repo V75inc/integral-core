@@ -29,6 +29,7 @@ async def test_asset_register_warranty_schedule_materialized(monkeypatch):
     )
 
     from app.agentive.nodes import RoutineTask
+    from app.services.chat_threads import list_threads
 
     ws = await make_org_workspace("ws-warranty-contract")
     actor_id = await workspace_owner_id(ws)
@@ -49,6 +50,8 @@ async def test_asset_register_warranty_schedule_materialized(monkeypatch):
     assert routine.cron == "0 8 * * *"
     assert routine.status == "active"
     assert "review_warranties" in (routine.instruction or "")
+    assert routine.awaits_app_schedule_thread
+    assert await list_threads(user_id=actor_id, workspace_id=ws.id) == []
 
     paused = await pause_app(app_id=app_id, actor_id=actor_id)
     assert paused["status"] == "paused"
@@ -69,7 +72,11 @@ async def test_asset_register_warranty_schedule_materialized(monkeypatch):
     app = await App.get(app_id)
     assert app is not None
     assert app.lifecycle_state == "active"
-    assert await _permission_gate(routine_after_resume) is None
+    assert (
+        await _permission_gate(routine_after_resume, allow_pending_app_thread=True)
+        is None
+    )
+    assert await list_threads(user_id=actor_id, workspace_id=ws.id) == []
 
 
 @pytest.mark.contract

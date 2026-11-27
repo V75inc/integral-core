@@ -1,3 +1,5 @@
+import { peekVoiceSession, useVoiceSession } from "../features/ai-chat/nativeVoiceSession";
+import { useVoiceDepartureGuard } from "../features/ai-chat/useVoiceDepartureGuard";
 import {
   createContext,
   useCallback,
@@ -41,6 +43,7 @@ type AssistantDockContextValue = {
   resizing: boolean;
   openDock: (opts?: { view?: AssistantDockView }) => void;
   closeDock: () => void;
+  suppressDock: () => void;
   toggleDock: () => void;
   setView: (view: AssistantDockView) => void;
   /** Accepts an updater so callers that nudge by a delta (key-repeat on the
@@ -69,19 +72,40 @@ export function isDockSuppressedPath(pathname: string): boolean {
 export function AssistantDockProvider({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const isMdUp = useIsMdUp();
-  const [open, setOpen] = useState(readDockOpen);
+  const [storedOpen, setOpen] = useState(readDockOpen);
+  const voice = useVoiceSession();
+  const open = storedOpen || voice?.surface === "dock";
+  const { guardDeparture } = useVoiceDepartureGuard();
   const [width, setWidthState] = useState(readDockWidth);
-  const [view, setView] = useState<AssistantDockView>('chat');
+  const [view, setViewState] = useState<AssistantDockView>('chat');
   const [onboarding, setOnboarding] = useState(false);
   const [resizing, setResizing] = useState(false);
 
-  const openDock = useCallback((opts?: { view?: AssistantDockView }) => {
-    if (opts?.view) setView(opts.view);
-    setOpen(true);
-  }, []);
+  // Pin the existing dock while its call is connecting or live, including
+  // when the full-page route swaps to an ordinary workspace outlet.
+  useEffect(() => {
+    if (voice?.surface === "dock") { setOpen(true); setViewState("chat"); }
+  }, [voice?.owner, voice?.surface]);
 
-  const closeDock = useCallback(() => setOpen(false), []);
-  const toggleDock = useCallback(() => setOpen(v => !v), []);
+  const dockCall = useCallback((session: { surface: string }) => session.surface === "dock", []);
+  const setView = useCallback((next: AssistantDockView) => {
+    if (next === "inbox") guardDeparture(() => setViewState(next), dockCall);
+    else setViewState(next);
+  }, [guardDeparture, dockCall]);
+  const openDock = useCallback((opts?: { view?: AssistantDockView }) => {
+    if (opts?.view === "inbox") {
+      guardDeparture(() => { setViewState("inbox"); setOpen(true); }, dockCall);
+    } else {
+      if (opts?.view) setViewState(opts.view);
+      setOpen(true);
+    }
+  }, [guardDeparture, dockCall]);
+  const closeDock = useCallback(() => guardDeparture(() => setOpen(false), dockCall), [guardDeparture, dockCall]);
+  const suppressDock = useCallback(() => { if (peekVoiceSession()?.surface !== "dock") setOpen(false); }, []);
+  const toggleDock = useCallback(() => {
+    if (open || peekVoiceSession()?.surface === "dock") closeDock();
+    else setOpen(true);
+  }, [open, closeDock]);
 
   const setWidth = useCallback((px: number | ((prev: number) => number)) => {
     setWidthState(prev =>
@@ -133,7 +157,7 @@ export function AssistantDockProvider({ children }: { children: ReactNode }) {
       if (isDockSuppressedPath(pathname)) return;
       const threadId = detail?.threadId ?? peekChatHandoff()?.threadId;
       if (threadId) rememberActiveChatThreadId(threadId);
-      setView('chat');
+      setViewState('chat');
       setOpen(true);
       consumeChatHandoff();
     };
@@ -142,7 +166,17 @@ export function AssistantDockProvider({ children }: { children: ReactNode }) {
     if (pending) openFromHandoff(pending);
 
     const onOpen = (e: Event) => {
-      openFromHandoff((e as CustomEvent<ChatHandoff>).detail);
+      const handoff = (e as CustomEvent<ChatHandoff>).detail;
+      // Voice and chat links request a companion before router navigation.
+      // Mount intent must survive the destination consuming the handoff. A
+      // single closed render here tears down the composer and its live call.
+      if (isDockSuppressedPath(pathname)) {
+        if (!handoff?.navigating) return;
+        setViewState('chat');
+        setOpen(true);
+        return;
+      }
+      openFromHandoff(handoff);
     };
     window.addEventListener(OPEN_AI_CHAT_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_AI_CHAT_EVENT, onOpen);
@@ -158,6 +192,7 @@ export function AssistantDockProvider({ children }: { children: ReactNode }) {
       resizing,
       openDock,
       closeDock,
+      suppressDock,
       toggleDock,
       setView,
       setWidth,
@@ -171,7 +206,9 @@ export function AssistantDockProvider({ children }: { children: ReactNode }) {
       resizing,
       openDock,
       closeDock,
+      suppressDock,
       toggleDock,
+      setView,
       setWidth,
     ],
   );

@@ -1,8 +1,7 @@
 """CON-02 — sync-connector authoring contract (core).
 
-Mirrors Phase 1 ``app/agentive/connectors/`` chat-connector idiom but lives in
-core per locked decision #12 (reachable by non-agent runtime MCP clients regardless
-of AGENTIVE_ENABLED).
+Lives in core so sync runs with the always-on agentive layer. There is no
+AGENTIVE_ENABLED boot gate.
 
 Public surface:
 
@@ -16,8 +15,8 @@ Public surface:
   | ``mirror_only``) declaring how the sync runtime resolves a re-pulled record
   whose ``external_updated_at`` is newer than the stored Entry's.
 - ``register_sync_connector`` / ``get_sync_connector`` / ``reset_sync_registry``
-  / ``list_registered_slugs`` — decorator-style registry mirroring Phase 1
-  ``register_connector`` at ``app/agentive/connectors/registry.py``.
+  / ``list_registered_slugs`` — decorator-style sync registry. Chat-agent
+  dispatch is a separate registry and is not a connector package.
 
 Locked decisions: #1 (provenance split), #6 (idempotency key default), #9
 (IS_CONNECTED_TO edge), #11 (decorator registry), #12 (core, not agentive).

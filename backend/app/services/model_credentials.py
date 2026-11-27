@@ -20,6 +20,7 @@ from app.services.credential_crypto import (
     encryption_unavailable_reason,
 )
 from app.services.model_provider_endpoints import (
+    GEMINI_API_BASE,
     OLLAMA_CLOUD_API_BASE,
     OLLAMA_LOCAL_DEFAULT_API_BASE,
     normalize_custom_base_url,
@@ -29,7 +30,15 @@ from app.utils.time import utc_now_iso
 logger = logging.getLogger(__name__)
 
 SUPPORTED_PROVIDERS = frozenset(
-    {"openai", "anthropic", "openrouter", "ollama", "ollama_local", "custom_openai"}
+    {
+        "openai",
+        "gemini",
+        "anthropic",
+        "openrouter",
+        "ollama",
+        "ollama_local",
+        "custom_openai",
+    }
 )
 
 # Cheap auth probe per provider (must actually exercise credentials).
@@ -44,6 +53,8 @@ _OLLAMA_VALIDATE_MODEL = "gpt-oss:120b"
 
 def _validate_headers(slug: str, api_key: str) -> Dict[str, str]:
     key = api_key.strip()
+    if slug == "gemini":
+        return {"x-goog-api-key": key}
     if slug == "anthropic":
         return {"x-api-key": key, "anthropic-version": "2023-06-01"}
     return {"Authorization": f"Bearer {key}"}
@@ -183,6 +194,11 @@ async def validate_provider_api_key(
                         "stream": False,
                     },
                 )
+            elif slug == "gemini":
+                resp = await client.get(
+                    f"{GEMINI_API_BASE}/models",
+                    headers=_validate_headers(slug, key),
+                )
             elif slug == "openrouter":
                 resp = await client.get(
                     _OPENROUTER_VALIDATE_URL,
@@ -200,10 +216,9 @@ async def validate_provider_api_key(
                 )
         if resp.status_code not in (200, 401, 403, 404):
             logger.warning(
-                "validate_provider_api_key %s HTTP %s: %s",
+                "validate_provider_api_key %s HTTP %s",
                 slug,
                 resp.status_code,
-                (resp.text or "")[:200],
             )
         return _interpret_auth_status(resp.status_code, slug=slug)
     except httpx.HTTPError as exc:

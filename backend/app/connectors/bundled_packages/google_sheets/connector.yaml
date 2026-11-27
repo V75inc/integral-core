@@ -1,0 +1,49 @@
+schema: integral.connector/v1
+id: google_sheets
+version: 1.0.0
+publisher: integral
+name: Google Sheets
+description: Read and update spreadsheet values, formulas, and structure through Google's
+  hosted Sheets MCP server. Requires Google sign-in.
+binding:
+  scopes:
+  - workspace
+  - personal
+trust:
+  tier: declarative
+capabilities:
+  mcp:
+    transport: streamable_http
+    url: https://sheetsmcp.googleapis.com/mcp/v1
+    read_only_tools:
+    - get_spreadsheet
+    - get_values
+auth:
+  type: oauth2
+  authorize_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  scopes:
+  - https://www.googleapis.com/auth/spreadsheets.readonly
+  - https://www.googleapis.com/auth/spreadsheets
+  - https://www.googleapis.com/auth/drive.readonly
+  - https://www.googleapis.com/auth/drive.file
+  extra_authorize_params:
+    access_type: offline
+    prompt: consent
+  client:
+    source: installer
+    id_field: client_id
+    secret_field: client_secret
+    id_env:
+    - GOOGLE_OAUTH_CLIENT_ID
+    - GMAIL_OAUTH_CLIENT_ID
+    secret_env:
+    - GOOGLE_OAUTH_CLIENT_SECRET
+    - GMAIL_OAUTH_CLIENT_SECRET
+configuration:
+- key: client_id
+  label: Client ID
+  type: string
+- key: client_secret
+  label: Client secret
+  type: secret

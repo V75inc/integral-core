@@ -98,6 +98,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function trackIdFromExecuteResult(executeResult?: unknown): string | undefined {
   const result = asRecord(executeResult);
   if (!result) return undefined;
+  if (typeof result.track_id === 'string' && result.track_id) return result.track_id;
   for (const key of ['entry', 'track'] as const) {
     const node = asRecord(result[key]);
     const inner = node ? asRecord(node[key]) : null;
@@ -143,14 +144,46 @@ function appIdFromStaged(staged: StagedChange): string | undefined {
   return typeof fromDiff === 'string' && fromDiff ? fromDiff : undefined;
 }
 
+function trackEntryViewFilters(trackId?: string): InvalidateQueryFilters[] {
+  if (trackId) return [
+    { queryKey: ['track', trackId, 'entries-total'] },
+    { queryKey: ['track', trackId, 'entries'] },
+  ];
+  // A committed batch may have no single track. Only reconcile active
+  // entry views (mark inactive data stale); never reload track metadata.
+  return [{
+    predicate: query => query.queryKey[0] === 'track'
+      && typeof query.queryKey[1] === 'string'
+      && ['entries', 'entries-total'].includes(String(query.queryKey[2])),
+  }];
+}
+
+/** A list page skips counting on simple pagination, not after invalidation. */
+export function shouldCountTrackPage(
+  qc: Pick<QueryClient, 'getQueryState'>,
+  queryKey: readonly unknown[],
+  page: number,
+  knownTotal: number | undefined,
+): boolean {
+  return page === 1 || knownTotal === undefined || qc.getQueryState(queryKey)?.isInvalidated === true;
+}
+
 async function invalidateTrackEntryLists(
   qc: QueryInvalidator,
   trackId?: string | null,
 ): Promise<void> {
-  await invalidateFeedCaches(qc);
-  if (trackId) {
-    await qc.invalidateQueries({ queryKey: ['track', trackId, 'entries'] });
-  }
+  await Promise.all([
+    invalidateFeedCaches(qc),
+    ...(trackId ? trackEntryViewFilters(trackId).map(filter => qc.invalidateQueries(filter)) : []),
+  ]);
+}
+
+/** Refresh the exact track's authorized rows and counts after a direct write. */
+export async function refreshCommittedTrackEntries(qc: QueryClient, trackId?: string): Promise<void> {
+  await reconcileActiveQueries(qc, [
+    { queryKey: ['feed'] },
+    ...(trackId ? trackEntryViewFilters(trackId) : []),
+  ]);
 }
 
 interface DetailRefreshes { entries: Set<string>; comments: Set<string> }
@@ -223,8 +256,15 @@ export async function invalidateAfterChangeEvent(
   }
 
   if (action.startsWith('entry.')) {
+    const trackId = trackIdFromScope(evt.scope);
+    const fromTrack = evt.details?.operation === 'bulk_move'
+      && typeof evt.details.source_track_id === 'string'
+      ? evt.details.source_track_id : undefined;
     await Promise.all([
-      invalidateTrackEntryLists(qc, trackIdFromScope(evt.scope)),
+      invalidateTrackEntryLists(qc, trackId),
+      ...(fromTrack && fromTrack !== trackId
+        ? trackEntryViewFilters(fromTrack).map(filter => qc.invalidateQueries(filter))
+        : []),
       // Aggregates may change; scope is track-scoped so refresh all open dashboards.
       invalidateDashboardData(qc),
     ]);
@@ -296,6 +336,13 @@ export async function invalidateAfterChangeEvents(qc: QueryClient, events: Activ
   };
   for (const event of events) await invalidateAfterChangeEvent(collector, event, details);
   if (!filters.length) return;
+  await reconcileActiveQueries(qc, filters);
+  const deleted = new Set(events.filter(event => event.action === 'entry.delete').map(event => event.resource_id));
+  for (const entryId of details.entries) if (!deleted.has(entryId)) dispatchEntryRefetch(entryId);
+  for (const entryId of details.comments) if (!deleted.has(entryId)) dispatchCommentRefetch(entryId);
+}
+
+async function reconcileActiveQueries(qc: QueryClient, filters: InvalidateQueryFilters[]): Promise<void> {
   const withheld = filters.filter(filter => filter.refetchType === 'none');
   const refresh = filters.filter(filter => filter.refetchType !== 'none');
   await qc.invalidateQueries({
@@ -313,18 +360,20 @@ export async function invalidateAfterChangeEvents(qc: QueryClient, events: Activ
   if (alreadyReading.size) {
     // A read begun before this mutation may hold an older snapshot. Wait for
     // it, then make one fresh read; never cancel/restart it per event.
-    await qc.refetchQueries({ ...refreshFilter,
-      predicate: query => alreadyReading.has(query.queryHash) && refreshFilter.predicate(query),
-    }, { cancelRefetch: false });
+    const replay = { ...refreshFilter,
+      predicate: (query: import('@tanstack/react-query').Query) =>
+        alreadyReading.has(query.queryHash) && refreshFilter.predicate(query),
+    };
+    // Completing the older fetch clears isInvalidated. Restore the marker
+    // so the new read knows it must recompute the filtered page total.
+    await qc.invalidateQueries({ ...replay, refetchType: 'none' });
+    await qc.refetchQueries(replay, { cancelRefetch: false });
   }
-  const deleted = new Set(events.filter(event => event.action === 'entry.delete').map(event => event.resource_id));
-  for (const entryId of details.entries) if (!deleted.has(entryId)) dispatchEntryRefetch(entryId);
-  for (const entryId of details.comments) if (!deleted.has(entryId)) dispatchCommentRefetch(entryId);
 }
 
 /** Invalidate caches after an agent staging write completes (bless / fallback). */
 export async function invalidateAfterAgentWrite(
-  qc: QueryInvalidator,
+  qc: QueryClient,
   input: { staged: StagedChange; executeResult?: unknown },
 ): Promise<void> {
   const { staged, executeResult } = input;
@@ -333,6 +382,7 @@ export async function invalidateAfterAgentWrite(
   if (kind === 'batch') {
     await Promise.all([
       invalidateConfiguration(qc), invalidateWorkspaceListCaches(qc),
+      reconcileActiveQueries(qc, trackEntryViewFilters()),
       qc.invalidateQueries({ queryKey: ['apps'] }),
       qc.invalidateQueries({ queryKey: ['tracks'] }),
       invalidateDashboardCaches(qc),

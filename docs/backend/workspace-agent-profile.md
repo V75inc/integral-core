@@ -201,3 +201,48 @@ an invocable input contract is lost; each omission is explicit. This avoids
 forcing callers through repeated sample reads, schema discovery or tool aliases.
 SDK validation errors use bounded Pydantic diagnostics without echoing input
 values, so callers receive a repairable request error rather than a server fault.
+
+## Published profile identities
+
+Publishing any staff or public profile creates a dedicated workspace user in the same transaction as the publication. It has no password, API key, or interactive login. It starts as a guest with no private resource grants. Its user ID, existing collaborations, and membership changes survive rename and republication. The built-in workspace assistant is configured separately from the publishable profiles.
+
+Publication and legacy adoption create the workspace service membership within the common membership authorization fence and the profile graph transaction. The manager’s authority is checked again within that scope.
+
+Workspace members can find the agent by its published name in the user picker. Share an App or Track through its usual collaborator controls. In posts and comments, a mention requires access to the relevant content. In chat, selecting the user addresses that identity. A mention does not start an autonomous agent turn. To start a conversation with a staff profile, enable **Show in workspace chat**.
+
+Profile tools require the published capability selection, the caller’s current access, the profile user’s ACLs and the applicable agent action policy. For declared App queries, Core intersects both users’ readable rows and traversal targets before computing counts, pagination and results. Arbitrary extension handlers have no equivalent row boundary and are unavailable on this path. Public Web Chat remains tool-free. Its private version-bound channel identifier stays separate from the directory user ID. Changing the bound publication on an active route requires disabling Web Chat first.
+
+For an existing workspace, inspect legacy publications from the configured backend environment. Supply an authorized workspace manager’s user ID.
+
+```sh
+.venv/bin/python -m scripts.migrate_profile_principals --workspace-id WORKSPACE --actor-user-id MANAGER
+```
+
+Add `--apply` to adopt the **published** versions transactionally. Rerunning is idempotent. Pending drafts stay pending. A valid existing Web Chat binding retains its private identifier and generation. If an enabled legacy route lacks a current binding, the migration stops before changing the workspace. Disable that route, run the migration, then enable it through the normal readiness checks.
+
+## Provisioned connection profiles (local pilot)
+
+`agentive.services.connection_profiles` provides an opt-in server execution
+boundary for host-provisioned connections. A server registry selects a profile
+from a fresh connection/principal grant; model, persona and transport input do
+not select authority. Every call intersects the profile allowlist, explicit tool
+omissions and current host authorization. Human-only operations require the
+authenticated host interaction path; the default agent path cannot invoke them,
+even when tool arguments claim confirmation. Handlers must retain canonical
+resource checks and ordinary write staging. A verified staff grant is required
+for staff profiles; a channel address alone is not a staff identity.
+
+The opaque session scope includes connection, principal, workspace, profile,
+audience and policy revision. A changed scope refuses old history/confirmation
+tokens. Hosts must key any history/retrieval store by that complete scope and
+recheck source permissions. This pilot provides no shared history or retrieval
+store and no public native-harness admission. Host registration is trusted server
+configuration: never expose generic workspace capabilities through a public
+profile. Public projection and inquiry behavior belongs to the owning App.
+
+The existing personal WhatsApp path remains separate and uses verified linked
+identities, current workspace access, native threads and existing approval
+decisions. Public/staff connection provisioning, durable restricted sessions,
+policy enforcement across native deferred execution and operational rollout
+remain later milestones; this service does not silently apply restrictions to
+existing native sessions.

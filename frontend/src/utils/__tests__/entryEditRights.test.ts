@@ -60,6 +60,10 @@ describe('entryEditRights', () => {
     expect(canEditEntry(editorUser, entry, track)).toBe(true);
   });
 
+  it('honors the owning App restriction for an otherwise admitted editor', () => {
+    expect(canEditEntry(editorUser, { ...entry, app_record_readonly: true }, track)).toBe(false);
+  });
+
   it('allows commenter to edit only their own entry', () => {
     const commenterTrack: Track = {
       ...track,

@@ -29,6 +29,7 @@ from app.services.app_operations.transaction_scope import (
 )
 from app.services.chat_threads import append_message, derive_thread_title
 from app.services.chat_turn_admission import reserve_chat_turn_admission
+from app.services.chat_turn_wake import wake_chat_worker
 
 
 def _canonical_digest(value: Any) -> str:
@@ -238,10 +239,13 @@ async def submit_chat_turn(
         client_request_id=request.client_request_id,
         from_follow_up_queue=request.from_follow_up_queue,
     )
+    from app.services.deployment_chat_limits import read_limits
+
     fingerprint = _request_fingerprint(request)
+    limits = await read_limits()
     deadline_at = (
         datetime.now(timezone.utc)
-        + timedelta(seconds=settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS)
+        + timedelta(seconds=limits["effective"]["run_seconds"])
     ).isoformat()
 
     async with postgres_graph_transaction() as transaction:
@@ -390,6 +394,28 @@ async def submit_chat_turn(
         )
         input_payload["request_fingerprint"] = fingerprint
         input_payload.update(capsule_ref)
+        if (
+            thread.provider_id == "integral_native"
+            and not thread.agent_profile_key
+            and not (thread.provider_session_id or "").startswith("wa:")
+            and not request.from_follow_up_queue
+            and _message_role(request) == "user"
+            and not (
+                request.execution_context
+                and (
+                    request.execution_context.design_only
+                    or request.execution_context.no_workspace_writes
+                    or request.execution_context.host_control
+                )
+            )
+        ):
+            from app.services.resident_permissions import read_permission
+
+            permission = await read_permission(
+                request.principal_id, request.workspace_id
+            )
+            if permission.mode in {"auto", "full"} or permission.track_ids:
+                input_payload["resident_permission_revision"] = permission.revision
         from app.services.performance import capture_trace_context
 
         traceparent = capture_trace_context()
@@ -457,12 +483,15 @@ async def submit_chat_turn(
             )
 
         work_item_id = str(work_item.work_item_id)
-        return ChatTurnSubmissionReceipt(
+        receipt = ChatTurnSubmissionReceipt(
             client_request_id=request.client_request_id,
             message_id=message.id,
             work_item_id=work_item_id,
             status=work_item.status,
         )
+
+    wake_chat_worker()
+    return receipt
 
 
 __all__ = ["assert_accepted_chat_turn_fingerprint", "submit_chat_turn"]

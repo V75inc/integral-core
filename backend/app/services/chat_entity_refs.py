@@ -70,7 +70,10 @@ async def _validate_explicit_ref(
 ) -> Optional[ResolvedEntityRef]:
     if ref.kind == "user":
         user = await _load_user(ref.id)
-        if not user:
+        if not user or (
+            getattr(user, "service_workspace_id", "")
+            and user.service_workspace_id != workspace_id
+        ):
             return None
         return ResolvedEntityRef(
             kind="user",
@@ -214,8 +217,10 @@ async def _resolve_hash_token(
     ], []
 
 
-async def _resolve_mention_token_to_ref(token: str) -> Optional[ResolvedEntityRef]:
-    user = await resolve_mention_token(token)
+async def _resolve_mention_token_to_ref(
+    token: str, workspace_id: Optional[str]
+) -> Optional[ResolvedEntityRef]:
+    user = await resolve_mention_token(token, workspace_id=workspace_id)
     if not user:
         return None
     return ResolvedEntityRef(
@@ -300,7 +305,7 @@ async def resolve_entity_refs(
     for token in extract_mention_tokens(text):
         if token.lower() in explicit_mention_tokens:
             continue
-        ref = await _resolve_mention_token_to_ref(token)
+        ref = await _resolve_mention_token_to_ref(token, workspace_id)
         if ref:
             resolved_by_id[(ref.kind, ref.entity_id)] = ref
 

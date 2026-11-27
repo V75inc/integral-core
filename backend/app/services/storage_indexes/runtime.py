@@ -11,7 +11,8 @@ _state = {"ready": False, "optional_missing": 0, "reason": "not_checked"}
 def managed():
     """Determine whether PostgreSQL serving uses the strict lifecycle boundary."""
     return (
-        os.getenv("JVSPATIAL_DB_TYPE", "").strip().lower() in {"postgres", "postgresql"}
+        os.getenv("JVSPATIAL_DB_TYPE", "postgres").strip().lower()
+        in {"postgres", "postgresql"}
         and os.getenv("JVSPATIAL_POSTGRES_INDEX_CREATION", "managed").strip().lower()
         == "managed"
     )
@@ -41,12 +42,19 @@ def postgres_kwargs():
         raise ManagedSchemaError(
             "Maintenance credentials must not be present in serving processes"
         )
-    if mode == "managed" and os.getenv(
-        "JVSPATIAL_AUTO_CREATE_INDEXES", "true"
-    ).strip().lower() not in {"1", "true", "yes", "on"}:
+    # Managed serving correctness is checked against the complete reviewed
+    # catalog, independently of GraphContext's per-model automatic index loop.
+    # Disabling that loop cannot disable the mandatory startup verification.
+    from jvspatial.env import parse_bool_basic
+
+    if mode == "managed":
+        os.environ.setdefault("JVSPATIAL_AUTO_CREATE_INDEXES", "false")
+    try:
+        parse_bool_basic(os.getenv("JVSPATIAL_AUTO_CREATE_INDEXES", "true"))
+    except ValueError:
         raise ManagedSchemaError(
-            "Managed mode requires integrity declarations to remain enabled"
-        )
+            "JVSPATIAL_AUTO_CREATE_INDEXES must be an explicit boolean"
+        ) from None
     catalog_table = os.getenv(
         "JVSPATIAL_POSTGRES_INDEX_CATALOG_TABLE", "integral_index_catalog"
     )

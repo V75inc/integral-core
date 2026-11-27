@@ -1,0 +1,358 @@
+"""Connector-owned full-page runtime; defaults to an inactive management package."""
+
+from dataclasses import dataclass
+from typing import Awaitable, Callable, Literal
+
+from jvspatial.db.postgres import PostgresDB
+
+from app.agentive.connectors.external_chat import (
+    ExternalChatAssignment,
+    ExternalChatProvision,
+)
+from app.agentive.services import profile_management
+from app.agentive.services.web_chat_package import SLUG
+from app.agentive.services.web_chat_profile_inference import TextModel
+from app.agentive.services.web_chat_request_budget import WebChatBudgetPolicy
+from app.connectors.channel_runtime import (
+    ChannelOriginRoutes,
+    ChannelRuntimeContribution,
+)
+from app.connectors.channel_share_check import SHARE_READ_PATH, bind_client_origin
+from app.schemas.agentive.managed_channels import ManageChannelShareQuery
+from app.web.full_page_chat import is_canonical_web_chat_origin
+from app.web.web_chat_client_composition import (
+    ClientRequestBudget,
+    compose_web_chat_client_api,
+)
+from app.web.web_chat_client_grants import PostgresWebChatClientGrants
+from app.web.web_chat_client_sessions import (
+    ClientSessionStartBudget,
+    PostgresWebChatClientSessions,
+)
+from app.web.web_chat_embed_composition import EmbedBudget, compose_web_chat_embed
+from app.web.web_chat_embed_policy import (
+    ManagedWebChatEmbedPolicy,
+    ReadCurrentEmbedPolicy,
+)
+from app.web.web_chat_embed_share import (
+    ReadApprovedEmbedDescriptors,
+    ReadIssuedEmbedShare,
+    create_managed_web_chat_embed_share_router,
+)
+from app.web.web_chat_host_assembly import (
+    ManagedWebChatHostRoute,
+    WebChatPlatform,
+    assemble_web_chat_host,
+    managed_route_from_record,
+)
+from app.web.web_chat_management_assembly import build_web_chat_management_package
+from app.web.web_chat_page_shell import (
+    HostReady,
+    PageContextReader,
+    StandaloneWebChatAssets,
+    create_web_chat_page_shell_router,
+)
+from app.web.web_chat_private_test import (
+    WebChatPrivateTestConfiguration,
+    create_web_chat_private_test_router,
+)
+
+Transport = Literal["full-page", "embed", "client-api"]
+ProfileServingAuthority = Callable[[Transport, ExternalChatAssignment], Awaitable[bool]]
+
+
+@dataclass(frozen=True)
+class WebChatEmbedServingConfiguration:
+    """Independent reviewed embed origin, assets, capacity and current policy."""
+
+    origin: str
+    database: PostgresDB
+    assets: StandaloneWebChatAssets
+    host_ready: HostReady
+    read_current_policy: ReadCurrentEmbedPolicy
+    budget: EmbedBudget
+    complete: TextModel
+    read_issued_share: ReadIssuedEmbedShare | None = None
+    read_approved_descriptors: ReadApprovedEmbedDescriptors | None = None
+
+
+@dataclass(frozen=True)
+class WebChatClientServingConfiguration:
+    """Independent reviewed service-client origin, grant reader and budgets."""
+
+    origin: str
+    database: PostgresDB
+    grants: PostgresWebChatClientGrants
+    host_ready: HostReady
+    start_budget: ClientSessionStartBudget
+    request_budget: ClientRequestBudget
+    complete: TextModel
+
+
+@dataclass(frozen=True)
+class WebChatServingConfiguration:
+    """Explicit reviewed full-page host inputs, never inferred from a request."""
+
+    served_origin: str
+    platform: WebChatPlatform
+    host_ready: HostReady
+    database: PostgresDB
+    assets: StandaloneWebChatAssets
+    complete: TextModel
+    budget: WebChatBudgetPolicy
+    budget_timeout_seconds: float
+    max_parallel_budget_acquisitions: int
+    profile_authority: ProfileServingAuthority | None = None
+    embed: WebChatEmbedServingConfiguration | None = None
+    client_api: WebChatClientServingConfiguration | None = None
+
+
+@dataclass(frozen=True)
+class WebChatConnectorRuntime:
+    """Neutral Core contribution plus private opt-in host operations."""
+
+    contribution: ChannelRuntimeContribution
+    reconcile: Callable[[ExternalChatProvision], Awaitable[bool]] | None = None
+    page_context: PageContextReader | None = None
+
+
+def _assignment(route: ManagedWebChatHostRoute) -> ExternalChatAssignment:
+    return ExternalChatAssignment(
+        route.provision, route.profile_key, str(route.published_version), route.epoch
+    )
+
+
+async def _profile_ready(
+    config: WebChatServingConfiguration,
+    transport: Transport,
+    exact: ExternalChatAssignment,
+    *,
+    require_enabled: bool = True,
+) -> bool:
+    async def snapshot():
+        record = await profile_management.record(exact.provision.workspace_id)
+        current = managed_route_from_record(exact.provision, record)
+        if (
+            record is None
+            or current is None
+            or (require_enabled and not current.enabled)
+            or _assignment(current) != exact
+        ):
+            return None
+        identity = await profile_management.live_public_service_identity(
+            record, current.profile_key, current.published_version
+        )
+        if (
+            identity is None
+            or identity.workspace_id != exact.provision.workspace_id
+            or identity.profile_key != current.profile_key
+            or identity.published_version != current.published_version
+        ):
+            return None
+        return current, identity
+
+    before = await snapshot()
+    if before is None:
+        return False
+    veto = config.profile_authority
+    if veto is not None and await veto(transport, exact) is not True:
+        return False
+    # Fail closed if durable acceptance changed while consulting the host.
+    return await snapshot() == before
+
+
+class _PinnedPlatform:
+    def __init__(self, config: WebChatServingConfiguration) -> None:
+        self._config = config
+
+    async def install_ready(self, workspace_id: str) -> bool:
+        """Do not infer any public transport from administrative installation."""
+        return False
+
+    async def approved_ready_origin(self, route: ManagedWebChatHostRoute) -> str | None:
+        """Require platform approval and global boundary readiness for one origin."""
+        config = self._config
+        if (
+            await config.platform.approved_ready_origin(route) == config.served_origin
+            and await config.host_ready(config.served_origin) is True
+            and await _profile_ready(
+                config, "full-page", _assignment(route), require_enabled=route.enabled
+            )
+        ):
+            return config.served_origin
+        return None
+
+
+def compose_web_chat_connector(
+    serving: WebChatServingConfiguration | None = None,
+    *,
+    private_test: WebChatPrivateTestConfiguration | None = None,
+) -> WebChatConnectorRuntime:
+    """Construct a connector package with no routes unless hosting is explicit.
+
+    This does not mount or activate any server. A reviewed host chooses where
+    to mount each route group and owns reconciliation after durable commands.
+    """
+    private_routes = (
+        ()
+        if private_test is None
+        else (create_web_chat_private_test_router(private_test),)
+    )
+    if serving is None:
+        return WebChatConnectorRuntime(
+            ChannelRuntimeContribution(
+                build_web_chat_management_package(), management_routes=private_routes
+            )
+        )
+    if (
+        not isinstance(serving, WebChatServingConfiguration)
+        or not is_canonical_web_chat_origin(serving.served_origin)
+        or not callable(serving.host_ready)
+        or (
+            serving.profile_authority is not None
+            and not callable(serving.profile_authority)
+        )
+        or (
+            serving.embed is not None
+            and not isinstance(serving.embed, WebChatEmbedServingConfiguration)
+        )
+        or (
+            serving.client_api is not None
+            and not isinstance(serving.client_api, WebChatClientServingConfiguration)
+        )
+        or not callable(getattr(serving.platform, "approved_ready_origin", None))
+        or not isinstance(serving.assets, StandaloneWebChatAssets)
+    ):
+        raise TypeError(
+            "Web Chat serving requires explicit reviewed host configuration"
+        )
+    origins = [serving.served_origin]
+    for transport_config in (serving.embed, serving.client_api):
+        if transport_config is not None:
+            if not callable(transport_config.host_ready):
+                raise TypeError("Web Chat requires independent transport readiness")
+            origins.append(transport_config.origin)
+    if not all(is_canonical_web_chat_origin(origin) for origin in origins) or len(
+        set(origins)
+    ) != len(origins):
+        raise ValueError("Web Chat transports require distinct approved HTTPS origins")
+
+    hosted = assemble_web_chat_host(
+        database=serving.database,
+        platform=_PinnedPlatform(serving),
+        complete=serving.complete,
+        budget_policy=serving.budget,
+        budget_timeout_seconds=serving.budget_timeout_seconds,
+        max_parallel_budget_acquisitions=serving.max_parallel_budget_acquisitions,
+    )
+    package = hosted.registry.resolve(SLUG)
+    if package is None:
+        raise RuntimeError("Web Chat host contribution unavailable")
+    shell = create_web_chat_page_shell_router(
+        served_origin=serving.served_origin,
+        host_ready=serving.host_ready,
+        page_context=hosted.page_context,
+        assets=serving.assets,
+    )
+    management = [hosted.share_router, *private_routes]
+    isolated = []
+    embed = serving.embed
+    if embed is not None:
+        if not callable(embed.read_current_policy):
+            raise TypeError("Web Chat embed requires independent policy authority")
+
+        async def read_embed(reference: str) -> ManagedWebChatEmbedPolicy | None:
+            policy = await embed.read_current_policy(reference)
+            if (
+                not isinstance(policy, ManagedWebChatEmbedPolicy)
+                or not policy.matches(origin=embed.origin, path=f"/embed/{reference}")
+                or await embed.host_ready(embed.origin) is not True
+            ):
+                return None
+            exact = ExternalChatAssignment(
+                policy.provision,
+                policy.profile_key,
+                str(policy.published_version),
+                policy.route_epoch,
+            )
+            if not await _profile_ready(serving, "embed", exact):
+                return None
+            return (
+                policy if await embed.read_current_policy(reference) == policy else None
+            )
+
+        embedded = compose_web_chat_embed(
+            origin=embed.origin,
+            database=embed.database,
+            assets=embed.assets,
+            host_ready=embed.host_ready,
+            read_current_policy=read_embed,
+            budget=embed.budget,
+            complete=embed.complete,
+        )
+        isolated.append(
+            ChannelOriginRoutes(
+                embed.origin, (embedded.page_router, embedded.api_router)
+            )
+        )
+        if embed.read_issued_share is not None:
+            management.append(
+                create_managed_web_chat_embed_share_router(
+                    read_issued=embed.read_issued_share,
+                    read_approved_descriptors=embed.read_approved_descriptors,
+                    read_current=read_embed,
+                )
+            )
+
+    client = serving.client_api
+    if client is not None:
+
+        async def client_ready(exact: ExternalChatAssignment) -> bool:
+            return await client.host_ready(
+                client.origin
+            ) is True and await _profile_ready(serving, "client-api", exact)
+
+        async def client_origin(
+            slug: str, query: ManageChannelShareQuery
+        ) -> str | None:
+            if slug != SLUG:
+                return None
+            exact = ExternalChatAssignment(
+                ExternalChatProvision(query.workspace_id, slug, query.provision_id),
+                query.profile_key,
+                str(query.published_version),
+                query.route_epoch,
+            )
+            return client.origin if await client_ready(exact) else None
+
+        for route in hosted.share_router.routes:
+            if route.path == SHARE_READ_PATH:
+                bind_client_origin(route.endpoint, client_origin)
+
+        sessions = PostgresWebChatClientSessions(
+            database=client.database,
+            grants=client.grants,
+            start_budget=client.start_budget,
+        )
+        api = compose_web_chat_client_api(
+            origin=client.origin,
+            database=client.database,
+            grants=client.grants,
+            sessions=sessions,
+            request_budget=client.request_budget,
+            complete=client.complete,
+            assignment_ready=client_ready,
+        )
+        isolated.append(ChannelOriginRoutes(client.origin, (api,)))
+
+    return WebChatConnectorRuntime(
+        ChannelRuntimeContribution(
+            package,
+            management_routes=tuple(management),
+            visitor_routes=(shell, hosted.browser_router),
+            isolated_routes=tuple(isolated),
+            visitor_origin=serving.served_origin,
+        ),
+        reconcile=hosted.reconcile,
+        page_context=hosted.page_context,
+    )

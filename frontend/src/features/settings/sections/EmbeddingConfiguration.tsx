@@ -1,20 +1,21 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Database } from "lucide-react";
 import {
   embeddingConfigurationApi,
   EMBEDDING_CONFIGURATION_QUERY_KEY,
   type EmbeddingChoice,
   type ModelConnection,
+  type ModelProfile,
 } from "../../../api/aiConfiguration";
-import { PROVIDER_LABELS } from "../../../api/modelCredentials";
+import { ModelAssignmentField, profileAssignmentLabel } from "./ModelAssignmentField";
+import { isEmbeddingProfile } from "../../../api/modelProfileKinds";
 import { useScopeOptional } from "../../../context/ScopeContext";
 import { useAuthOptional } from "../../../context/AuthContext";
 import { useToast } from "../../../context/ToastContext";
 import { errorMessageFromAxios } from "../../../api/helpers";
 import { Button } from "../../../components/ui/Button";
 import { Modal } from "../../../components/ui";
-import { Input, Select, Text } from "../../../ui";
+import { Input, Text } from "../../../ui";
 
 const fresh = (): EmbeddingChoice => ({
   mode: "deployment",
@@ -24,6 +25,7 @@ const fresh = (): EmbeddingChoice => ({
   allow_workspace_text: false,
 });
 const examples: Record<string, { model: string; dimensions: number }> = {
+  gemini: { model: "gemini-embedding-001", dimensions: 768 },
   openai: { model: "text-embedding-3-small", dimensions: 1536 },
   openrouter: { model: "openai/text-embedding-3-small", dimensions: 1536 },
   ollama_local: { model: "embeddinggemma", dimensions: 768 },
@@ -32,14 +34,19 @@ const examples: Record<string, { model: string; dimensions: number }> = {
 export function EmbeddingConfiguration({
   connections,
   embedded = false,
+  profiles = [],
+  recommendedProfile,
 }: {
   connections: ModelConnection[];
   embedded?: boolean;
+  profiles?: ModelProfile[];
+  recommendedProfile?: ModelProfile;
 }) {
   const scope = useScopeOptional();
   const auth = useAuthOptional();
   const workspaceId = scope?.scope?.workspaceId;
   const qc = useQueryClient();
+  const request = { headers: { "X-Integral-Scope": `ws:${workspaceId}` } };
   const { showToast } = useToast();
   const [draft, setDraft] = useState<
     (EmbeddingChoice & { revision: number }) | null
@@ -55,7 +62,7 @@ export function EmbeddingConfiguration({
       auth?.user?.id,
       workspaceId,
     ],
-    queryFn: embeddingConfigurationApi.get,
+    queryFn: () => embeddingConfigurationApi.get(request),
     enabled: !!auth?.user && !!workspaceId,
     refetchInterval: (q) =>
       q.state.data?.rebuild_status &&
@@ -66,7 +73,7 @@ export function EmbeddingConfiguration({
         : false,
   });
   const save = useMutation({
-    mutationFn: embeddingConfigurationApi.save,
+    mutationFn: (choice: Parameters<typeof embeddingConfigurationApi.save>[0]) => embeddingConfigurationApi.save(choice, request),
     onSuccess: (result) => {
       setDraft(null);
       void qc.invalidateQueries({
@@ -86,7 +93,7 @@ export function EmbeddingConfiguration({
       ),
   });
   const test = useMutation({
-    mutationFn: embeddingConfigurationApi.test,
+    mutationFn: (choice: EmbeddingChoice) => embeddingConfigurationApi.test(choice, request),
     onSuccess: (result) =>
       showToast(result.message, result.valid ? "success" : "error"),
     onError: (error) =>
@@ -96,7 +103,7 @@ export function EmbeddingConfiguration({
       ),
   });
   const cancelChange = useMutation({
-    mutationFn: embeddingConfigurationApi.cancel,
+    mutationFn: (revision: number) => embeddingConfigurationApi.cancel(revision, request),
     onSuccess: () => {
       void qc.invalidateQueries({
         queryKey: EMBEDDING_CONFIGURATION_QUERY_KEY,
@@ -111,6 +118,39 @@ export function EmbeddingConfiguration({
   });
   const supported = connections.filter((c) => c.provider !== "anthropic");
   const data = query.data;
+  const eligibleProfiles = profiles.filter(
+    (profile) => isEmbeddingProfile(profile) && supported.some((c) => c.id === profile.connection_id),
+  );
+  const configuredProfile = eligibleProfiles.find(
+    (profile) => profile.connection_id === data?.configuration?.connection_id && profile.model === data?.configuration?.model,
+  );
+  const suggested = data?.editable && data.provider_overrides_supported && data.revision === 0 &&
+    data.configuration?.mode !== "provider" && eligibleProfiles.find(p => p.id === recommendedProfile?.id);
+  const selection = data?.configuration?.mode === "provider"
+    ? configuredProfile?.id ?? "legacy"
+    : suggested ? suggested.id : "deployment";
+  const openSettings = (profileId = selection) => {
+    if (!data) return;
+    setContinuePrevious(false);
+    const profile = eligibleProfiles.find((item) => item.id === profileId);
+    const choice = { ...fresh(), ...data.configuration, revision: data.revision };
+    if (profile) {
+      const provider = connections.find(c => c.id === profile.connection_id)?.provider;
+      const suggested = provider && examples[provider];
+      const unchanged = choice.mode === "provider" && choice.connection_id === profile.connection_id && choice.model === profile.model;
+      setDraft({
+        ...choice,
+        mode: "provider",
+        connection_id: profile.connection_id,
+        model: profile.model,
+        // Prefill only the reviewed provider/model pair. Saving still requires consent.
+        dimensions: unchanged ? choice.dimensions : suggested?.model === profile.model ? suggested.dimensions : 0,
+        allow_workspace_text: unchanged && choice.allow_workspace_text,
+      });
+    } else {
+      setDraft(profileId === "deployment" ? { ...fresh(), revision: data.revision } : choice);
+    }
+  };
   const localLabel =
     data?.processing_location === "device"
       ? "On this device"
@@ -127,211 +167,125 @@ export function EmbeddingConfiguration({
         draft.dimensions <= 2000));
   return (
     <section
-      className={embedded ? "" : "border-t border-[var(--border-subtle)] pt-5"}
+      aria-label="Embedding model assignment"
+      className={embedded ? "space-y-2" : "space-y-2 border-t border-[var(--border-subtle)] pt-5"}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 gap-3">
-          {!embedded && <Database size={18} className="mt-1 shrink-0" />}
-          <div className="min-w-0 space-y-1">
-            <Text as={embedded ? "p" : "h3"} weight="medium">
-              {embedded ? "Search model" : "Embeddings"}
+      {data && (
+        <div className="space-y-2">
+          <ModelAssignmentField
+            label="Embedding model"
+            value={selection}
+            active={data.effective_model ? `${data.effective_model} · ${data.dimensions} dimensions` : undefined}
+            disabled={!data.editable || busy}
+            onChange={openSettings}
+            secondary={data.editable && data.provider_overrides_supported && selection !== "deployment" && <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => openSettings()}>
+              Dimensions and consent
+            </Button>}
+            options={<>
+              <option value="deployment">{localLabel} · default</option>
+              {selection === "legacy" && (
+                <option value="legacy">{data.configuration?.model} · current configuration</option>
+              )}
+              {eligibleProfiles.map(profile => (
+                <option key={profile.id} value={profile.id} disabled={!data.provider_overrides_supported}>
+                  {profileAssignmentLabel(profile, connections)}{suggested && suggested.id === profile.id ? " · awaiting consent" : ""}
+                </option>
+              ))}
+            </>}
+          />
+          {data.editable && data.provider_overrides_supported && !eligibleProfiles.length && (
+            <Text as="p" variant="meta" tone="muted">
+              Add an encoder in Providers &amp; Models to choose it here.
             </Text>
-            <Text as="p" variant="body-sm" tone="muted">
-              Powers semantic search in this workspace. Separate from chat and
-              voice.
-            </Text>
-            {data && (
-              <Text as="p" variant="body-sm" className="break-words">
-                {data.effective_provider === "local"
-                  ? localLabel
-                  : PROVIDER_LABELS[
-                      data.effective_provider as keyof typeof PROVIDER_LABELS
-                    ] || "Provider unavailable"}{" "}
-                · {data.effective_model} · {data.dimensions} dimensions
-              </Text>
-            )}
-            {data?.rebuild_status && (
-              <Text as="p" variant="meta" tone="muted">
-                {data.rebuild_status === "ready"
-                  ? "Search model ready."
-                  : data.rebuild_status === "superseded"
-                    ? "Earlier rebuild replaced by newer settings."
-                    : data.rebuild_status === "cancelled"
-                      ? "Model change cancelled."
-                      : data.rebuild_phase === "catching_up"
-                        ? "Finishing recent changes before switching models."
-                        : data.rebuild_phase === "verifying"
-                          ? data.editable
-                            ? `Verifying search coverage · ${(data.verified ?? 0).toLocaleString()} records checked.`
-                            : "Verifying search coverage."
-                          : data.editable
-                            ? `Preparing search · ${(data.enumerated ?? 0).toLocaleString()} records reviewed.`
-                            : "Preparing search."}
-              </Text>
-            )}
-            {data?.rebuild_error && (
-              <Text as="p" variant="body-sm" tone="muted">
-                {data.rebuild_error}
-              </Text>
-            )}
-            {data?.pending_model && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Text variant="body-sm" tone="muted">
-                  Preparing {data.pending_model}.{" "}
-                  {data.serving_available !== false
-                    ? "The current model remains available."
-                    : "Keyword search remains available."}
-                </Text>
-                {data.editable && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => cancelChange.mutate(data.revision)}
-                  >
-                    Cancel change
-                  </Button>
-                )}
-              </div>
-            )}
-            {data?.error && (
-              <Text as="p" variant="body-sm" tone="muted">
-                {data.error}
-              </Text>
-            )}
-            {query.isError && (
-              <Text as="p" variant="body-sm" tone="muted">
-                Embedding settings could not be loaded.{" "}
-                <button
-                  className="underline"
-                  onClick={() => void query.refetch()}
-                >
-                  Retry
-                </button>
-              </Text>
-            )}
-            {data && !data.provider_overrides_supported && (
-              <Text as="p" variant="meta" tone="muted">
-                Provider embeddings require a PostgreSQL passage index. This
-                installation uses its deployment default.
-              </Text>
-            )}
-            {data && !data.editable && (
-              <Text as="p" variant="meta" tone="muted">
-                Managed by the workspace owner or deployment administrator.
-              </Text>
-            )}
-          </div>
+          )}
         </div>
-        {data?.editable && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              setContinuePrevious(false);
-              setDraft({
-                ...fresh(),
-                ...data.configuration,
-                revision: data.revision,
-              });
-            }}
+      )}
+      {data?.rebuild_status && (
+        <Text as="p" variant="meta" tone="muted">
+          {data.rebuild_status === "ready"
+            ? "Index ready."
+            : data.rebuild_status === "superseded"
+              ? "Earlier rebuild replaced by newer settings."
+              : data.rebuild_status === "cancelled"
+                ? "Model change cancelled."
+                : data.rebuild_phase === "catching_up"
+                  ? "Finishing recent changes before switching models."
+                  : data.rebuild_phase === "verifying"
+                    ? data.editable
+                      ? `Verifying search coverage · ${(data.verified ?? 0).toLocaleString()} records checked.`
+                      : "Verifying search coverage."
+                    : data.editable
+                      ? `Preparing search · ${(data.enumerated ?? 0).toLocaleString()} records reviewed.`
+                      : "Preparing search."}
+        </Text>
+      )}
+      {data?.rebuild_error && (
+        <Text as="p" variant="body-sm" tone="muted">
+          {data.rebuild_error}
+        </Text>
+      )}
+      {data?.pending_model && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Text variant="body-sm" tone="muted">
+            Preparing {data.pending_model}.{" "}
+            {data.serving_available !== false
+              ? "The current model remains available."
+              : "Keyword search remains available."}
+          </Text>
+          {data.editable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => cancelChange.mutate(data.revision)}
+            >
+              Cancel change
+            </Button>
+          )}
+        </div>
+      )}
+      {data?.error && (
+        <Text as="p" variant="body-sm" tone="muted">
+          {data.error}
+        </Text>
+      )}
+      {query.isError && (
+        <Text as="p" variant="body-sm" tone="muted">
+          Embedding settings could not be loaded.{" "}
+          <button
+            className="underline"
+            onClick={() => void query.refetch()}
           >
-            Configure embeddings
-          </Button>
-        )}
-      </div>
+            Retry
+          </button>
+        </Text>
+      )}
+      {data && !data.provider_overrides_supported && (
+        <Text as="p" variant="meta" tone="muted">
+          Provider embeddings require a PostgreSQL passage index. This
+          installation uses its deployment default.
+        </Text>
+      )}
+      {data && !data.editable && (
+        <Text as="p" variant="meta" tone="muted">
+          Managed by the workspace owner or deployment administrator.
+        </Text>
+      )}
       <Modal
         open={!!draft}
         onClose={() => {
           if (!busy) setDraft(null);
         }}
-        title="Embedding model"
-        placement="right"
+        title={draft?.mode === "deployment" ? "Use the deployment default" : "Dimensions and consent"}
       >
         {draft && (
+          <>
           <Modal.Body>
-            <Text as="p" variant="body-sm" tone="muted">
-              Choose how search understands workspace text. The default runs on{" "}
-              {data?.processing_location === "device"
-                ? "this device"
-                : "the Integral server"}
-              , using its CPU and memory.
-            </Text>
-            <Text as="label" variant="body-sm" className="flex flex-col gap-1">
-              Model source
-              <Select
-                value={draft.mode}
-                disabled={busy}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    mode: e.target.value as EmbeddingChoice["mode"],
-                  })
-                }
-              >
-                <option value="deployment">{localLabel} · default</option>
-                <option
-                  value="provider"
-                  disabled={!data?.provider_overrides_supported}
-                >
-                  Saved provider
-                </option>
-              </Select>
+            <Text as="p" variant="body-sm" weight="medium">
+              {draft.mode === "provider" ? [draft.model, connections.find(c => c.id === draft.connection_id)?.name].filter(Boolean).join(" · ") : localLabel}
             </Text>
             {draft.mode === "provider" && (
               <>
-                <Text
-                  as="label"
-                  variant="body-sm"
-                  className="flex flex-col gap-1"
-                >
-                  Provider
-                  <Select
-                    value={draft.connection_id}
-                    disabled={busy}
-                    onChange={(e) => {
-                      const c = supported.find(
-                        (item) => item.id === e.target.value,
-                      );
-                      const example = c && examples[c.provider];
-                      setDraft({
-                        ...draft,
-                        connection_id: e.target.value,
-                        model: example?.model || "",
-                        dimensions: example?.dimensions || 768,
-                        allow_workspace_text: false,
-                      });
-                    }}
-                  >
-                    <option value="">Choose a saved provider</option>
-                    {supported.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} · {PROVIDER_LABELS[c.provider]}
-                      </option>
-                    ))}
-                  </Select>
-                </Text>
-                {!supported.length && (
-                  <Text as="p" variant="body-sm" tone="muted">
-                    Add a provider under Providers first. Anthropic does not
-                    offer an embedding API.
-                  </Text>
-                )}
-                <Text
-                  as="label"
-                  variant="body-sm"
-                  className="flex flex-col gap-1"
-                >
-                  Embedding model ID
-                  <Input
-                    value={draft.model}
-                    disabled={busy}
-                    onChange={(e) =>
-                      setDraft({ ...draft, model: e.target.value })
-                    }
-                    placeholder="e.g. text-embedding-3-small"
-                  />
-                </Text>
                 <Text
                   as="label"
                   variant="body-sm"
@@ -395,7 +349,8 @@ export function EmbeddingConfiguration({
                   </Text>
                 </label>
               )}
-            <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] pt-4">
+          </Modal.Body>
+          <Modal.Footer>
               <Button
                 variant="ghost"
                 disabled={busy}
@@ -424,8 +379,8 @@ export function EmbeddingConfiguration({
               >
                 {save.isPending ? "Saving…" : "Save model"}
               </Button>
-            </div>
-          </Modal.Body>
+          </Modal.Footer>
+          </>
         )}
       </Modal>
     </section>

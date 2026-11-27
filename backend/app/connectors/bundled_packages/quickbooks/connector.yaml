@@ -1,0 +1,184 @@
+schema: integral.connector/v1
+id: quickbooks
+version: 1.0.0
+publisher: integral
+name: QuickBooks
+description: Mirror QuickBooks Online invoices, expenses, customers, vendors, and
+  bills into Integral.
+settings_surface: sync_interval
+binding:
+  scopes:
+  - workspace
+  - personal
+trust:
+  tier: trusted
+http:
+  base_url: https://quickbooks.api.intuit.com
+  hosts:
+    production: https://quickbooks.api.intuit.com
+    sandbox: https://sandbox-quickbooks.api.intuit.com
+health:
+  request:
+    method: GET
+    path: /v3/company/{{config.realm_id}}/companyinfo/{{config.realm_id}}
+capabilities:
+  sync:
+    entry_type: quickbooks
+    conflict_policy: last_write_wins
+    page_size: 100
+    max_pages: 100
+    entity_types:
+      Invoice: qb_invoice
+      Purchase: qb_expense
+      Customer: qb_customer
+      Vendor: qb_vendor
+      Bill: qb_bill
+    title_prefixes:
+      Invoice: Invoice
+      Purchase: Expense
+      Customer: Customer
+      Vendor: Vendor
+      Bill: Bill
+    field_names:
+      _source_system: _source_system
+      _source_version: _source_version
+      _last_synced_at: _last_synced_at
+      _qb_entity: _qb_entity
+      _realm_id: _realm_id
+      invoice_number: invoice_number
+      qb_customer_id: qb_customer_id
+      qb_customer_name: qb_customer_name
+      total_amount: total_amount
+      balance: balance
+      txn_date: txn_date
+      due_date: due_date
+      status: status
+      payment_type: payment_type
+      qb_vendor_id: qb_vendor_id
+      qb_vendor_name: qb_vendor_name
+      account: account
+      category: category
+      company_name: company_name
+      email: email
+      phone: phone
+      crm_link_status: crm_link_status
+      account_number: account_number
+      bill_number: bill_number
+    entities:
+    - Invoice
+    - Purchase
+    - Customer
+    - Vendor
+    - Bill
+  actions:
+  - name: query_entity
+    description: Query one QuickBooks company entity.
+    effect: read
+    input:
+      type: object
+    request:
+      method: GET
+      path: /v3/company/{{config.realm_id}}/query
+      query:
+        minorversion: "65"
+        query: "SELECT * FROM {{input.entity}} STARTPOSITION {{input.start}} MAXRESULTS {{input.page_size}}"
+      headers:
+        Accept: application/json
+    output:
+      select: $.QueryResponse
+      id: $.Id
+      updated_at: $.MetaData.LastUpdatedTime
+      title: $.DisplayName
+      name: $.CompanyName
+      number: $.DocNumber
+      party: $.CustomerRef.name
+      ref_key: name
+      ref_id: value
+      customer_ref: CustomerRef
+      expense_ref: EntityRef
+      vendor_ref: VendorRef
+      occurred: $.TxnDate
+      due: $.DueDate
+      amount: $.TotalAmt
+      balance: $.Balance
+      email: $.PrimaryEmailAddr
+      email_key: Address
+      phone: $.PrimaryPhone.FreeFormNumber
+      account_number: $.AcctNum
+      version: $.SyncToken
+      payment: $.PaymentType
+      ledger: $.AccountRef.name
+      category: $.Line.AccountBasedExpenseLineDetail.AccountRef.name
+  - name: change_data
+    description: Read QuickBooks changes since the last sync.
+    effect: read
+    input:
+      type: object
+    request:
+      method: GET
+      path: /v3/company/{{config.realm_id}}/cdc
+      query:
+        minorversion: "65"
+        changedSince: "{{cursor}}"
+        entities: "{{input.entities}}"
+      headers:
+        Accept: application/json
+    output:
+      select: $.CDCResponse.QueryResponse
+      id: $.Id
+      updated_at: $.MetaData.LastUpdatedTime
+      title: $.DisplayName
+      name: $.CompanyName
+      number: $.DocNumber
+      party: $.CustomerRef.name
+      ref_key: name
+      ref_id: value
+      customer_ref: CustomerRef
+      expense_ref: EntityRef
+      vendor_ref: VendorRef
+      occurred: $.TxnDate
+      due: $.DueDate
+      amount: $.TotalAmt
+      balance: $.Balance
+      email: $.PrimaryEmailAddr
+      email_key: Address
+      phone: $.PrimaryPhone.FreeFormNumber
+      account_number: $.AcctNum
+      version: $.SyncToken
+      payment: $.PaymentType
+      ledger: $.AccountRef.name
+      category: $.Line.AccountBasedExpenseLineDetail.AccountRef.name
+auth:
+  type: oauth2
+  authorize_url: https://appcenter.intuit.com/connect/oauth2
+  token_url: https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer
+  client_authentication: client_secret_basic
+  scopes:
+  - com.intuit.quickbooks.accounting
+  redirect_env:
+  - QUICKBOOKS_REDIRECT_URI
+  client:
+    source: installer
+    id_field: client_id
+    secret_field: client_secret
+    id_env:
+    - QUICKBOOKS_CLIENT_ID
+    secret_env:
+    - QUICKBOOKS_CLIENT_SECRET
+configuration:
+- key: client_id
+  label: Client ID
+  type: string
+- key: client_secret
+  label: Client secret
+  type: secret
+- key: sync_interval_seconds
+  label: Sync interval (seconds)
+  type: number
+  help: Seconds between syncs. The connected row keeps the saved interval.
+- key: environment
+  label: QuickBooks environment
+  type: select
+  options:
+  - {value: production, label: Production}
+  - {value: sandbox, label: Sandbox}

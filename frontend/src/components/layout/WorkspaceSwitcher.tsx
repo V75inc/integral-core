@@ -1,3 +1,4 @@
+import { useVoiceDepartureGuard } from "../../features/ai-chat/useVoiceDepartureGuard";
 /**
  * WorkspaceSwitcher — top-of-sidebar scope selector.
  *
@@ -173,14 +174,14 @@ export function WorkspaceSwitcher({ collapsed = false }: Props) {
     );
   };
 
+  const { guardDeparture } = useVoiceDepartureGuard();
   const choose = (next: Scope) => {
     const sameScope = scope?.workspaceId === next.workspaceId;
-    setScope(next);
-    setOpen(false);
-    if (sameScope) return;
-    if (isScopedDetailRoute(location.pathname)) {
-      navigate(`/workspaces/${next.workspaceId}`);
-    }
+    guardDeparture(() => {
+      setScope(next);
+      setOpen(false);
+      if (!sameScope && isScopedDetailRoute(location.pathname)) navigate(`/workspaces/${next.workspaceId}`);
+    }, voice => voice.workspaceId !== next.workspaceId);
   };
 
   const openCreateModal = () => {
@@ -218,8 +219,10 @@ export function WorkspaceSwitcher({ collapsed = false }: Props) {
         });
         void invalidateWorkspaceListCaches(qc);
         if (destination !== 'manage-apps') {
-          setScope({ workspaceId: created.id });
-          navigate(`/workspaces/${created.id}`);
+          guardDeparture(() => {
+            setScope({ workspaceId: created.id });
+            navigate(`/workspaces/${created.id}`);
+          }, voice => voice.workspaceId !== created.id);
         }
       }}
     />

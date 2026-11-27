@@ -48,3 +48,16 @@ describe('buildVersion auto-reload guard', () => {
     );
   });
 });
+
+it('does not auto-reload a stale build while an active call is owned', async () => {
+  const { claimVoiceSession, releaseVoiceSession } = await import('../../features/ai-chat/nativeVoiceSession');
+  const owner = Symbol();
+  const close = vi.fn(() => releaseVoiceSession(owner));
+  sessionStorage.clear();
+  claimVoiceSession({ owner, surface: 'dock', workspaceId: 'workspace', threadId: 'thread', close });
+  try {
+    expect(autoReloadOnceForStaleBuild()).toBe(false);
+    expect(hasAutoReloadedForStaleBuild()).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+  } finally { releaseVoiceSession(owner); }
+});

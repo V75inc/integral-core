@@ -13,6 +13,11 @@ FRONTMATTER_FIELDS = frozenset(
 def parse_skill_document(path: Path) -> Tuple[Dict[str, Any], str]:
     """Read YAML frontmatter and Markdown without vendor inheritance."""
     text = path.read_text(encoding="utf-8")
+    return parse_skill_text(path, text)
+
+
+def parse_skill_text(path: Path, text: str) -> Tuple[Dict[str, Any], str]:
+    """Parse a file snapshot, retaining its path for validation errors."""
     lines = text.splitlines(keepends=True)
     if not lines or lines[0].strip() != "---":
         raise ValueError(f"{path}: missing YAML frontmatter")

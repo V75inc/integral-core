@@ -23,6 +23,10 @@ vi.mock("../../../settings/hooks/useAIConfiguration", () => ({
           model: "example",
           generation_settings: { reasoning_effort: "high" },
         },
+        { id: "stt", name: "Dictation model", model: "gpt-4o-mini-transcribe" },
+        { id: "realtime", name: "Live voice model", model: "gpt-realtime-2.1-mini" },
+        { id: "embed", name: "Embedding model", model: "embeddinggemma" },
+        { id: "policy", name: "Policy-identified voice", model: "provider/custom", harness_policy: { tier: "voice" } },
       ],
     },
   }),
@@ -64,6 +68,7 @@ describe("Conversation model settings", () => {
     expect(screen.getByRole("dialog", { name: "Chat model settings" })).toBeInTheDocument();
     const picker = screen.getByRole("combobox", { name: "Use model" });
     expect(picker).toHaveFocus();
+    expect(screen.queryByRole("option", { name: /dictation model|live voice model|embedding model|policy-identified voice/i })).not.toBeInTheDocument();
     for (const [value, profile, mode] of [
       ["__heavy", "", "heavy"], ["fixed", "fixed", "profile"], ["", "", "inherit"],
     ] as const) {

@@ -762,6 +762,7 @@ async def _execute_chat_turn(
         extra_data["pending_approval_tokens"] = (
             {}
             if deferred_resume is not None
+            or execution.extra_data.get("voice_delegate") is True
             else await _pending_write_references(
                 principal_id=ctx.principal_id,
                 workspace_id=ctx.workspace_id,
@@ -894,6 +895,23 @@ async def _execute_chat_turn(
                 tool_call_id=call.tool_call_id,
                 input_schema=current_core_deferred_schema(call.tool_name),
             )
+            if item.input_payload.get("resident_permission_revision"):
+                from app.agentive.harness.broker_tools import _tool_work_context
+                from app.services.resident_permissions import apply_resident_permission
+
+                tool_context = _tool_work_context(
+                    ctx, call.tool_call_id, call.tool_name
+                )
+                applied = await apply_resident_permission(
+                    item, tool_context, approval.staging_token
+                )
+                if applied is not None and applied.get("consumed"):
+                    current = await work_items._current_work_item(item.work_item_id)
+                    if current is None:
+                        raise WorkError(
+                            "work.not_found", "Applied work item disappeared"
+                        )
+                    return current
             try:
                 from app.agentive.staging import _push_created_event, get_token
 
@@ -1387,9 +1405,23 @@ async def _execute_claimed_work(
     # send its storage or fencing errors through the generic transition path,
     # which would leave its principal permit and thread reservation stranded.
     if kind == "chat_turn":
-        return await _handle_chat_turn(
+        finished = await _handle_chat_turn(
             item, worker_id=worker_id, lease_seconds=lease_seconds
         )
+        # After the turn transaction commits. A delivery failure stays off
+        # the WorkItem and does not send a second WhatsApp message.
+        try:
+            from app.agentive.services.whatsapp_chat_bridge import (
+                deliver_terminal_whatsapp_reply,
+            )
+
+            await deliver_terminal_whatsapp_reply(finished)
+        except Exception:  # noqa: BLE001 — delivery must not change the WorkItem
+            log.exception(
+                "whatsapp terminal delivery failed for work item %s",
+                getattr(finished, "work_item_id", ""),
+            )
+        return finished
     try:
         if kind == "capability":
             return await _handle_capability(
@@ -1647,7 +1679,11 @@ async def worker_loop(
                 claim_cursor=claim_cursor,
                 follow_up_cursor=follow_up_cursor,
             )
-            if result is None:
+            if result is None and follow_up_cursor is not None:
+                from app.services.chat_turn_wake import wait_for_chat_work
+
+                await wait_for_chat_work(stop, idle_sleep)
+            elif result is None:
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=idle_sleep)
                 except asyncio.TimeoutError:

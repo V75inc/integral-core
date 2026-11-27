@@ -15,7 +15,7 @@ export function useAIConfiguration() {
       auth?.user?.id,
       scope?.scope?.workspaceId,
     ],
-    queryFn: aiConfigurationApi.get,
+    queryFn: () => aiConfigurationApi.get(),
     enabled: !!auth?.user && !!scope?.scope?.workspaceId,
   });
 }

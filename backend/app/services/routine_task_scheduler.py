@@ -90,7 +90,9 @@ def replay_prompt(task: RoutineTask) -> str:
     return f"{SCHEDULED_REPLAY_MARKER}\n{task.instruction}"
 
 
-async def _permission_gate(task: RoutineTask) -> Optional[str]:
+async def _permission_gate(
+    task: RoutineTask, *, allow_pending_app_thread: bool = False
+) -> Optional[str]:
     """Return a failure reason string if the run must NOT proceed, else None.
 
     Fail-closed re-check of the CREATING user's LIVE access — never trusts a
@@ -129,12 +131,18 @@ async def _permission_gate(task: RoutineTask) -> Optional[str]:
     from app.models.nodes import App, ChatThread
 
     source_app_id = str(getattr(task, "source_app_id", "") or "").strip()
+    app = await App.get(source_app_id) if source_app_id else None
     if source_app_id:
-        app = await App.get(source_app_id)
         if app is None or str(getattr(app, "lifecycle_state", "") or "") != "active":
             state = getattr(app, "lifecycle_state", "missing") if app else "missing"
             return f"source app {source_app_id} is not active (state={state})"
 
+    if not task.thread_id:
+        if allow_pending_app_thread and task.awaits_app_schedule_thread:
+            if app is None or app.workspace_id != task.workspace_id:
+                return "source app is not in the routine workspace"
+            return None
+        return "bound chat thread was deleted or archived"
     thread = await ChatThread.get(task.thread_id)
     if thread is None or getattr(thread, "archived", False):
         return "bound chat thread was deleted or archived"
@@ -478,8 +486,48 @@ async def _run_one(task_id: str) -> None:
             )
 
 
+async def _prepare_scheduled_run(
+    task: RoutineTask,
+) -> tuple[RoutineTask | None, str | None]:
+    """Bind an App schedule's first chat under the same fence as owner edits."""
+    if not task.awaits_app_schedule_thread:
+        return task, await _permission_gate(task)
+
+    from app.agentive.services.routine_state import locked_routine
+    from app.agentive.services.routine_tasks import APP_SCHEDULE_THREAD_PROVIDER
+    from app.services.chat_threads import create_thread
+
+    async with locked_routine(task.id, principal_id=task.user_id) as current:
+        if (
+            current is None
+            or current.status != "active"
+            or current.user_id != task.user_id
+            or current.workspace_id != task.workspace_id
+        ):
+            return None, None
+        reason = await _permission_gate(current, allow_pending_app_thread=True)
+        if reason is not None:
+            return current, reason
+        if current.awaits_app_schedule_thread:
+            thread = await create_thread(
+                user_id=current.user_id,
+                workspace_id=current.workspace_id,
+                provider_id=APP_SCHEDULE_THREAD_PROVIDER,
+                agent_id=current.agent_id,
+                title=current.pending_thread_title,
+            )
+            current.thread_id = thread.id
+            current.pending_thread_title = ""
+            current.updated_at = utc_now_iso()
+            await current.save()
+        return current, None
+
+
 async def _execute_run(task: RoutineTask) -> None:
-    reason = await _permission_gate(task)
+    prepared, reason = await _prepare_scheduled_run(task)
+    if prepared is None:
+        return
+    task = prepared
     if reason is not None:
         await _auto_pause(task, reason=reason)
         return

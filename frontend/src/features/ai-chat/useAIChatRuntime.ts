@@ -1,3 +1,5 @@
+import { useVoiceDepartureGuard } from "./useVoiceDepartureGuard";
+import { peekVoiceSession, type VoiceSession } from "./nativeVoiceSession";
 import apiClient from "../../api/client";
 import { randomUUID } from "../../utils/randomUUID";
 import { friendlyAssistantText, friendlyChatFailure, friendlyToolFailure } from "./components/assistantMessagePresentation";
@@ -18,7 +20,8 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import type { AssignmentSuggestion } from "../../api/routines";
-import { aiChatApi, type AIChatThread, type AIChatPersistedMessage } from "../../api/aiChat";
+import { ALL_WORKSPACE_ASSISTANTS, WORKSPACE_ASSISTANT } from "../../api/chatAssistantIdentity";
+import { aiChatApi, type AIChatThread, type AIChatPersistedMessage, type ChatAgentIdentity } from "../../api/aiChat";
 import { useScope } from "../../context/ScopeContext";
 import { useAuthOptional } from "../../context/AuthContext";
 import { useChatPageFocus } from "../../context/ChatPageFocusContext";
@@ -872,6 +875,8 @@ export interface UseAIChatRuntimeOptions {
    */
   startNewThread?: boolean;
   handoffEnabled?: boolean;
+  managedDraft?: boolean;
+  profileChoices?: readonly ChatAgentIdentity[];
 }
 
 export function useAIChatRuntime(
@@ -889,6 +894,8 @@ export function useAIChatRuntime(
     initialThreadId = null,
     startNewThread = false,
     handoffEnabled = true,
+    managedDraft = false,
+    profileChoices,
   } = options;
   // Active workspace drives the X-Integral-Scope header on every API
   // call (set globally in ScopeContext). The chat thread list is
@@ -922,7 +929,22 @@ export function useAIChatRuntime(
   const activeAgentId = activeAgent?.id ?? null;
   const [threads, setThreads] = useState<AIChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [freshComposerVersion, setFreshComposerVersion] = useState(0);
+  const [voiceComposerAnchor, setVoiceComposerAnchor] = useState<{ threadId: string; key: string } | null>(null);
+  const freshComposerVersionRef = useRef(freshComposerVersion);
+  freshComposerVersionRef.current = freshComposerVersion;
   const selectionKey = JSON.stringify([principalId, workspaceId, provider.id, activeAgentId]);
+  const [draftFilter, setDraftFilter] = useState<{ scope: string; key: string } | null>(null);
+  const selectedFilter = draftFilter?.scope === selectionKey ? draftFilter.key : WORKSPACE_ASSISTANT.key;
+  const profileFilter = profileChoices?.length === 0 ? WORKSPACE_ASSISTANT.key : selectedFilter;
+  const voiceAdmissionScopeRef = useRef({ selectionKey, profileFilter });
+  voiceAdmissionScopeRef.current = { selectionKey, profileFilter };
+  const draftFilterRef = useRef(draftFilter);
+  draftFilterRef.current = draftFilter;
+  const needsDraftAgent = managedDraft && !activeThreadId && (
+    selectedFilter === ALL_WORKSPACE_ASSISTANTS
+    || (selectedFilter !== WORKSPACE_ASSISTANT.key && Boolean(profileChoices && !profileChoices.some(profile => profile.key === selectedFilter)))
+  );
   const [settledSelectionKey, setSettledSelectionKey] = useState<string | null>(null);
   const selectionReady = selectionScopeReady && (!provider.serverPersisted || settledSelectionKey === selectionKey);
   const selectThread = useCallback((threadId: string) => {
@@ -962,16 +984,21 @@ export function useAIChatRuntime(
     rememberActiveChatThreadId(activeThreadId, workspaceIdRef.current);
   }, [activeThreadId, handoffEnabled]);
 
+  const { confirmDeparture, guardDeparture } = useVoiceDepartureGuard();
+  const ownsVoice = useCallback((voice: VoiceSession) =>
+    voice.surface === (handoffEnabled ? "dock" : "home") &&
+    voice.workspaceId === workspaceIdRef.current, [handoffEnabled]);
+
   // Companion handoff from /agent Created links — switch to the originating thread.
   useEffect(() => {
     if (!selectionScopeReady || !handoffEnabled) return;
     const apply = (threadId?: string | null) => {
       if (!threadId || threadId.startsWith("local-")) return;
-      selectThread(threadId);
+      guardDeparture(() => selectThread(threadId), voice => ownsVoice(voice) && voice.threadId !== threadId);
     };
     // Prefer event/handoff thread; fall back to last-active (survives handoff consume).
     const pending = peekChatHandoff();
-    apply(pending?.threadId ?? (
+    if (pending || !peekVoiceSession()) apply(pending?.threadId ?? (
       prefersFreshChat(freshChatScope) ? null : peekLastActiveChatThreadId(workspaceIdRef.current)
     ));
 
@@ -981,7 +1008,7 @@ export function useAIChatRuntime(
     };
     window.addEventListener(OPEN_AI_CHAT_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_AI_CHAT_EVENT, onOpen);
-  }, [freshChatScope, selectThread, selectionScopeReady, handoffEnabled]);
+  }, [freshChatScope, selectThread, selectionScopeReady, handoffEnabled, guardDeparture, ownsVoice]);
 
   // Guards concurrent callers (onNew + any in-flight attachment upload) from
   // creating two threads for the same first message — see ensureThreadId.
@@ -1119,7 +1146,7 @@ export function useAIChatRuntime(
     try {
       const list = await aiChatApi.listThreads({
         providerId: provider.id,
-        agentId: activeAgentId ?? undefined,
+        agentId: provider.id === "integral_native" ? undefined : activeAgentId ?? undefined,
       });
       setThreads(list);
       return list;
@@ -1162,9 +1189,8 @@ export function useAIChatRuntime(
         return;
       }
       if (prefersFreshChat(freshChatScope)) return;
-      if (list.length > 0) {
-        setActiveThreadId((current) => current ?? list[0].id);
-      }
+      const recent = managedDraft ? list.find(thread => !thread.agent_profile_key) : list[0];
+      if (recent) setActiveThreadId(current => current ?? recent.id);
     })();
     return () => {
       cancelled = true;
@@ -1176,6 +1202,7 @@ export function useAIChatRuntime(
     activeAgentId,
     initialThreadId,
     startNewThread,
+    managedDraft,
     freshChatScope,
     selectionScopeReady,
     selectionKey,
@@ -1295,6 +1322,14 @@ export function useAIChatRuntime(
             }
             // Do not overwrite a cache that started streaming while we fetched.
             if (peekStreamingThreadIds().includes(threadId)) return "skip";
+            if (activeThreadIdRef.current === threadId) {
+              // A direct link can open an authorized thread missing from the
+              // current rail list. Keep its own profile association available.
+              const { messages: _messages, ...thread } = t;
+              setThreads(previous => previous.some(item => item.id === thread.id)
+                ? previous.map(item => item.id === thread.id ? { ...item, ...thread } : item)
+                : [...previous, thread]);
+            }
             // Durable host receipts drive continuation and audit, but are not
             // conversation bubbles (including after a reload or reconnect).
             const server = t.messages
@@ -1331,6 +1366,47 @@ export function useAIChatRuntime(
     },
     [updateSession],
   );
+
+  const adoptNativeVoiceThread = useCallback(async (
+    threadId: string, opening: { workspace_id: string; profile_key: string; thread_id: string },
+  ) => {
+    const version = freshComposerVersion;
+    const stillCurrent = () => navigationMountedRef.current &&
+      provider.id === "integral_native" && workspaceIdRef.current === opening.workspace_id &&
+      principalIdRef.current === principalId && freshComposerVersionRef.current === version &&
+      !activeThreadIdRef.current && !threadCreationPromiseRef.current &&
+      voiceAdmissionScopeRef.current.selectionKey === selectionKey &&
+      voiceAdmissionScopeRef.current.profileFilter === profileFilter;
+    if (opening.thread_id || !threadId || !stillCurrent()) return;
+    try {
+      const thread = await aiChatApi.getThread(threadId);
+      const profile = thread.agent_profile_key === WORKSPACE_ASSISTANT.key ? "" : thread.agent_profile_key ?? "";
+      if (!stillCurrent() || thread.id !== threadId || thread.provider_id !== "integral_native" ||
+          profile !== opening.profile_key || thread.archived) return;
+      const { messages: transcript, ...metadata } = thread;
+      activeThreadIdRef.current = threadId;
+      setThreads(previous => [metadata, ...previous.filter(item => item.id !== threadId)]);
+      updateSession(threadId, session => ({
+        ...session,
+        messages: transcript.filter(message => message.role !== "system").map(persistedToMessage),
+        lastLoadedAt: Date.now(),
+        transcriptRevision: thread.updated_at,
+        activeWorkItemId: thread.active_work_item_id ?? thread.parked_work_item_id ?? null,
+      }));
+      skipLoadForThreadIdRef.current = threadId;
+      setVoiceComposerAnchor({ threadId, key: `fresh:${version}:${profileFilter ?? ""}` });
+      selectThread(threadId);
+    } catch (error) {
+      if (stillCurrent()) console.warn("AI chat: could not open the new voice conversation", error);
+    }
+  }, [freshComposerVersion, principalId, profileFilter, provider.id, selectThread, selectionKey, updateSession]);
+
+  const refreshNativeVoiceThread = useCallback((threadId: string, workspace: string) => {
+    if (workspaceIdRef.current !== workspace || principalIdRef.current !== principalId ||
+        activeThreadIdRef.current !== threadId || peekStreamingThreadIds().includes(threadId)) return;
+    const revision = peekSessions()[threadId]?.transcriptRevision;
+    void loadThread(threadId, false, revision);
+  }, [loadThread, principalId]);
 
   // A worker on another process can commit an alert without reaching this
   // tab's WebSocket. Probe only the visible thread and only fetch changes.
@@ -1818,8 +1894,17 @@ export function useAIChatRuntime(
         selectThread(localId);
         return localId;
       }
+      const target = draftFilterRef.current?.scope === selectionKey ? draftFilterRef.current.key : WORKSPACE_ASSISTANT.key;
+      const profileKey = target === WORKSPACE_ASSISTANT.key ? "" : target;
+      if (managedDraft && (
+        !profileChoices || target === ALL_WORKSPACE_ASSISTANTS
+        || (profileKey && !profileChoices.some(profile => profile.key === profileKey))
+      )) {
+        throw new Error("Choose a workspace assistant before sending");
+      }
       const created = await aiChatApi.createThread(provider.id, {
         agentId: activeAgentId ?? undefined,
+        ...(profileKey && workspaceId ? { agentProfileKey: profileKey, workspaceId } : {}),
       });
       activeThreadIdRef.current = created.id;
       setThreads((prev) => [created, ...prev]);
@@ -1833,7 +1918,7 @@ export function useAIChatRuntime(
     } finally {
       threadCreationPromiseRef.current = null;
     }
-  }, [provider, activeAgentId, nextId, selectThread]);
+  }, [provider, activeAgentId, nextId, selectThread, managedDraft, profileChoices, selectionKey, workspaceId]);
 
   const onNew = useCallback(
     async (message: AppendMessage) => {
@@ -2140,37 +2225,53 @@ export function useAIChatRuntime(
 
   const onCancel = useCallback(async () => {
     const threadId = activeThreadId;
-    if (!threadId || peekSessions()[threadId]?.cancellation === "pending") return;
-    const controller = peekSessions()[threadId]?.abortController;
-    const requestId = nextId("cancel");
+    const session = threadId ? peekSessions()[threadId] : undefined;
+    if (!threadId || session?.cancellation === "pending") return;
+    const controller = session?.abortController;
     const remoteTurn = getRemoteTurnsSnapshot()[threadId];
+    const target = session?.cancellationTarget ??
+      (controller && session?.steeringWorkItemId ? { work_item_id: session.steeringWorkItemId }
+        : !controller && remoteTurn?.turnId ? { turn_id: remoteTurn.turnId } : null);
+    const workspace = workspaceIdRef.current;
+    const principal = principalIdRef.current;
+    const requestId = nextId("cancel");
+    const serverOwned = provider.serverPersisted && !threadId.startsWith("local-");
     updateSession(threadId, { cancellation: "pending", cancellationRequestId: requestId,
-      activityText: "Stopping…", streamError: null });
-    const stillCurrent = () => peekSessions()[threadId]?.cancellationRequestId === requestId;
+      cancellationTarget: target, activityText: "Stopping…", streamError: null });
+    const stillCurrent = () => principalIdRef.current === principal &&
+      peekSessions()[threadId]?.cancellationRequestId === requestId;
     try {
-      if (provider.serverPersisted && !threadId.startsWith("local-")) {
-        await aiChatApi.cancelThread(threadId, peekSessions()[threadId]?.cancellationTarget,
-          target => { if (stillCurrent()) updateSession(threadId, { cancellationTarget: target }); });
-      }
+      const result = serverOwned
+        ? await aiChatApi.cancelThread(threadId, target,
+          observed => { if (stillCurrent()) updateSession(threadId, { cancellationTarget: observed }); })
+        : null;
       if (!stillCurrent()) return;
-      // Aborting only the SSE connection does not cancel durable backend work.
-      controller?.abort();
-      if (remoteTurn && getRemoteTurnsSnapshot()[threadId] === remoteTurn) {
+      // Close only the stream captured by this gesture, and only after verified
+      // cancellation. Its own finally path settles its assistant draft.
+      if ((result === null || result.cancelled) && peekSessions()[threadId]?.abortController === controller) {
+        controller?.abort();
+      }
+      if (remoteTurn && getRemoteTurnsSnapshot()[threadId] === remoteTurn &&
+          (result?.outcome === "no_active" ||
+            (result && "target" in result && result.target.turn_id === remoteTurn.turnId))) {
         markRemoteTurnFinished(threadId, remoteTurn.turnId);
       }
-      updateSession(threadId, (session) => ({
-        ...session, cancellation: null, cancellationTarget: null, cancellationRequestId: null, activityText: null,
-        messages: session.messages.map(message =>
-          message.role === "assistant" && message.status?.type === "running"
-            ? { ...message, status: { type: "incomplete", reason: "cancelled" } } : message),
-      }));
+      const status = result?.outcome === "no_active" ? "There is no active response to stop."
+        : result?.outcome === "settled" ? "The response already ended without a confirmed stop."
+        : result?.outcome === "not_confirmed" ? "Stop could not be confirmed. Check the current response before trying again."
+        : null;
+      updateSession(threadId, { cancellation: null, cancellationTarget: null, cancellationRequestId: null,
+        activityText: null, streamError: status });
       void refreshThreads();
+      if (serverOwned && workspace === workspaceIdRef.current && !peekStreamingThreadIds().includes(threadId)) {
+        void loadThread(threadId, true);
+      }
     } catch (error) {
       if (!stillCurrent()) return;
       updateSession(threadId, { cancellation: "failed", activityText: null,
         streamError: error instanceof Error ? error.message : "I couldn't stop this request. Please try Stop again." });
     }
-  }, [activeThreadId, provider.serverPersisted, updateSession, nextId, refreshThreads]);
+  }, [activeThreadId, provider.serverPersisted, updateSession, nextId, refreshThreads, loadThread]);
 
   const switchToNewThread = useCallback(() => {
     // An explicit choice wins over an initial list request still in flight.
@@ -2179,8 +2280,30 @@ export function useAIChatRuntime(
     rememberActiveChatThreadId(null, workspaceId);
     consumeChatHandoff();
     activeThreadIdRef.current = null;
+    freshComposerVersionRef.current += 1;
+    setFreshComposerVersion(freshComposerVersionRef.current);
+    setVoiceComposerAnchor(null);
+    if (profileChoices?.length === 0) {
+      draftFilterRef.current = null;
+      setDraftFilter(null);
+    }
     setActiveThreadId(null);
-  }, [freshChatScope, workspaceId]);
+  }, [freshChatScope, workspaceId, profileChoices]);
+
+  const switchProfile = useCallback(async (key: string) => {
+    if (provider.id !== "integral_native" || !selectionReady || threadCreationPromiseRef.current) return;
+    if (key !== WORKSPACE_ASSISTANT.key && (
+      !profileChoices?.length || (key !== ALL_WORKSPACE_ASSISTANTS && !profileChoices.some(profile => profile.key === key))
+    )) {
+      throw new Error("This profile could not be opened");
+    }
+    if (peekVoiceSession() && !await confirmDeparture(ownsVoice)) return;
+    const selection = { scope: selectionKey, key };
+    draftFilterRef.current = selection;
+    setDraftFilter(selection);
+    resetComposerEntityRefs?.();
+    switchToNewThread();
+  }, [provider.id, selectionReady, profileChoices, selectionKey, resetComposerEntityRefs, switchToNewThread, confirmDeparture, ownsVoice]);
 
   const threadListAdapter = useMemo<ExternalStoreThreadListAdapter>(() => {
     const regular = threads.filter((t) => !t.archived);
@@ -2202,9 +2325,11 @@ export function useAIChatRuntime(
         // has not committed yet in that case, while ``ensureThreadId`` reads
         // this ref synchronously; leaving it set sends the first message of a
         // supposedly new conversation into the previous provider session.
+        if (peekVoiceSession() && !await confirmDeparture(ownsVoice)) return;
         switchToNewThread();
       },
       onSwitchToThread: async (threadId: string) => {
+        if (peekVoiceSession() && !await confirmDeparture(voice => ownsVoice(voice) && voice.threadId !== threadId)) return;
         selectThread(threadId);
       },
       onRename: async (threadId: string, newTitle: string) => {
@@ -2217,6 +2342,7 @@ export function useAIChatRuntime(
         }
       },
       onArchive: async (threadId: string) => {
+        if (peekVoiceSession() && !await confirmDeparture(voice => ownsVoice(voice) && voice.threadId === threadId)) return;
         try {
           await aiChatApi.archiveThread(threadId);
           if (activeThreadId === threadId) setActiveThreadId(null);
@@ -2226,6 +2352,7 @@ export function useAIChatRuntime(
         }
       },
       onDelete: async (threadId: string) => {
+        if (peekVoiceSession() && !await confirmDeparture(voice => ownsVoice(voice) && voice.threadId === threadId)) return;
         try {
           await aiChatApi.deleteThread(threadId);
           if (activeThreadId === threadId) setActiveThreadId(null);
@@ -2235,7 +2362,7 @@ export function useAIChatRuntime(
         }
       },
     };
-  }, [threads, activeThreadId, refreshThreads, switchToNewThread, selectThread]);
+  }, [threads, activeThreadId, refreshThreads, switchToNewThread, selectThread, confirmDeparture, ownsVoice]);
 
   // Composite: images retain vision content plus a persisted file identity; general
   // file branch (Slice B — uploads to the chat-upload endpoint at send()
@@ -2344,6 +2471,10 @@ export function useAIChatRuntime(
     return groupThreadsByRecency(ordered, Date.now());
   }, [threads]);
 
+  const voiceAwareComposerKey = activeThreadId
+    ? (voiceComposerAnchor?.threadId === activeThreadId ? voiceComposerAnchor.key : activeThreadId)
+    : `fresh:${freshComposerVersion}:${profileFilter ?? ""}`;
+
   return useMemo(
     () => ({
       runtime,
@@ -2351,7 +2482,14 @@ export function useAIChatRuntime(
       threads,
       threadGroups,
       activeThreadId,
-      composerReady,
+      voiceAwareComposerKey,
+      adoptNativeVoiceThread,
+      refreshNativeVoiceThread,
+      composerReady: composerReady && (!managedDraft || Boolean(activeThreadId) || profileChoices !== undefined),
+      switchProfile,
+      profileFilter,
+      needsDraftAgent,
+      profileSelectionReady: selectionReady,
       activeProviderSessionId,
       activityText,
       isRunning,
@@ -2379,7 +2517,16 @@ export function useAIChatRuntime(
       switchToNewThread,
       selectThread,
       activeThreadId,
+      voiceAwareComposerKey,
+      adoptNativeVoiceThread,
+      refreshNativeVoiceThread,
       composerReady,
+      switchProfile,
+      profileFilter,
+      needsDraftAgent,
+      managedDraft,
+      profileChoices,
+      selectionReady,
       activeProviderSessionId,
       activityText,
       isRunning,

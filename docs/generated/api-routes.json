@@ -105,7 +105,7 @@
     ],
     "source": "backend/app/agentive/api/channels.py",
     "handler": "list_channel_identities",
-    "line": 60
+    "line": 81
   },
   {
     "path": "/agentive/channels/identities",
@@ -114,7 +114,7 @@
     ],
     "source": "backend/app/agentive/api/channels.py",
     "handler": "create_channel_identity",
-    "line": 80
+    "line": 98
   },
   {
     "path": "/agentive/channels/identities/resolve",
@@ -123,7 +123,7 @@
     ],
     "source": "backend/app/agentive/api/channels.py",
     "handler": "resolve_identity",
-    "line": 243
+    "line": 261
   },
   {
     "path": "/agentive/channels/identities/{identity_id}",
@@ -132,7 +132,7 @@
     ],
     "source": "backend/app/agentive/api/channels.py",
     "handler": "delete_channel_identity",
-    "line": 159
+    "line": 177
   },
   {
     "path": "/agentive/channels/identities/{identity_id}/verify",
@@ -141,7 +141,7 @@
     ],
     "source": "backend/app/agentive/api/channels.py",
     "handler": "verify_channel_identity",
-    "line": 193
+    "line": 211
   },
   {
     "path": "/agentive/channels/identities/{identity_id}/verify-link-token",
@@ -150,7 +150,34 @@
     ],
     "source": "backend/app/agentive/api/channels.py",
     "handler": "verify_link_token",
-    "line": 395
+    "line": 413
+  },
+  {
+    "path": "/agentive/channels/whatsapp/binding",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "get_whatsapp_channel_binding_endpoint",
+    "line": 474
+  },
+  {
+    "path": "/agentive/channels/whatsapp/binding",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "save_whatsapp_channel_binding_endpoint",
+    "line": 494
+  },
+  {
+    "path": "/agentive/channels/whatsapp/binding/{binding_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "disable_whatsapp_channel_binding_endpoint",
+    "line": 561
   },
   {
     "path": "/agentive/channels/whatsapp/verify-initiate",
@@ -159,7 +186,7 @@
     ],
     "source": "backend/app/agentive/api/channels.py",
     "handler": "whatsapp_verify_initiate",
-    "line": 282
+    "line": 300
   },
   {
     "path": "/agentive/channels/whatsapp/verify-otp",
@@ -168,7 +195,16 @@
     ],
     "source": "backend/app/agentive/api/channels.py",
     "handler": "whatsapp_verify_otp",
-    "line": 308
+    "line": 326
+  },
+  {
+    "path": "/agentive/channels/whatsapp/webhook",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "whatsapp_channel_webhook",
+    "line": 608
   },
   {
     "path": "/agentive/chat/message",
@@ -4299,7 +4335,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track",
-    "line": 487
+    "line": 486
   },
   {
     "path": "/public-share/track/{token}/entries",
@@ -4308,7 +4344,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track_entries",
-    "line": 570
+    "line": 569
   },
   {
     "path": "/public-share/track/{token}/entries",
@@ -4317,7 +4353,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "create_public_track_entry",
-    "line": 744
+    "line": 743
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}",
@@ -4326,7 +4362,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track_entry",
-    "line": 870
+    "line": 869
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}",
@@ -4335,7 +4371,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "update_public_track_entry",
-    "line": 967
+    "line": 966
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}/attachments",
@@ -4344,7 +4380,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "upload_public_track_entry_attachment",
-    "line": 900
+    "line": 899
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}/comments",
@@ -4353,7 +4389,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track_entry_comments",
-    "line": 1130
+    "line": 1129
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}/comments",
@@ -4362,7 +4398,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "create_public_track_entry_comment",
-    "line": 1164
+    "line": 1163
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}/reactions",
@@ -4371,7 +4407,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "add_public_track_entry_reaction",
-    "line": 1227
+    "line": 1226
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}/reactions/{emoji}",
@@ -4380,7 +4416,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "remove_public_track_entry_reaction",
-    "line": 1293
+    "line": 1292
   },
   {
     "path": "/public-share/track/{token}/relation-options",
@@ -4389,7 +4425,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track_relation_options",
-    "line": 640
+    "line": 639
   },
   {
     "path": "/tracks/{track_id}/public-share",
@@ -4398,7 +4434,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track_share_settings",
-    "line": 209
+    "line": 208
   },
   {
     "path": "/tracks/{track_id}/public-share",
@@ -4407,7 +4443,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "update_public_track_share_settings",
-    "line": 281
+    "line": 280
   },
   {
     "path": "/tracks/{track_id}/public-share/notify",
@@ -4416,7 +4452,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "notify_public_track_share",
-    "line": 421
+    "line": 420
   },
   {
     "path": "/me/signatures",

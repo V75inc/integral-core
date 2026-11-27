@@ -1,0 +1,28 @@
+.web-chat-appearance {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .35rem;
+  min-inline-size: 0;
+}
+.web-chat-appearance-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .3rem;
+  min-height: 2.5rem;
+  padding: .25rem;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-input);
+  color: var(--text);
+  cursor: pointer;
+}
+.web-chat-appearance-option svg { flex: none; }
+.web-chat-appearance-option:hover { background: var(--panel-2); }
+.web-chat-appearance-option:has(:checked) { border-color: var(--brand-accent); background: var(--brand-accent-soft); }
+.web-chat-appearance-option:has(:focus-visible) { outline: 2px solid var(--focus-ring-color); }
+.web-chat-appearance-check { color: var(--brand-accent); }
+.web-chat-appearance:disabled { opacity: .65; }
+.web-chat-appearance:disabled .web-chat-appearance-option { cursor: default; }
+@media (max-width: 360px) {
+  .web-chat-appearance-check { display: none; }
+}

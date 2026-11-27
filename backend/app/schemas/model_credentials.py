@@ -9,7 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.services.model_provider_endpoints import normalize_custom_base_url
 
 ModelProvider = Literal[
-    "openai", "anthropic", "openrouter", "ollama", "ollama_local", "custom_openai"
+    "openai",
+    "gemini",
+    "anthropic",
+    "openrouter",
+    "ollama",
+    "ollama_local",
+    "custom_openai",
 ]
 
 # Providers that can back the ``speech`` (voice input) slot. A subset of

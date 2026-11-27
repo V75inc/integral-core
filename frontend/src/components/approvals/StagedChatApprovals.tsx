@@ -1,6 +1,6 @@
 import { useSingleFlight } from '../../hooks/useSingleFlight';
 import { useSerialPolling } from '../../hooks/useSerialPolling';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { discardDesign, listDesignDecisions, type DesignDecision } from '../../api/designDecisions';
@@ -28,17 +28,20 @@ import type { StagedChange } from '../../features/ai-chat/staging/types';
 /** Bounded proposal collection shared by the full page and global Inbox. */
 export function useStagedApprovals() {
   const workspaceId = useScopeOptional()?.scope?.workspaceId;
-  const requestRevision = useRef(0);
+  // StrictMode replays effects without changing workspace identity. Keep the
+  // coalesced read alive for that replay, not for a different scope or unmount.
+  const scope = useMemo(() => ({ workspaceId }), [workspaceId]);
+  const activeScope = useRef<typeof scope | null>(null);
   const [designs, setDesigns] = useState<DesignDecision[]>([]);
   const [rows, setRows] = useState<StagedChange[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
 
   const refetch = useSingleFlight(useCallback(async () => {
-    const revision = ++requestRevision.current;
+    if (activeScope.current !== scope) return;
     try {
       const [pending, savedDesigns] = await Promise.all([listPendingStagedChanges(), listDesignDecisions()]);
-      if (revision !== requestRevision.current) return;
+      if (activeScope.current !== scope) return;
       setDesigns(savedDesigns);
       // design_proposal is confirmed in chat, not via Approvals Approve —
       // showing it here collapsed design confirm into a bless dialog.
@@ -49,15 +52,16 @@ export function useStagedApprovals() {
       );
       setRefreshFailed(false);
     } catch {
-      if (revision !== requestRevision.current) return;
+      if (activeScope.current !== scope) return;
       // Preserve known proposals; a failed refresh is not an "all clear".
       setRefreshFailed(true);
     } finally {
-      if (revision === requestRevision.current) setLoaded(true);
+      if (activeScope.current === scope) setLoaded(true);
     }
-  }, [workspaceId]));
+  }, [scope]));
 
   useEffect(() => {
+    activeScope.current = scope;
     setRows([]);
     setDesigns([]);
     setLoaded(false);
@@ -69,12 +73,12 @@ export function useStagedApprovals() {
     window.addEventListener('integral:staging-created', refresh);
     window.addEventListener('integral:staging-state-changed', refresh);
     return () => {
-      ++requestRevision.current;
+      activeScope.current = null;
       window.removeEventListener('focus', refresh);
       window.removeEventListener('integral:staging-created', refresh);
       window.removeEventListener('integral:staging-state-changed', refresh);
     };
-  }, [refetch]);
+  }, [refetch, scope]);
 
   useSerialPolling(refetch, 15_000);
 

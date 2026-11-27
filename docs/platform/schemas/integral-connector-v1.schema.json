@@ -1,0 +1,587 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://integral.dev/schemas/integral-connector-v1.schema.json",
+  "title": "Integral connector manifest v1",
+  "description": "connector.yaml for a drop-in connector package. Scoped release contract (ADR 018). The package loader rejects a manifest that does not match.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "version", "publisher", "name", "description", "trust", "binding", "capabilities"],
+  "properties": {
+    "schema": { "const": "integral.connector/v1" },
+    "id": {
+      "description": "Stable catalogue identifier. Must equal the package folder name. Never reuse a retired id.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,62}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$"
+    },
+    "publisher": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,62}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 400 },
+    "icon": { "description": "Relative path to an SVG or PNG inside the package.", "$ref": "#/$defs/relativePath" },
+    "settings_surface": {
+      "description": "Post-connect settings the host opens from the package. labels selects mailbox labels. sync_interval edits the sync schedule.",
+      "enum": ["labels", "sync_interval"]
+    },
+    "host_managed": {
+      "description": "The host already stores installations and grants. Generic Add must refuse these packages.",
+      "type": "boolean",
+      "default": false
+    },
+    "core": {
+      "description": "Compatible Integral Core versions, as a PEP 440 specifier.",
+      "type": "string"
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier"],
+      "properties": {
+        "tier": {
+          "description": "Operator drop-ins are declarative. The trusted tier is reserved for first-party manifests bundled with Core.",
+          "enum": ["declarative", "trusted"]
+        }
+      }
+    },
+    "binding": {
+      "description": "Allowed installation ownership. Workspace targets a shared workspace; personal targets the installer’s owned Personal Workspace. Dual-scope Add requires an explicit choice.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scopes"],
+      "properties": {
+        "scopes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["workspace", "personal"] }
+        },
+        "cardinality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "workspace": { "enum": ["one", "many"], "default": "one" },
+            "personal": { "enum": ["one", "many"], "default": "many" }
+          }
+        }
+      }
+    },
+    "configuration": {
+      "description": "Fields rendered by Core's shared settings renderer for Add and Configure.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/field" }
+    },
+    "auth": { "$ref": "#/$defs/auth" },
+    "http": {
+      "description": "Defaults for every declarative request. The host always comes from base_url.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_url"],
+      "properties": {
+        "base_url": { "$ref": "#/$defs/template" },
+        "hosts": {
+          "description": "Named API hosts. base_url remains the default. Adapters select a name such as sandbox or production.",
+          "type": "object",
+          "additionalProperties": { "type": "string", "pattern": "^https://" }
+        },
+        "timeout_seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 30, "default": 10 },
+        "max_response_bytes": { "type": "integer", "minimum": 1024, "maximum": 1048576, "default": 262144 }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "actions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/action" } },
+        "mcp": { "$ref": "#/$defs/mcp" },
+        "sync": { "$ref": "#/$defs/sync" },
+        "channel": { "$ref": "#/$defs/channel" }
+      }
+    },
+    "health": {
+      "description": "Readiness probe. Enable requires a passing probe against the current configuration revision.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request"],
+      "properties": {
+        "request": { "$ref": "#/$defs/request" },
+        "expect_status": { "type": "array", "items": { "type": "integer", "minimum": 200, "maximum": 399 }, "default": [200] }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "trust": { "properties": { "tier": { "const": "declarative" } } },
+          "capabilities": {
+            "anyOf": [
+              { "required": ["actions"] },
+              { "required": ["sync"], "properties": { "sync": { "required": ["source"] } } },
+              { "required": ["channel"], "properties": { "channel": { "properties": { "mode": { "const": "webhook" } } } } }
+            ]
+          }
+        }
+      },
+      "then": { "required": ["http"] }
+    },
+    {
+      "if": {
+        "required": ["capabilities"],
+        "properties": { "capabilities": { "required": ["mcp"], "properties": { "mcp": { "properties": { "transport": { "const": "stdio" } } } } } }
+      },
+      "then": { "properties": { "trust": { "properties": { "tier": { "const": "trusted" } } } } }
+    },
+    {
+      "if": {
+        "anyOf": [
+          { "required": ["host_managed"], "properties": { "host_managed": { "const": true } } },
+          {
+            "properties": {
+              "capabilities": { "required": ["channel"], "properties": { "channel": { "properties": { "mode": { "const": "managed-text-v1" } } } } }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "trust": { "properties": { "tier": { "const": "trusted" } } },
+          "binding": { "properties": { "scopes": { "const": ["workspace"] } } }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+    },
+    "template": {
+      "description": "String that may reference {{config.<key>}}, {{input.<key>}} or {{cursor}}. Secrets are never templated; they are injected only by the auth block.",
+      "type": "string",
+      "minLength": 1,
+      "not": { "pattern": "\\{\\{\\s*secret\\." }
+    },
+    "jsonPath": { "type": "string", "pattern": "^\\$" },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "type"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "help": { "type": "string", "maxLength": 400 },
+        "type": { "enum": ["string", "text", "url", "secret", "number", "boolean", "select"] },
+        "required": { "type": "boolean", "default": false },
+        "default": {},
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "label"],
+            "properties": { "value": { "type": "string" }, "label": { "type": "string" } }
+          }
+        },
+        "multiple": { "type": "boolean", "default": false },
+        "options_from": {
+          "description": "Load select choices from a declared read action. The action name is the field's, not a connector name.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "items", "value", "label"],
+          "properties": {
+            "action": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,40}$" },
+            "items": { "$ref": "#/$defs/jsonPath" },
+            "value": { "$ref": "#/$defs/jsonPath" },
+            "label": { "$ref": "#/$defs/jsonPath" }
+          }
+        },
+        "egress": {
+          "description": "url fields only. public: loopback/private/link-local hosts refused. trusted_host: operator INTEGRAL_OUTBOUND_TRUSTED_HOSTS entry required.",
+          "enum": ["public", "trusted_host"],
+          "default": "public"
+        },
+        "scope": { "description": "Restrict a field to one binding scope.", "enum": ["workspace", "personal"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "secret" } } }, "then": { "not": { "required": ["default"] } } },
+        { "if": { "properties": { "type": { "const": "select" } }, "not": { "required": ["options_from"] } }, "then": { "required": ["options"] } },
+        { "if": { "not": { "properties": { "type": { "const": "url" } } } }, "then": { "not": { "required": ["egress"] } } }
+      ]
+    },
+    "auth": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "none" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "secret", "inject"],
+          "properties": {
+            "type": { "const": "api_key" },
+            "secret": { "description": "Key of a configuration field of type secret.", "type": "string" },
+            "inject": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["in", "name"],
+              "properties": {
+                "in": { "enum": ["header", "query"] },
+                "name": { "type": "string", "minLength": 1 },
+                "prefix": { "type": "string", "default": "" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "authorize_url", "token_url", "client"],
+          "properties": {
+            "type": { "const": "oauth2" },
+            "authorize_url": { "type": "string", "pattern": "^https://" },
+            "token_url": { "type": "string", "pattern": "^https://" },
+            "client_authentication": {
+              "description": "How the token endpoint receives the client secret. client_secret_post puts it in the form body. client_secret_basic sends HTTP Basic.",
+              "enum": ["client_secret_post", "client_secret_basic"],
+              "default": "client_secret_post"
+            },
+            "redirect_env": {
+              "description": "Deployment variables checked, in order, for the OAuth redirect URI.",
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,62}$" }
+            },
+            "scopes": { "type": "array", "items": { "type": "string" } },
+            "extra_authorize_params": { "type": "object", "additionalProperties": { "type": "string" } },
+            "pkce": { "type": "boolean", "default": true },
+            "client": {
+              "description": "operator: client id/secret come from deployment configuration. installer: from secret configuration fields.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source"],
+              "properties": {
+                "source": { "enum": ["operator", "installer"] },
+                "id_field": { "type": "string" },
+                "secret_field": { "type": "string" },
+                "id_env": {
+                  "description": "Deployment variables checked, in order, when the installer did not supply a client id.",
+                  "type": "array",
+                  "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,62}$" }
+                },
+                "secret_env": {
+                  "description": "Deployment variables checked, in order, when the installer did not supply a client secret.",
+                  "type": "array",
+                  "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,62}$" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "MCP authorization: protected-resource and authorization-server discovery, dynamic client registration and PKCE, as defined by the MCP specification. mcp capability only.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": { "const": "mcp_oauth" },
+            "scopes": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        {
+          "description": "Credential supplied by the deployment, not the installer.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "env"],
+          "properties": {
+            "type": { "const": "operator" },
+            "env": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,62}$" },
+            "inject": {
+              "description": "Required when a declarative request uses the credential.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["in", "name"],
+              "properties": {
+                "in": { "enum": ["header", "query"] },
+                "name": { "type": "string", "minLength": 1 },
+                "prefix": { "type": "string", "default": "" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "envValue": {
+      "description": "One environment variable for a stdio MCP server. Secrets and tokens are injected only through these typed references.",
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["value"], "properties": { "value": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["config"], "properties": { "config": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["secret"], "properties": { "secret": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["oauth"], "properties": { "oauth": { "enum": ["access_token", "refresh_token"] } } }
+      ]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "path"],
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+        "path": { "description": "Path appended to http.base_url; never a full URL.", "type": "string", "pattern": "^/" },
+        "query": { "type": "object", "additionalProperties": { "$ref": "#/$defs/template" } },
+        "headers": { "type": "object", "additionalProperties": { "$ref": "#/$defs/template" } },
+        "body": { "description": "JSON body; string leaves may be templates." }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description", "effect", "input", "request"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,62}$" },
+        "title": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "effect": {
+          "description": "read runs directly after authorization; write always stages a review card.",
+          "enum": ["read", "write"]
+        },
+        "input": {
+          "description": "JSON Schema for the tool arguments (object).",
+          "type": "object",
+          "required": ["type"],
+          "properties": { "type": { "const": "object" } }
+        },
+        "request": { "$ref": "#/$defs/request" },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "select": { "$ref": "#/$defs/jsonPath" },
+            "next": { "description": "Path of the next-page token in the response.", "$ref": "#/$defs/jsonPath" },
+            "next_header": { "description": "Response header that carries the next-page link.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9-]*$" },
+            "next_rel": { "description": "Link relation that identifies the next page.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9-]*$" },
+            "exclude": { "description": "Record key that marks a row to skip.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "title_header": { "description": "Message header that carries the record title.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9-]*$" },
+            "from_header": { "description": "Message header that carries the sender.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9-]*$" },
+            "to_header": { "description": "Message header that carries the recipients.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9-]*$" },
+            "cc_header": { "description": "Message header that carries the copied recipients.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9-]*$" },
+            "labels": { "description": "Path of the label list on each nested record.", "$ref": "#/$defs/jsonPath" },
+            "body_type": { "description": "MIME type of the text body part.", "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9.+/-]*$" },
+            "body_key": { "description": "Field key of the MIME type on a body part.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "content_key": { "description": "Field key of the encoded body text.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "body_field": { "description": "Field key of the body object on a message or part.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "parts_key": { "description": "Field key of the part list on a message payload.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "payload_key": { "description": "Field key of the payload object on a message.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "headers_key": { "description": "Field key of the header list on a message payload.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "name_key": { "description": "Field key of a header name on a header record.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "value_key": { "description": "Field key of a header value on a header record.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "id": { "description": "Path of the record id on each selected item.", "$ref": "#/$defs/jsonPath" },
+            "updated_at": { "description": "Path of the record timestamp on each selected item.", "$ref": "#/$defs/jsonPath" },
+            "items": { "description": "Path of the nested records inside the selected object.", "$ref": "#/$defs/jsonPath" },
+            "version": { "description": "Path of the source version or history token on the selected object.", "$ref": "#/$defs/jsonPath" },
+            "summary": { "description": "Path of a short text preview on each nested record.", "$ref": "#/$defs/jsonPath" },
+            "title": { "description": "Path of the record title on each selected item.", "$ref": "#/$defs/jsonPath" },
+            "name": { "description": "Path of an alternate record name.", "$ref": "#/$defs/jsonPath" },
+            "body": { "description": "Path of the record body on each selected item.", "$ref": "#/$defs/jsonPath" },
+            "status": { "description": "Path of the record status on each selected item.", "$ref": "#/$defs/jsonPath" },
+            "number": { "description": "Path of the record number on each selected item.", "$ref": "#/$defs/jsonPath" },
+            "party": { "description": "Path of a related party name on the record.", "$ref": "#/$defs/jsonPath" },
+            "ref_key": { "description": "Field key of a name on a related reference object.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "ref_id": { "description": "Field key of an id on a related reference object.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "customer_ref": { "description": "Field key of the customer reference on an invoice.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "expense_ref": { "description": "Field key of the payee reference on an expense.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "vendor_ref": { "description": "Field key of the vendor reference on a bill.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "occurred": { "description": "Path of the transaction date on the record.", "$ref": "#/$defs/jsonPath" },
+            "due": { "description": "Path of the due date on the record.", "$ref": "#/$defs/jsonPath" },
+            "amount": { "description": "Path of the total amount on the record.", "$ref": "#/$defs/jsonPath" },
+            "balance": { "description": "Path of the open balance on the record.", "$ref": "#/$defs/jsonPath" },
+            "email": { "description": "Path of an email address on the record.", "$ref": "#/$defs/jsonPath" },
+            "email_key": { "description": "Field key of an address on an email object.", "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+            "phone": { "description": "Path of a phone number on the record.", "$ref": "#/$defs/jsonPath" },
+            "account_number": { "description": "Path of an account number on the record.", "$ref": "#/$defs/jsonPath" },
+            "payment": { "description": "Path of a payment type on the record.", "$ref": "#/$defs/jsonPath" },
+            "ledger": { "description": "Path of a ledger account name on the record.", "$ref": "#/$defs/jsonPath" },
+            "category": { "description": "Path of an expense category on the record.", "$ref": "#/$defs/jsonPath" },
+            "url": { "description": "Path of a record link on each selected item.", "$ref": "#/$defs/jsonPath" },
+            "actor": { "description": "Path of a person handle on each selected item.", "$ref": "#/$defs/jsonPath" },
+            "assignee": { "description": "Path of an assigned person handle on each selected item.", "$ref": "#/$defs/jsonPath" },
+            "tags": { "description": "Path of tag names on each selected item.", "$ref": "#/$defs/jsonPath" },
+            "max_items": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+          }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "effect": { "const": "read" } } }, "then": { "properties": { "request": { "properties": { "method": { "const": "GET" } } } } } }
+      ]
+    },
+    "mcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport"],
+      "properties": {
+        "transport": { "enum": ["streamable_http", "stdio"] },
+        "url": { "$ref": "#/$defs/template" },
+        "command": {
+          "description": "stdio only; trusted tier only.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "env": {
+          "description": "stdio only. Environment passed to the server process; nothing else from Core's environment is inherited.",
+          "type": "object",
+          "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]{0,62}$" },
+          "additionalProperties": { "$ref": "#/$defs/envValue" }
+        },
+        "read_only_tools": {
+          "description": "Tools that may run without review. Certify from a live tools/list; never trust the server's readOnlyHint at runtime.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" },
+          "default": []
+        },
+        "generated_env": {
+          "description": "Env keys the adapter may write after OAuth or token-store setup. Allowed on the process in addition to env. Execution-selecting names are still refused.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,62}$" }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "transport": { "const": "streamable_http" } } }, "then": { "required": ["url"], "not": { "anyOf": [{ "required": ["command"] }, { "required": ["env"] }, { "required": ["generated_env"] }] } } },
+        { "if": { "properties": { "transport": { "const": "stdio" } } }, "then": { "required": ["command"], "not": { "required": ["url"] } } }
+      ]
+    },
+    "sync": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry_type"],
+      "properties": {
+        "entry_type": { "description": "EntryType key materialized in the bound Track.", "type": "string" },
+        "record_type": { "description": "EntryType key a registered sync class writes for one record. The class still supplies the token, cursor, and pull.", "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z][a-z0-9_]*$" },
+        "child_type": { "description": "EntryType key a registered sync class writes for a child record. The class still supplies the token, cursor, and pull.", "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z][a-z0-9_]*$" },
+        "entity_types": {
+          "description": "Map from a declared entity name to the EntryType key a registered sync class writes. The class still supplies the token, cursor, and pull.",
+          "type": "object",
+          "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9_]{0,40}$" },
+          "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z][a-z0-9_]*$" }
+        },
+        "entities": {
+          "description": "Entity names a registered sync class requests. The class still supplies the token, cursor, and pull.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,40}$" }
+        },
+        "page_size": {
+          "description": "Maximum records requested on one page. The class still supplies the token, cursor, and pull.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "max_pages": {
+          "description": "Maximum pages a registered sync class follows. The class still supplies the token, cursor, and pull.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "interval_seconds": { "type": "integer", "minimum": 300, "default": 3600 },
+        "conflict_policy": { "enum": ["last_write_wins", "manual_resolve", "mirror_only"], "default": "mirror_only" },
+        "title_prefix": { "description": "Title prefix a registered sync class uses when a record has no title. The class still supplies the token, cursor, and pull.", "type": "string", "minLength": 1, "maxLength": 80 },
+        "title_prefixes": {
+          "description": "Map from a declared entity name to the title prefix used when that record has no title. The class still supplies the token, cursor, and pull.",
+          "type": "object",
+          "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9_]{0,40}$" },
+          "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 80 }
+        },
+        "field_names": {
+          "description": "Map from a logical field to the destination field name a registered sync class writes. The class still supplies the token, cursor, and pull.",
+          "type": "object",
+          "propertyNames": { "pattern": "^_?[a-z][a-z0-9_]{0,40}$" },
+          "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^_?[a-z][a-z0-9_]*$" }
+        },
+        "source": {
+          "description": "Declarative pull. Omit when a first-party adapter implements sync.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request", "items"],
+          "properties": {
+            "request": { "$ref": "#/$defs/request" },
+            "items": { "$ref": "#/$defs/jsonPath" },
+            "paginate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["next_cursor"],
+              "properties": {
+                "next_cursor": { "$ref": "#/$defs/jsonPath" },
+                "max_pages": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 50 }
+              }
+            }
+          }
+        },
+        "map": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["external_id", "title"],
+          "properties": {
+            "external_id": { "$ref": "#/$defs/jsonPath" },
+            "title": { "$ref": "#/$defs/jsonPath" },
+            "body": { "$ref": "#/$defs/jsonPath" },
+            "updated_at": { "$ref": "#/$defs/jsonPath" },
+            "fields": { "type": "object", "additionalProperties": { "$ref": "#/$defs/jsonPath" } }
+          }
+        }
+      },
+      "allOf": [
+        { "if": { "required": ["source"] }, "then": { "required": ["map"] } }
+      ]
+    },
+    "channel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "description": "webhook: declarative signed inbound + outbound send. managed-text-v1: first-party adapter implementing the ChannelPackage lifecycle.",
+          "enum": ["webhook", "managed-text-v1"]
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verify", "sender", "text"],
+          "properties": {
+            "verify": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["scheme", "header", "secret"],
+              "properties": {
+                "scheme": { "enum": ["hmac_sha256"] },
+                "header": { "type": "string" },
+                "secret": { "description": "Key of a secret configuration field.", "type": "string" },
+                "max_skew_seconds": { "type": "integer", "minimum": 30, "maximum": 900, "default": 300 }
+              }
+            },
+            "event_id": { "$ref": "#/$defs/jsonPath" },
+            "timestamp": { "$ref": "#/$defs/jsonPath" },
+            "sender": { "$ref": "#/$defs/jsonPath" },
+            "text": { "$ref": "#/$defs/jsonPath" }
+          }
+        },
+        "send": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request"],
+          "properties": { "request": { "$ref": "#/$defs/request" } }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "mode": { "const": "webhook" } } }, "then": { "required": ["ingress", "send"] } }
+      ]
+    }
+  }
+}

@@ -34,7 +34,6 @@ from app.services.attachment_urls import (
     is_visible_to_user,
 )
 from app.services.policy_engine import evaluate as policy_evaluate
-from app.utils.time import utc_now_iso
 
 # Heavy fields dropped from each list item — the body is read on demand via
 # ``get_attachment_text``; the summary fields below replace it.
@@ -455,10 +454,6 @@ async def attach_sandbox_file_to_entry(
     the bridge is unavailable or the file is missing.
     """
 
-    from app.models.edges import HAS_ATTACHMENT
-    from app.models.nodes import Attachment
-    from app.schemas.policy import Resource, Subject
-    from app.services.attachment_storage import get_attachment_storage_service
     from app.services.policy_engine import evaluate as policy_evaluate
 
     rel = _validate_sandbox_relative_path(sandbox_path)
@@ -506,49 +501,10 @@ async def attach_sandbox_file_to_entry(
     from app.services.attachment_upload_shared import fallback_mime_from_filename
 
     mime_type = fallback_mime_from_filename(filename) or "application/octet-stream"
-    attachment = await Attachment.create(
-        filename=filename,
-        mime_type=mime_type,
-        size=len(content),
-        storage_key="",
-        source_type="file",
-        external_url="",
-        uploaded_by=user_id,
-        scan_status="pending",
-        metadata_status="pending",
-        created_at=utc_now_iso(),
-    )
-    storage = get_attachment_storage_service()
-    try:
-        stored = await storage.save_attachment(
-            entry_id=entry.id,
-            attachment_id=attachment.id,
-            filename=filename,
-            content=content,
-            mime_type=mime_type,
-        )
-    except Exception as exc:  # noqa: BLE001
-        await attachment.delete()
-        return {
-            "error": True,
-            "error_code": "attach_failed",
-            "message": str(exc) or "Attachment persist failed",
-        }
-
-    attachment.storage_key = str(stored.get("path") or "")
-    await attachment.save()
-    await entry.connect(
-        attachment,
-        edge=HAS_ATTACHMENT,
-        attached_at=utc_now_iso(),
-        attached_by=user_id,
-    )
-    if attachment.id not in (entry.attachment_ids or []):
-        entry.attachment_ids = list(entry.attachment_ids or []) + [attachment.id]
-        await entry.save()
-
-    item = await export_node(attachment)
-    return {"attachment": item, "entry_id": entry_id, "sandbox_path": rel}
+    result = await _attach_reviewed_bytes(entry, user_id, filename, mime_type, content)
+    if "attachment" in result:
+        result["sandbox_path"] = rel
+    return result
 
 
 async def attach_image_bytes_to_entry(
@@ -566,11 +522,6 @@ async def attach_image_bytes_to_entry(
     wires the ``HAS_ATTACHMENT`` edge — so storage is only consumed on the
     approved attach. Mirrors ``attach_sandbox_file_to_entry``.
     """
-
-    from app.models.edges import HAS_ATTACHMENT
-    from app.models.nodes import Attachment
-    from app.schemas.policy import Resource, Subject
-    from app.services.attachment_storage import get_attachment_storage_service
 
     if not content:
         return {
@@ -599,49 +550,37 @@ async def attach_image_bytes_to_entry(
             "message": "You do not have permission to add attachments to this entry",
         }
 
-    attachment = await Attachment.create(
-        filename=filename,
-        mime_type=mime_type or "image/png",
-        size=len(content),
-        storage_key="",
-        source_type="file",
-        external_url="",
-        uploaded_by=user_id,
-        scan_status="pending",
-        metadata_status="pending",
-        created_at=utc_now_iso(),
+    return await _attach_reviewed_bytes(
+        entry, user_id, filename, mime_type or "image/png", content
     )
-    storage = get_attachment_storage_service()
+
+
+async def _attach_reviewed_bytes(
+    entry: Entry, user_id: str, filename: str, mime_type: str, content: bytes
+) -> dict:
+    from app.services.attachment_entry_write import AttachmentEntryReadonlyError
+    from app.services.entry_attachment_files import (
+        AttachmentStorageWriteError,
+        attach_entry_file,
+    )
+
     try:
-        stored = await storage.save_attachment(
-            entry_id=entry.id,
-            attachment_id=attachment.id,
-            filename=filename,
-            content=content,
-            mime_type=mime_type or "image/png",
+        attachment = await attach_entry_file(
+            entry, user_id, filename, mime_type, content
         )
-    except Exception as exc:  # noqa: BLE001
-        await attachment.delete()
+    except AttachmentEntryReadonlyError as exc:
+        return {
+            "error": True,
+            "error_code": "app_record_readonly",
+            "message": exc.message,
+        }
+    except AttachmentStorageWriteError:
         return {
             "error": True,
             "error_code": "attach_failed",
-            "message": str(exc) or "Attachment persist failed",
+            "message": "Attachment storage write failed",
         }
-
-    attachment.storage_key = str(stored.get("path") or "")
-    await attachment.save()
-    await entry.connect(
-        attachment,
-        edge=HAS_ATTACHMENT,
-        attached_at=utc_now_iso(),
-        attached_by=user_id,
-    )
-    if attachment.id not in (entry.attachment_ids or []):
-        entry.attachment_ids = list(entry.attachment_ids or []) + [attachment.id]
-        await entry.save()
-
-    item = await export_node(attachment)
-    return {"attachment": item, "entry_id": entry.id}
+    return {"attachment": await export_node(attachment), "entry_id": entry.id}
 
 
 async def validate_chat_attachment_source(

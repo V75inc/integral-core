@@ -1008,8 +1008,10 @@ async def test_accounting_only_history_does_not_prove_no_dispatch(budget_root):
     assert (await ledger(db, root))["reserved_units"] == 60000000
 
 
+@pytest.mark.parametrize("audience", [None, "staff"])
 async def test_bound_model_reservation_retains_and_rechecks_physical_evidence(
     leased_budget_child,
+    audience,
 ):
     from datetime import datetime, timedelta, timezone
 
@@ -1030,6 +1032,8 @@ async def test_bound_model_reservation_retains_and_rechecks_physical_evidence(
         run_id=context.run_id,
         permission_revision="synthetic-permissions",
         capability_version="synthetic-capabilities",
+        connection_scope_key="c" * 64 if audience else None,
+        connection_audience=audience,
     )
     now = datetime.now(timezone.utc)
     physical = ModelPriceRequest(
@@ -1103,6 +1107,15 @@ async def test_bound_model_reservation_retains_and_rechecks_physical_evidence(
         model_price_request=physical,
     )
     assert marked.dispatch_state == "intent"
+    if audience:
+        assert marked.model_dispatch_scope["connection_scope_key"] == "c" * 64
+        assert marked.model_dispatch_scope["connection_audience"] == audience
+    else:
+        assert not (
+            {"connection_scope_key", "connection_audience"}
+            & marked.model_dispatch_scope.keys()
+        )
+    assert all(isinstance(value, str) for value in marked.model_dispatch_scope.values())
     assert work_budgets._hydrate_reservation(
         await db.get("object", record.id)
     ).model_dispatch_scope == scope.model_dump(mode="json")

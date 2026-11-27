@@ -1,4 +1,5 @@
 export interface User {
+  is_service_identity?: boolean;
   id: string;
   /** Auth / object user id (`o.User...`); matches `author_id` on entries when present. */
   user_id?: string;
@@ -522,6 +523,7 @@ export interface TrackAnchorSource {
 }
 
 export interface Track {
+  resident_permission_eligible?: boolean;
   id: string;
   title: string;
   purpose?: string;
@@ -702,6 +704,8 @@ export interface Entry {
   custom_fields?: Record<string, unknown>;
   /** Read-only live projections; never merge into write payloads. */
   read_time_fields?: { values: Record<string, unknown>; status: Record<string, string> };
+  /** Restriction projected by the owning App at the current saved state. */
+  app_record_readonly?: boolean;
   /** Optimistic-concurrency token returned by the record write contract. */
   record_revision?: number;
   /** Effective profile revision under which this record was last written. */

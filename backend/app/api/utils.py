@@ -214,6 +214,8 @@ async def public_user_view(user) -> Dict[str, Any]:
     view: Dict[str, Any] = {
         key: exported[key] for key in PUBLIC_USER_FIELDS if key in exported
     }
+    if exported.get("service_workspace_id"):
+        view["is_service_identity"] = True
     if not view.get("display_name"):
         # AuthUser spells it ``name``; keep the UI's contract on one key.
         fallback = exported.get("name") or ""

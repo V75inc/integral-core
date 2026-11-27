@@ -13,6 +13,7 @@ const HANDOFF_TTL_MS = 60_000;
 export type ChatHandoff = {
   threadId?: string | null;
   ts: number;
+  navigating?: boolean;
 };
 
 type LastActiveThread = { threadId: string; workspaceId: string | null };
@@ -80,6 +81,8 @@ export function peekLastActiveChatThreadId(workspaceId?: string | null): string 
 export function requestOpenCompanionChat(opts?: {
   threadId?: string | null;
   draftText?: string | null;
+  /** Keep the mounted conversation when the caller navigates to another route. */
+  navigating?: boolean;
   /** Explicit user action to send the scoped handoff immediately. */
   submit?: boolean;
   workspaceId?: string | null;
@@ -88,6 +91,7 @@ export function requestOpenCompanionChat(opts?: {
   const payload: ChatHandoff = {
     threadId: opts?.threadId ?? null,
     ts: Date.now(),
+    ...(opts?.navigating && { navigating: true }),
   };
   try {
     sessionStorage.setItem(HANDOFF_KEY, JSON.stringify(payload));

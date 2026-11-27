@@ -32,7 +32,7 @@ export function BackgroundTasksPage() {
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const [rows, setRows] = useState<RoutineResponse[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const requestGeneration = useRef(0);
@@ -76,46 +76,13 @@ export function BackgroundTasksPage() {
   return (
     <PageShell>
       <PageSection>
-        <header className="mb-8 md:mb-10 flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0 flex-1 basis-96">
-            <PageHeading className="[&>span:last-child]:whitespace-normal [&>span:last-child]:text-clip">Background Tasks</PageHeading>
-            <PageMeta>
-              <span>
-                {visibleRows.length} {visibleRows.length === 1 ? 'scheduled routine' : 'scheduled routines'}
-              </span>
-              <span aria-hidden>·</span>
-              <span>
-                {statusFilter === 'all'
-                  ? activeCount === 0
-                    ? 'No active routines'
-                    : `${activeCount} active`
-                  : `Showing ${statusFilter}`}
-              </span>
-            </PageMeta>
-          </div>
-          <label className="flex max-w-full items-center gap-2">
-            <Text as="span" tone="muted" variant="label" className="shrink-0">Routine status</Text>
-            <Select
-              size="sm"
-              value={statusFilter}
-              onChange={e =>
-                setStatusFilter(e.target.value as StatusFilter)
-              }
-            >
-              <option value="all">All (excl. cancelled)</option>
-              <option value="active">Active</option>
-              <option value="paused">Paused</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-            </Select>
-          </label>
-        </header>
+        <PageHeading className="mb-8 md:mb-10 [&>span:last-child]:whitespace-normal [&>span:last-child]:text-clip">Background Tasks</PageHeading>
       </PageSection>
 
-      {workspaceId && <PageSection>
-        <WorkItemsSection key={workspaceId} workspaceId={workspaceId} />
-      </PageSection>}
-      <PageSection className="mt-8">
+      <PageSection.Separator />
+
+      <PageSection className="mt-8" innerClassName="grid gap-8">
+        {workspaceId && <WorkItemsSection key={workspaceId} workspaceId={workspaceId} />}
         <Surface id="scheduled-routines" as="section" aria-label="Scheduled routines" tone="panel" border="subtle" radius="card" padding="lg">
           <header className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 flex-1 basis-64">
@@ -124,21 +91,37 @@ export function BackgroundTasksPage() {
                 Tasks scheduled in chat, including reminders and recurring work.
               </Text>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              loading={loading}
-              aria-label="Refresh"
-              aria-busy={loading}
-              icon={<RefreshCw size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />}
-              className="shrink-0"
-              onClick={() => void refetch()}
-            >
-              {loading ? 'Refreshing…' : 'Refresh'}
-            </Button>
+            <div className="flex min-w-0 max-w-full flex-wrap items-end gap-2">
+              <label className="flex min-w-0 max-w-full flex-col gap-1">
+                <Text as="span" tone="muted" variant="label">Routine status</Text>
+                <Select size="sm" value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value as StatusFilter)}>
+                  <option value="all">All (excl. cancelled)</option>
+                  <option value="active">Active</option>
+                  <option value="paused">Paused</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </Select>
+              </label>
+              <Button type="button" size="sm" variant="outline" loading={loading}
+                aria-label="Refresh scheduled routines" aria-busy={loading}
+                icon={<RefreshCw size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />}
+                onClick={() => void refetch()}>
+                {loading ? 'Refreshing…' : 'Refresh'}
+              </Button>
+            </div>
           </header>
           <div className="mt-5">
+            {loading ? <Text as="p" variant="meta" tone="muted" role="status" className="mb-3">Loading scheduled routines…</Text>
+              : !error && visibleRows.length > 0 && (
+                <PageMeta className="mb-3">
+                  <span>{visibleRows.length} {visibleRows.length === 1 ? 'scheduled routine' : 'scheduled routines'}</span>
+                  {statusFilter === 'all' && <>
+                    <span aria-hidden>·</span>
+                    <span>{activeCount === 0 ? 'No active routines' : `${activeCount} active`}</span>
+                  </>}
+                </PageMeta>
+              )}
             {selectedRoutine && <Text as="p" variant="meta" tone="muted" className="mb-3">The linked routine is shown even though it is outside this filter.</Text>}
             {selectionError && <div role="status" className="mb-3"><Text as="p" tone="muted">{selectionError}</Text></div>}
             <RoutinesListBody
@@ -146,6 +129,7 @@ export function BackgroundTasksPage() {
               selectedRoutineId={selectedRoutineId}
               loading={loading}
               error={error}
+              emptyMessage={statusFilter === 'all' ? undefined : 'No routines match this status.'}
               onRetry={() => void refetch()}
               onChanged={() => void refetch()}
             />

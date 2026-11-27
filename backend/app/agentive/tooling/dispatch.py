@@ -61,7 +61,7 @@ from app.agentive.tooling.list_pagination import (
     expand_agent_list_pages,
     project_agent_list_items,
 )
-from app.agentive.tooling.manifest import load_manifest
+from app.agentive.tooling.manifest import ToolSpec, load_manifest
 from app.agentive.tooling.policy_gate import enforce_tool_policy, sanitize_tool_args
 
 logger = logging.getLogger(__name__)
@@ -391,6 +391,8 @@ async def dispatch_tool(
     session_id: Optional[str] = None,
     interaction_id: Optional[str] = None,
     skill_tools_required: Optional[list] = None,
+    voice_read_offer: ToolSpec | None = None,
+    voice_read_cursor: str | None = None,
 ) -> ToolResult:
     """Dispatch manifest tool ``name`` under ``principal_id`` + bound ``scope``.
 
@@ -420,6 +422,50 @@ async def dispatch_tool(
     op_class = "unknown"
     result: Optional[ToolResult] = None
     try:
+        if voice_read_cursor is not None and voice_read_offer is None:
+            return ToolResult(
+                is_error=True,
+                error_code="not_available",
+                message="Voice page unavailable.",
+            )
+        if voice_read_offer is not None:
+            # Do not use indefinite resident registry caching when redeeming a
+            # private negotiated read; revalidate the same authority we dispatch.
+            from app.agentive.tooling.catalogue import admits_voice_quick_read
+
+            spec = (await asyncio.to_thread(load_manifest)).get(name)
+            binding = TOOL_BINDINGS.get(name)
+            if (
+                not principal_id
+                or not scope
+                or session_id is not None
+                or interaction_id is not None
+                or args
+                or spec != voice_read_offer
+                or not admits_voice_quick_read(spec, binding)
+            ):
+                return ToolResult(
+                    is_error=True,
+                    error_code="not_available",
+                    message="The requested voice read is unavailable.",
+                )
+            assert spec is not None and spec.voice_quick_read is not None
+            args = {"limit": 20} if spec.voice_quick_read.page_limit else {}
+            # Only the server-held continuation from an admitted list can set
+            # this separate parameter. Model tool args remain disallowed.
+            if voice_read_cursor is not None:
+                if (
+                    "cursor" not in spec.params
+                    or not isinstance(voice_read_cursor, str)
+                    or not 0 < len(voice_read_cursor) <= 2048
+                ):
+                    return ToolResult(
+                        is_error=True,
+                        error_code="not_available",
+                        message="Voice page unavailable.",
+                    )
+                args["cursor"] = voice_read_cursor
+
         if name in {
             "integral_upsert_artifact",
             "integral_prepare_document_attachment",
@@ -556,8 +602,9 @@ async def dispatch_tool(
                 )
                 return result
 
-        spec = (await asyncio.to_thread(_registry)).get(name)
-        binding = TOOL_BINDINGS.get(name)
+        if voice_read_offer is None:
+            spec = (await asyncio.to_thread(_registry)).get(name)
+            binding = TOOL_BINDINGS.get(name)
 
         # Explicit user no-save intent is a host-enforced capability boundary,
         # not an instruction left to the resident prompt. Keep reads available
@@ -765,7 +812,7 @@ async def dispatch_tool(
                     message=data.get("message", ""),
                 )
                 return result
-            if isinstance(data, dict):
+            if isinstance(data, dict) and voice_read_offer is None:
                 data = await expand_agent_list_pages(
                     name,
                     safe_args=safe_args,
@@ -871,7 +918,12 @@ async def _maybe_stage_mcp_write(
     else:
         connector = await Connector.get(connector_id)
     auth_state = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
-    if not await asyncio.to_thread(is_write_tool, spec, auth_state=auth_state):
+    if not await asyncio.to_thread(
+        is_write_tool,
+        spec,
+        auth_state=auth_state,
+        manifest=getattr(connector, "package_manifest", None),
+    ):
         return None
 
     display_name = str(auth_state.get("display_name") or "")
@@ -1622,8 +1674,6 @@ async def _dispatch_propose(
             )
         return ToolResult(data=batched)
 
-    from app.agentive.unstaged_targets import is_unstaged_target
-
     # ADR-006 / I-PC-01 — the one write path that skips the card.
     #
     # An App may declare tracks that accept agent writes unstaged, and the
@@ -1637,7 +1687,13 @@ async def _dispatch_propose(
     # batch asked for one card covering the whole workflow, and honouring that
     # is more useful than exempting some of its ops — an exempt op inside a
     # batch would land early and out of order with the rest.
-    if await is_unstaged_target(
+    from app.agentive.services.proposal_origin import (
+        checking_resident_permission,
+        interactive_resident_proposal,
+    )
+    from app.agentive.unstaged_targets import is_unstaged_target
+
+    if not interactive_resident_proposal() and await is_unstaged_target(
         user_id=principal_id, kind=staged["kind"], payload=staged["payload"]
     ):
         from app.agentive.staging_executors import dispatch as execute_staged
@@ -1678,6 +1734,7 @@ async def _dispatch_propose(
     if (
         session_id is not None
         and (sc.origin_proof or {}).get("requires_deferred_link") is not True
+        and not checking_resident_permission()
     ):
         from app.services.prompt_queue import enqueue_staged_write
 

@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-import { aiChatApi } from "../../../api/aiChat";
+import { aiChatApi, type ChatCancellationResult } from "../../../api/aiChat";
 import { useAIChatRuntime } from "../useAIChatRuntime";
 // Stream state is module-level now, so it survives between cases unless
 // explicitly cleared — without this, ids collide across tests.
@@ -53,7 +53,7 @@ vi.mock("../../../api/aiChat", () => ({
       messages: [],
     })),
     createThread: vi.fn(),
-    cancelThread: vi.fn(async () => ({ thread_id: "t1", cancelled: true })),
+    cancelThread: vi.fn(async () => ({ thread_id: "t1", cancelled: true, outcome: "cancelled", target: { turn_id: "observed" } })),
   },
 }));
 
@@ -155,7 +155,7 @@ describe("useAIChatRuntime parallel streams", () => {
     let acknowledge!: () => void;
     let signal: AbortSignal | undefined;
     vi.mocked(aiChatApi.cancelThread).mockImplementationOnce(() => new Promise(resolve => {
-      acknowledge = () => resolve({thread_id: "t1", cancelled: true});
+      acknowledge = () => resolve({thread_id: "t1", cancelled: true, outcome: "cancelled", target: { turn_id: "observed" }});
     }));
     const provider: ChatProvider = {...mockProvider, serverPersisted: true,
       streamTurn: async function* (ctx) {
@@ -198,6 +198,64 @@ describe("useAIChatRuntime parallel streams", () => {
     await act(async () => { await result.current.runtime.thread.cancelRun(); });
     await waitFor(() => expect(result.current.isRunning).toBe(false));
     expect(signal?.aborted).toBe(true);
+  });
+
+  const unconfirmedOutcomes: ChatCancellationResult[] = [
+    { thread_id: "t1", cancelled: false, outcome: "not_confirmed" },
+    { thread_id: "t1", cancelled: false, outcome: "no_active" },
+    { thread_id: "t1", cancelled: false, outcome: "settled", target: { work_item_id: "exact-work" } },
+  ];
+  it.each(unconfirmedOutcomes)("never marks a live stream stopped on $outcome", async outcome => {
+    let signal: AbortSignal | undefined;
+    let finish!: () => void;
+    vi.mocked(aiChatApi.cancelThread).mockResolvedValueOnce(outcome);
+    const provider: ChatProvider = { ...mockProvider, serverPersisted: true,
+      streamTurn: async function* (ctx) {
+        signal = ctx.abortSignal;
+        ctx.onDurableTurn?.("exact-work");
+        yield { type: "text-delta", delta: "Working" };
+        await new Promise<void>(resolve => { finish = resolve; });
+        yield { type: "text-delta", delta: " normally" };
+      },
+    };
+    const { result } = renderHook(() => useAIChatRuntime(provider, { initialThreadId: "t1" }));
+    await waitFor(() => expect(result.current.composerReady).toBe(true));
+    await act(async () => { await result.current.runtime.thread.append({ role: "user", content: [{ type: "text", text: "Continue" }] }); });
+    await waitFor(() => expect(result.current.isRunning).toBe(true));
+    await act(async () => { await result.current.runtime.thread.cancelRun(); });
+    expect(aiChatApi.cancelThread).toHaveBeenCalledWith("t1", { work_item_id: "exact-work" }, expect.any(Function));
+    expect(signal?.aborted).toBe(false);
+    expect(result.current.isRunning).toBe(true);
+    expect(result.current.streamError).toMatch(/no active response|already ended|not be confirmed/i);
+    expect(result.current.runtime.thread.getState().messages.find(message => message.role === "assistant")?.status)
+      .toEqual({ type: "running" });
+    await act(async () => { finish(); });
+    await waitFor(() => expect(result.current.isRunning).toBe(false));
+    expect(result.current.runtime.thread.getState().messages.find(message => message.role === "assistant")?.status)
+      .toEqual({ type: "complete", reason: "stop" });
+  });
+
+  it("refreshes a settled remote turn without clearing a newer remote turn", async () => {
+    let settle!: () => void;
+    vi.mocked(aiChatApi.cancelThread).mockImplementationOnce(() => new Promise(resolve => {
+      settle = () => resolve({ thread_id: "t1", cancelled: false, outcome: "settled",
+        target: { turn_id: "original" } });
+    }));
+    const { result } = renderHook(() => useAIChatRuntime({ ...mockProvider, serverPersisted: true }, { initialThreadId: "t1" }));
+    await waitFor(() => expect(result.current.composerReady).toBe(true));
+    const startRemote = (turn_id: string) => window.dispatchEvent(new CustomEvent("integral:thread-stream-update", {
+      detail: { thread_id: "t1", workspace_id: "ws1", status: "started", turn_id },
+    }));
+    act(() => { startRemote("original"); });
+    await waitFor(() => expect(result.current.runtime.thread.getState().isRunning).toBe(true));
+    act(() => { void result.current.runtime.thread.cancelRun(); });
+    await waitFor(() => expect(result.current.activityText).toBe("Stopping…"));
+    expect(aiChatApi.cancelThread).toHaveBeenCalledWith("t1", { turn_id: "original" }, expect.any(Function));
+    act(() => { startRemote("another"); });
+    await act(async () => { settle(); });
+    expect(result.current.isRunning).toBe(true);
+    expect(result.current.streamError).toContain("already ended without a confirmed stop");
+    await waitFor(() => expect(aiChatApi.getThread).toHaveBeenCalledTimes(2));
   });
 
   it("keeps background thread cache warm when switching tabs mid-stream", async () => {

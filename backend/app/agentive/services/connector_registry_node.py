@@ -8,14 +8,13 @@ W4 / AGT-04 baseline: this module also exposes ``update_sync_cursor`` and
 ``get_sync_cursor`` helpers so Phase 5 sync orchestration has a stable API to
 build on. Phase 1 stores cursor strings only — no fetch/advance loops.
 
-This service intentionally lives in ``app/agentive/services/`` (not in the
-core ``app/services/``) so it loads conditionally with the agentive layer
-(D-08): ``Connector`` itself is registered only inside the
-``AGENTIVE_ENABLED`` block in ``app/main.py``.
+This service lives in ``app/agentive/services/``. ``Connector`` is registered
+at startup; the agentive layer is always loaded.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, List, Optional  # noqa: F401 — Any used in annotation string
 
@@ -24,6 +23,7 @@ from app.agentive.types import AgentType
 from app.schemas.agentive.connectors import (
     contains_redaction_marker,
     is_auth_state_secret_key,
+    redact_auth_state,
 )
 from app.utils.time import utc_now_iso
 
@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 # ``probe_mcp_health(auth_state)``), so the decrypting side does not always
 # know which connector it came from.
 _AUTH_STATE_AAD = "connector.auth_state"
+_PACKAGE_SECRET_KEY = "_package_secret"
 
 
 def _encrypt_value(value: Any) -> Any:
@@ -66,24 +67,31 @@ def _encrypt_value(value: Any) -> Any:
     return value
 
 
-def _decrypt_value(value: Any) -> Any:
-    from app.services.credential_crypto import decrypt_secret_from_storage
+def _decrypt_value(value: Any, *, strict: bool = False) -> Any:
+    from app.services.credential_crypto import (
+        CIPHER_PREFIX_V1,
+        decrypt_secret_from_storage,
+    )
 
     if isinstance(value, dict):
-        return {
-            k: (
-                decrypt_secret_from_storage(v, aad=_AUTH_STATE_AAD)
-                if is_auth_state_secret_key(k) and isinstance(v, str) and v
-                else _decrypt_value(v)
-            )
-            for k, v in value.items()
-        }
+        decrypted = {}
+        for key, raw in value.items():
+            if is_auth_state_secret_key(key) and isinstance(raw, str) and raw:
+                decoded = decrypt_secret_from_storage(raw, aad=_AUTH_STATE_AAD)
+                if strict and not decoded and raw.startswith(CIPHER_PREFIX_V1):
+                    raise RuntimeError("Unable to decrypt connector credential")
+                decrypted[key] = decoded
+            else:
+                decrypted[key] = _decrypt_value(raw, strict=strict)
+        return decrypted
     if isinstance(value, list):
-        return [_decrypt_value(v) for v in value]
+        return [_decrypt_value(item, strict=strict) for item in value]
     return value
 
 
-def encrypt_auth_state(auth_state: Optional[dict]) -> dict:
+def encrypt_auth_state(
+    auth_state: Optional[dict], *, require_key: bool = False
+) -> dict:
     """Encrypt every credential-bearing value in ``auth_state`` at rest (F-7).
 
     Which keys count is the same predicate the wire redactor uses
@@ -91,18 +99,20 @@ def encrypt_auth_state(auth_state: Optional[dict]) -> dict:
     ``oauth.tokens.refresh_token`` and ``env.QUICKBOOKS_CLIENT_SECRET`` are
     covered, not just the top level.
 
-    Degrades to plaintext (with a warning) when no encryption key is
-    configured. A deployment without ``INTEGRAL_CREDENTIAL_ENC_KEY`` is no
-    worse off than before this function existed; raising instead would take
-    every connector mount down on key-less installs.
-    ``decrypt_auth_state`` passes non-``v1:`` values through unchanged, so
-    mixed rows (pre-existing plaintext, newly encrypted) both read back.
+    Sync writes require the storage key. Legacy non-sync writers can opt into
+    the original keyless behavior. The read path handles pre-migration rows.
     """
     from app.services.credential_crypto import encryption_available
 
     if not auth_state:
         return dict(auth_state or {})
     if not encryption_available():
+        if redact_auth_state(auth_state) == auth_state:
+            return dict(auth_state)
+        if require_key:
+            from app.api.errors import ServiceUnavailableError
+
+            raise ServiceUnavailableError("Connector credentials require encryption")
         logger.warning(
             "connector_registry_node: INTEGRAL_CREDENTIAL_ENC_KEY unavailable — "
             "connector auth_state secrets stored in plaintext"
@@ -111,11 +121,37 @@ def encrypt_auth_state(auth_state: Optional[dict]) -> dict:
     return _encrypt_value(dict(auth_state))
 
 
-def decrypt_auth_state(auth_state: Optional[dict]) -> dict:
-    """Inverse of :func:`encrypt_auth_state`; plaintext values pass through."""
+def encode_package_secrets(auth_state: dict, secret_names: set[str]) -> dict:
+    """Mark manifest-defined names as secrets regardless of their spelling."""
+    fields = dict(auth_state)
+    present = secret_names.intersection(fields)
+    if not present:
+        return fields
+    from app.services.credential_crypto import encryption_available
+
+    if not encryption_available():
+        from app.api.errors import ServiceUnavailableError
+
+        raise ServiceUnavailableError(
+            "Connector package secrets require credential encryption"
+        )
+    protected = {
+        name: fields.pop(name) for name in present if not is_auth_state_secret_key(name)
+    }
+    if protected:
+        fields[_PACKAGE_SECRET_KEY] = json.dumps(protected)
+    return fields
+
+
+def decrypt_auth_state(auth_state: Optional[dict], *, strict: bool = False) -> dict:
+    """Inverse of :func:`encrypt_auth_state`; legacy plaintext passes through."""
     if not auth_state:
-        return dict(auth_state or {})
-    return _decrypt_value(dict(auth_state))
+        return {}
+    fields = _decrypt_value(dict(auth_state), strict=strict)
+    encoded = fields.pop(_PACKAGE_SECRET_KEY, None)
+    if encoded:
+        fields.update(json.loads(encoded))
+    return fields
 
 
 def encryption_applies(
@@ -123,15 +159,22 @@ def encryption_applies(
 ) -> bool:
     """Whether ``auth_state`` for this connector is encrypted at rest.
 
-    MCP connectors only, for now. Every reader of an MCP ``auth_state``
-    (``mcp_client``, ``mcp_adapter``, this API surface) decrypts on the way
-    out; the sync connectors — ``app/agentive/connectors/gmail.py`` and
-    ``quickbooks.py`` — read ``auth_state["access_token"]`` straight off the
-    node and are outside this change's blast radius, so encrypting theirs
-    would break sync rather than harden it. Widening this predicate is a
-    follow-up that must land together with decrypt calls in those two files.
+    Every connector kind. ``decrypt_auth_state`` leaves pre-existing plaintext
+    unchanged, so a row encrypts on its next save. Sync adapters must read
+    through :func:`decrypt_auth_state` before using tokens.
     """
-    return kind == "mcp" or (subclass_slug or "") == "mcp"
+    del kind, subclass_slug
+    return True
+
+
+def _declares_sync(capabilities: list[str] | None) -> bool:
+    return bool({"sync", "connector.sync"}.intersection(capabilities or ()))
+
+
+def _registered_sync(slug: str | None) -> bool:
+    from app.services.connectors.registry import list_registered_slugs
+
+    return bool(slug and slug in list_registered_slugs())
 
 
 async def attach_connector_to_workspace(
@@ -207,7 +250,9 @@ async def create_connector(
     now = utc_now_iso()
     stored_auth = dict(auth_state or {})
     if encryption_applies(kind):
-        stored_auth = encrypt_auth_state(stored_auth)
+        stored_auth = encrypt_auth_state(
+            stored_auth, require_key=_declares_sync(capabilities)
+        )
     c = await Connector.create(
         kind=kind,
         owner=owner,
@@ -427,6 +472,23 @@ async def update_connector(
     c = await Connector.get(connector_id)
     if c is None:
         return None
+    if mapping_profile == "package":
+        raise ValueError("Package installations are created through the package API")
+    if getattr(c, "mapping_profile", "") == "package" and any(
+        value is not None
+        for value in (
+            subclass_slug,
+            sync_interval_seconds,
+            auth_state,
+            mapping_profile,
+            permissions,
+            capabilities,
+        )
+    ):
+        raise ValueError(
+            "Package installations change identity, interval, and secrets "
+            "through the package API"
+        )
     if subclass_slug is not None:
         c.subclass_slug = subclass_slug
     if sync_interval_seconds is not None:
@@ -446,7 +508,11 @@ async def update_connector(
         if encryption_applies(
             getattr(c, "kind", None), getattr(c, "subclass_slug", "")
         ):
-            new_auth = encrypt_auth_state(new_auth)
+            new_auth = encrypt_auth_state(
+                new_auth,
+                require_key=_declares_sync(capabilities or c.capabilities)
+                or _registered_sync(getattr(c, "subclass_slug", "")),
+            )
         c.auth_state = new_auth
     if mapping_profile is not None:
         c.mapping_profile = mapping_profile
@@ -466,6 +532,9 @@ async def delete_connector(connector_id: str) -> bool:
     c = await Connector.get(connector_id)
     if c is None:
         return False
+    if getattr(c, "mapping_profile", "") == "package" and c.enabled:
+        c.enabled = False
+        await c.save()
     await c.delete()
     return True
 

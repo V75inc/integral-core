@@ -8,17 +8,35 @@ The native resident is always registered, including when no model credentials ha
 
 The harness owns model interaction and reasoning-loop mechanics. Core owns authenticated execution scope, capabilities, policy, staging, effect boundaries, product transcripts, session records, and immutable usage observations. A model output or provider handle cannot select identity or tenancy.
 
+Native workspace chat and browser voice share the caller’s **Permissions** setting. Core stages the proposal and checks the policy revision bound to the turn before applying an eligible record edit. Switching modes preserves the caller’s Custom selections. App access, effect validation and execution receipts remain the responsibility of the canonical writer. See the [resident permission modes](../backend/voice-chat-conversation-contract.md#resident-permissions).
+
 ## Harness engineering principle
 
 Use the Pydantic AI Harness and Pydantic AI as fully as practical for the resident agent's runtime behavior. Before implementing or extending a custom harness mechanism, inspect the supported facilities and public extension points in the pinned library versions and prefer them when they meet Integral's requirements. Custom code belongs at Integral's substrate integration boundary or fills a documented gap where the libraries do not provide a suitable facility.
 
 Review existing custom behavior against this principle as it is touched; do not remove safeguards merely because an upstream feature has a similar name. Verify functional and security parity, including authenticated scope, current policy, staging, effect receipts and recovery, before replacement. Discovery and model-provider optimizations remain subject to the same boundary.
 
+Native model routing resolves saved profile and single/dual-model settings
+for each turn. Local demo launchers must use that resolver.
+The reviewed OpenAI Sol models requiring Responses for function calls use
+LiteLLM's supported model registration and Responses bridge, with native
+streaming metadata. This fills a gap in the pinned SDK's model table that
+otherwise rejects tool choice or fabricates duplicate streamed arguments.
+Integral retains the original model identity, dispatch admission, credentials,
+usage observations and effect boundaries. Custom endpoints retain their
+Chat Completions route. These metadata updates preserve existing pricing
+and do not choose a different model. [OpenAI model contract](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
+
 The agentive layer is always loaded. `AGENTIVE_ENABLED` is not a supported kill switch. Core-only mode filters domain packages; it does not remove resident intelligence.
 
 ## Context and skills
 
 Current workspace, thread, binding, and generation define execution. App instructions appear only from active accessible Apps. Skill descriptions support discovery and bodies load progressively. They do not confer permission.
+
+Record requests use the App's current fields and allowed values. If a caller's
+wording could mean several values, the resident asks for clarification. A
+request for one record does not itself authorize proposing a new field or a
+new choice in the App's schema. This applies to typed and delegated voice work.
 
 Principal facets express personal, organization-facing, and system contexts without a peer-agent fleet. Wider facet experience and cross-client matrices require qualification; the architectural discriminator alone is not a finished product journey.
 

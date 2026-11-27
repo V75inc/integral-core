@@ -1,3 +1,4 @@
+import type { ChatAgentIdentity } from './chatAssistantIdentity';
 import { apiClient } from './index';
 import { createSingleFlight } from './singleFlight';
 import type { ChatEntityRef } from '../types/chatEntityRefs';
@@ -66,6 +67,12 @@ export interface ChatCancellationTarget {
   turn_id?: string | null;
 }
 
+export type ChatCancellationResult =
+  | { thread_id: string; cancelled: true; outcome: 'cancelled'; target: ChatCancellationTarget }
+  | { thread_id: string; cancelled: false; outcome: 'no_active' | 'not_confirmed' }
+  | { thread_id: string; cancelled: false; outcome: 'settled'; target: ChatCancellationTarget };
+
+
 export interface AIChatProviderInfo {
   id: string;
   label: string;
@@ -79,7 +86,11 @@ export interface AIChatProviderInfo {
   };
 }
 
+export type { ChatAgentIdentity } from './chatAssistantIdentity';
+
 export interface AIChatThread {
+  agent_profile?: ChatAgentIdentity;
+  agent_profile_key?: string;
   id: string;
   provider_id: string;
   agent_id: string;
@@ -246,14 +257,21 @@ export const aiChatApi = {
     });
   },
 
+  async listAgentProfiles(workspaceId: string) {
+    const res = await apiClient.get<{ profiles: ChatAgentIdentity[]; workspace_assistant: ChatAgentIdentity | null }>('/chat/agent-profiles', { headers: { 'X-Integral-Scope': `ws:${workspaceId}` } });
+    return res.data;
+  },
+
   async createThread(
     providerId: string,
-    options: { agentId?: string; title?: string } = {},
+    options: { agentId?: string; title?: string; agentProfileKey?: string; workspaceId?: string } = {},
   ): Promise<AIChatThread> {
     const body: Record<string, string> = { provider_id: providerId };
     if (options.agentId) body.agent_id = options.agentId;
     if (options.title) body.title = options.title;
-    const res = await apiClient.post<AIChatThread>('/chat/threads', body);
+    if (options.agentProfileKey) body.agent_profile_key = options.agentProfileKey;
+    const config = options.workspaceId ? { headers: { 'X-Integral-Scope': `ws:${options.workspaceId}` } } : undefined;
+    const res = await apiClient.post<AIChatThread>('/chat/threads', body, config);
     return res.data;
   },
 
@@ -350,70 +368,80 @@ export const aiChatApi = {
     return res.data;
   },
 
-  /** Cancel the observed turn and wait for backend admission to be released. */
+  /** Cancel one observed turn and only claim success for exact acknowledged work. */
   async cancelThread(
     threadId: string,
     target?: ChatCancellationTarget | null,
     onTarget?: (target: ChatCancellationTarget) => void,
-  ): Promise<{ thread_id: string; cancelled: boolean }> {
+  ): Promise<ChatCancellationResult> {
+    const path = `/chat/threads/${encodeURIComponent(threadId)}`;
+    const activity = async () => (await apiClient.get<ChatCancellationTarget & { running: boolean }>(
+      `${path}/activity`, { timeout: 5000 },
+    )).data;
     if (!target) {
-      const { data } = await apiClient.get<
-        ChatCancellationTarget & { running: boolean }
-      >(`/chat/threads/${encodeURIComponent(threadId)}/activity`, {
-        timeout: 5000,
-      });
-      if (data.running === false)
-        return { thread_id: threadId, cancelled: true };
+      const data = await activity();
+      if (data.running === false) return { thread_id: threadId, cancelled: false, outcome: 'no_active' };
       if (data.running !== true || (!data.work_item_id && !data.turn_id)) {
         throw new Error('Could not confirm the active turn. Try Stop again.');
       }
       target = { work_item_id: data.work_item_id, turn_id: data.turn_id };
       onTarget?.(target);
     }
-    const res = await apiClient.post<{
+    if (!target.work_item_id && !target.turn_id) {
+      throw new Error('Could not confirm the active turn. Try Stop again.');
+    }
+    const { data: receipt } = await apiClient.post<{
       thread_id: string;
       cancelled: boolean;
-      work_item_id?: string;
+      work_item_id?: string | null;
       turn_id?: string | null;
-    }>(
-      `/chat/threads/${encodeURIComponent(threadId)}/cancel`,
-      {
-        expected_work_item_id: target.work_item_id,
-        expected_turn_id: target.turn_id,
-      },
-      { timeout: 10_000 },
-    );
-    if (!res.data.cancelled) return res.data;
+      status?: string;
+    }>(`${path}/cancel`, {
+      expected_work_item_id: target.work_item_id,
+      expected_turn_id: target.turn_id,
+    }, { timeout: 10_000 });
+    if (receipt.thread_id !== threadId || typeof receipt.cancelled !== 'boolean') {
+      throw new Error('Could not confirm cancellation. Check the conversation before trying again.');
+    }
+    if (!receipt.cancelled ||
+        (target.work_item_id ? receipt.work_item_id !== target.work_item_id : receipt.turn_id !== target.turn_id)) {
+      return { thread_id: threadId, cancelled: false, outcome: 'not_confirmed' };
+    }
+    // Native work can be identified even if the initial activity read saw
+    // only its transient handle. Use only its exact matched receipt here.
+    const workItemId = target.work_item_id || receipt.work_item_id;
+    const matched = { work_item_id: workItemId,
+      turn_id: target.turn_id && receipt.turn_id === target.turn_id ? target.turn_id : undefined };
+    const confirmed = { thread_id: threadId, cancelled: true, outcome: 'cancelled', target: matched } as const;
     const deadline = Date.now() + 30_000;
     let pollDelay = 500;
     while (true) {
-      const { data } = await apiClient.get<{
-        running: boolean;
-        work_item_id?: string | null;
-        turn_id?: string | null;
-      }>(`/chat/threads/${encodeURIComponent(threadId)}/activity`, {
-        timeout: 5000,
-      });
-      if (typeof data.running !== 'boolean')
-        throw new Error('Could not confirm cancellation. Try Stop again.');
-      const hasTarget = Boolean(res.data.work_item_id || res.data.turn_id);
-      const sameWork = Boolean(
-        res.data.work_item_id && res.data.work_item_id === data.work_item_id,
-      );
-      const sameTurn = Boolean(
-        res.data.turn_id && res.data.turn_id === data.turn_id,
-      );
-      // A newer turn in another tab must not extend this cancellation or be stopped.
-      if (!data.running || (hasTarget && !sameWork && !sameTurn))
-        return res.data;
-      if (Date.now() >= deadline) {
-        throw new Error(
-          'Stopping is taking longer than expected. Try Stop again to check cancellation.',
-        );
+      const data = await activity();
+      if (typeof data.running !== 'boolean') throw new Error('Could not confirm cancellation. Try Stop again.');
+      if (data.running && !data.work_item_id && !data.turn_id) {
+        throw new Error('Could not confirm active work after Stop. Try Stop again.');
       }
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(pollDelay, deadline - Date.now())),
-      );
+      const sameWork = Boolean(matched.work_item_id && matched.work_item_id === data.work_item_id);
+      const sameTurn = Boolean(matched.turn_id && matched.turn_id === data.turn_id);
+      // Release is not evidence that the original durable work was cancelled.
+      // A newer turn must not be stopped or prolong this turn's readback.
+      if (!data.running || (!sameWork && !sameTurn)) {
+        if (!workItemId || receipt.status === 'cancelled') return confirmed;
+        const { data: exact } = await apiClient.get<{ work_status: string }>(
+          `${path}/work-items/${encodeURIComponent(workItemId)}/events`, { params: { limit: 1 }, timeout: 5000 },
+        );
+        if (exact.work_status === 'cancelled') return confirmed;
+        if (['succeeded', 'failed', 'expired', 'dead_letter'].includes(exact.work_status)) {
+          return { thread_id: threadId, cancelled: false, outcome: 'settled', target: matched };
+        }
+        if (!['queued', 'running', 'waiting_for_human', 'waiting_for_event', 'retry_wait'].includes(exact.work_status)) {
+          throw new Error('Could not verify the stopped work. Check the conversation before trying again.');
+        }
+      }
+      if (Date.now() >= deadline) {
+        throw new Error('Stopping is taking longer than expected. Try Stop again to check cancellation.');
+      }
+      await new Promise(resolve => setTimeout(resolve, Math.min(pollDelay, deadline - Date.now())));
       pollDelay = Math.min(pollDelay * 2, 2000);
     }
   },

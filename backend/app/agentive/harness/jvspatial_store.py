@@ -101,6 +101,7 @@ class JvSpatialStepStore:
                 scope.principal_id,
                 scope.thread_id,
                 scope.session_id,
+                *((scope.connection_scope_key,) if scope.connection_scope_key else ()),
             )
         )
         self._scope_key = hashlib.sha256(namespace.encode("utf-8")).hexdigest()

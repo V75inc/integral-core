@@ -11,7 +11,11 @@ from jvspatial.api import endpoint
 from pydantic import ValidationError
 
 from app.api.errors import BadRequestError
-from app.api.utils import resolve_principal_id
+from app.api.utils import (
+    current_platform_admin,
+    require_platform_admin,
+    resolve_principal_id,
+)
 from app.schemas.ai_configuration import (
     CapabilitiesRequest,
     ConnectionWrite,
@@ -110,6 +114,8 @@ async def get_configuration(request: Request) -> dict[str, Any]:
         and _credential_funds_byok(record)
     )
     result = await service.configuration(user_id)
+    if not await current_platform_admin(request):
+        result.pop("deployment_limit_settings", None)
     from app.agentive.harness.model_routing import effective_routing_summary
 
     routing_summary = await effective_routing_summary(workspace_id)
@@ -163,6 +169,17 @@ async def get_configuration(request: Request) -> dict[str, Any]:
             policy_provider = "custom_openai"
     result["effective"]["harness_policy"] = assess_model(policy_provider, policy_model)
     return result
+
+
+@endpoint("/admin/chat-limits", methods=["POST"], auth=True, tags=["AI Models"])
+async def update_deployment_chat_limits(request: Request) -> dict:
+    """Change limits shared by all native chat workspaces on this installation."""
+    from app.schemas.deployment_chat_limits import ChatLimitsWrite
+    from app.services.deployment_chat_limits import save_limits
+
+    await require_platform_admin(request)
+    body = await _body(request, ChatLimitsWrite)
+    return await save_limits(resolve_principal_id(request), body)
 
 
 @endpoint(
@@ -392,6 +409,45 @@ async def save_voice_configuration(request: Request) -> dict:
 
     user_id = resolve_principal_id(request)
     body = await _body(request, VoiceModelWrite)
+    try:
+        return await save(
+            user_id, await resolve_workspace_id_from_request(request, user_id), body
+        )
+    except ValueError as exc:
+        raise BadRequestError(str(exc)) from None
+
+
+@endpoint(
+    "/users/me/realtime-voice-configuration",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Models"],
+)
+async def get_realtime_voice_configuration(request: Request) -> dict:
+    """Return the current workspace live voice model configuration."""
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.voice_configuration import describe_realtime
+
+    user_id = resolve_principal_id(request)
+    return await describe_realtime(
+        user_id, await resolve_workspace_id_from_request(request, user_id)
+    )
+
+
+@endpoint(
+    "/users/me/realtime-voice-configuration",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Models"],
+)
+async def save_realtime_voice_configuration(request: Request) -> dict:
+    """Validate and save workspace live voice model configuration."""
+    from app.schemas.voice_configuration import RealtimeVoiceModelWrite
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.voice_configuration import save
+
+    user_id = resolve_principal_id(request)
+    body = await _body(request, RealtimeVoiceModelWrite)
     try:
         return await save(
             user_id, await resolve_workspace_id_from_request(request, user_id), body

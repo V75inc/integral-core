@@ -416,20 +416,189 @@ async def verify_identity_by_token(
     }
 
 
+def normalize_whatsapp_e164(phone: str) -> str:
+    """Return +E.164, or empty when the value is not a full international number."""
+    cleaned = "".join(ch for ch in (phone or "").strip() if ch.isdigit() or ch == "+")
+    if not cleaned.startswith("+"):
+        return ""
+    digits = cleaned[1:]
+    if not digits.isdigit() or not 8 <= len(digits) <= 15:
+        return ""
+    return f"+{digits}"
+
+
+def _claim_is_open(identity: ChannelIdentity) -> bool:
+    if getattr(identity, "verified", False):
+        return False
+    raw = (getattr(identity, "preferences", {}) or {}).get("claim_expires", "")
+    try:
+        expires = datetime.fromisoformat(str(raw))
+    except (ValueError, TypeError):
+        return False
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return utc_now() <= expires
+
+
+async def _remember_whatsapp_opt_in(user_id: str, e164: str) -> None:
+    from app.services.permissions import get_user_node
+
+    user = await get_user_node(user_id)
+    if user is None:
+        return
+    raw = getattr(user, "notification_preferences", None)
+    prefs = dict(raw) if raw else {}
+    whatsapp = dict(prefs.get("whatsapp") or {})
+    whatsapp["opted_in_at"] = utc_now_iso()
+    whatsapp["phone_e164"] = e164
+    prefs["whatsapp"] = whatsapp
+    user.notification_preferences = prefs
+    await user.save()
+
+
+async def verify_pending_whatsapp_sender(
+    sender: str, pairing_code: str = ""
+) -> Optional[Dict[str, Any]]:
+    """Verify an exact open claim with a code shown to its authenticated owner.
+
+    An already-verified number is left unchanged. Returns the verified
+    identity summary, or None when nothing was claimed.
+    """
+    e164 = normalize_whatsapp_e164(
+        sender if str(sender).startswith("+") else f"+{sender}"
+    )
+    if not e164:
+        return None
+    identities = await ChannelIdentity.find(channel="whatsapp", channel_user_id=e164)
+    if any(getattr(identity, "verified", False) for identity in identities):
+        return None
+    if not pairing_code:
+        return None
+    code_hash = hashlib.sha256(pairing_code.strip().encode()).hexdigest()
+    pending = [
+        identity
+        for identity in identities
+        if _claim_is_open(identity)
+        and secrets.compare_digest(
+            str((identity.preferences or {}).get("claim_code_hash", "")), code_hash
+        )
+    ]
+    if len(pending) != 1:
+        return None
+    if await find_conflicting_verified_identity("whatsapp", e164):
+        return None
+    chosen = pending[0]
+    chosen.verified = True
+    chosen.verified_at = utc_now_iso()
+    prefs = dict(getattr(chosen, "preferences", {}) or {})
+    prefs.pop("claim_expires", None)
+    prefs.pop("claim_code_hash", None)
+    prefs.pop("otp_hash", None)
+    prefs.pop("otp_expires", None)
+    prefs.pop("otp_attempts", None)
+    chosen.preferences = prefs
+    await chosen.save()
+    try:
+        await _remember_whatsapp_opt_in(str(chosen.user_id or ""), e164)
+    except Exception:
+        logger.warning("whatsapp opt-in preference was not stored")
+    return {
+        "identity_id": chosen.id,
+        "user_id": chosen.user_id,
+        "channel_user_id": e164,
+        "verified": True,
+    }
+
+
+async def _supersede_pending_whatsapp_claims(
+    identities: list[ChannelIdentity], user_id: str
+) -> Optional[ChannelIdentity]:
+    """Expire other people's open claims. Return this user's existing row."""
+    mine = None
+    for identity in identities:
+        if str(getattr(identity, "user_id", "") or "") == str(user_id):
+            mine = identity
+            continue
+        if getattr(identity, "verified", False):
+            continue
+        prefs = dict(getattr(identity, "preferences", {}) or {})
+        prefs["claim_expires"] = "1970-01-01T00:00:00+00:00"
+        identity.preferences = prefs
+        await identity.save()
+    return mine
+
+
 async def initiate_link(
     user_id: str,
     channel: str,
     channel_user_id: str,
 ) -> Dict[str, Any]:
-    """Initiate a channel link that generates both an OTP and a link token.
+    """Initiate a channel link with an account-issued pairing proof.
 
-    The OTP is for the user to send via WhatsApp.
-    The link token can be delivered via the web UI for the user to mention to the agent.
-
-    Both are stored hashed; the plaintext versions are returned once.
+    WhatsApp returns a one-time pairing code for the claimed phone to send.
+    Other channels retain the OTP and link-token flow. Proofs are stored hashed;
+    plaintext values are returned once to the authenticated initiating account.
     """
     if channel not in ("whatsapp", "slack", "telegram", "email", "sms", "in_app"):
         return {"error": f"Unsupported channel: {channel}"}
+
+    if channel == "whatsapp":
+        e164 = normalize_whatsapp_e164(channel_user_id)
+        if not e164:
+            return {
+                "error": (
+                    "Enter the full number, including the country code, "
+                    "like +15556767191."
+                )
+            }
+        identities = await ChannelIdentity.find(
+            channel="whatsapp", channel_user_id=e164
+        )
+        verified = [identity for identity in identities if identity.verified]
+        if any(str(identity.user_id) != str(user_id) for identity in verified):
+            return {
+                "error": "This channel address is already verified for another account."
+            }
+        if verified:
+            return {
+                "identity_id": verified[0].id,
+                "verified": True,
+                "message": "Channel identity already verified",
+            }
+        expires = (utc_now() + timedelta(minutes=10)).isoformat()
+        pairing_code = secrets.token_urlsafe(18)
+        code_hash = hashlib.sha256(pairing_code.encode()).hexdigest()
+        existing = await _supersede_pending_whatsapp_claims(identities, user_id)
+        if existing is None:
+            user = await _require_user_node(user_id)
+            existing = await ChannelIdentity.create(
+                user_id=user_id,
+                channel="whatsapp",
+                channel_user_id=e164,
+                verified=False,
+                preferences={"claim_expires": expires, "claim_code_hash": code_hash},
+                created_at=utc_now_iso(),
+            )
+            await user.connect(
+                existing,
+                edge=HAS_CHANNEL_IDENTITY,
+                is_primary=False,
+                created_at=utc_now_iso(),
+            )
+        else:
+            prefs = dict(getattr(existing, "preferences", {}) or {})
+            prefs["claim_expires"] = expires
+            prefs["claim_code_hash"] = code_hash
+            existing.channel_user_id = e164
+            existing.verified = False
+            existing.preferences = prefs
+            await existing.save()
+        return {
+            "identity_id": existing.id,
+            "verified": False,
+            "pairing_code": pairing_code,
+            "message": "Send the pairing code from this phone to the WhatsApp business number.",
+        }
 
     otp_code = secrets.token_hex(3).upper()
     link_token = secrets.token_urlsafe(16)

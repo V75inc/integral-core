@@ -201,7 +201,9 @@ async def add_member(
     ):
         actor, workspace, owner = await _manager(actor_id, workspace_id)
         member = await get_user_node(member_id)
-        if member is None:
+        if member is None or (
+            member.service_workspace_id and member.service_workspace_id != workspace_id
+        ):
             raise ResourceNotFoundError(message="User not found")
         from app.services.workspace_suspension import require_unsuspended
 
@@ -265,7 +267,9 @@ async def update_member(
     ):
         actor, workspace, owner = await _manager(actor_id, workspace_id)
         member = await get_user_node(member_id)
-        if member is None:
+        if member is None or (
+            member.service_workspace_id and member.service_workspace_id != workspace_id
+        ):
             raise ResourceNotFoundError(message="User not found")
         row = await _membership(member, workspace_id)
         if row is None:
@@ -367,7 +371,10 @@ async def remove_member(
         else:
             actor, workspace, owner = await _manager(actor_id, workspace_id)
             member = await resolve_current_profile(member_id, require_active=False)
-            if member is None:
+            if member is None or (
+                member.service_workspace_id
+                and member.service_workspace_id != workspace_id
+            ):
                 raise ResourceNotFoundError(message="User not found")
         row = await _membership(member, workspace_id)
         if row is not None:

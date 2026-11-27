@@ -191,6 +191,7 @@ class ChatTurnExecutionContext(BaseModel):
             "pending_approvals",
             "pending_approvals_marker",
             "run_id",
+            "voice_delegate",
         }
         if set(value) - allowed:
             raise ValueError("execution context contains unsupported host fields")

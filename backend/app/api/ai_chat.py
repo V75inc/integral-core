@@ -995,10 +995,6 @@ async def cancel_chat_turn(
     work_item_id: str,
 ) -> Dict[str, Any]:
     """Cancel a queued or running native chat turn through WorkItem authority."""
-    from app.agentive.services.work_items import cancel_work_item
-    from app.schemas.agentive.chat_events import ChatTurnCancellationReceipt
-    from app.schemas.agentive.work import WorkError
-
     user_id, _ = _resolve_principal(request)
     thread = await _resolve_owned_thread(thread_id, user_id)
     workspace_id = await _resolve_turn_workspace(request, user_id, thread)
@@ -1010,47 +1006,11 @@ async def cancel_chat_turn(
         workspace_id=workspace_id,
         thread_id=thread.id,
     )
-    before = {
-        "status": item.status,
-        "cancel_requested": bool(item.cancel_requested_at),
-    }
-    try:
-        cancelled = await cancel_work_item(item.work_item_id)
-    except WorkError as exc:
-        if exc.code == "work.not_found":
-            raise ResourceNotFoundError(message="Chat turn not found") from exc
-        if exc.code in {"work.invalid_transition", "work.cas_conflict"}:
-            raise ResourceConflictError(
-                message="Chat turn changed while cancellation was requested",
-                details={"reason": "chat_turn_state_changed"},
-            ) from exc
-        logger.exception("Failed to cancel chat WorkItem %s", item.work_item_id)
-        raise InternalServerError(message="Could not cancel chat turn") from exc
-    # Wake the local provider immediately; the persisted request remains the
-    # cross-worker authority and is also observed by the lease supervisor.
-    await chat_turn_registry.cancel_turn_if_work_item(thread.id, cancelled.work_item_id)
-    from app.services.change_event import emit_change_event
+    from app.services.chat_work_cancellation import cancel_owned_chat_work
 
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="chat_turn.cancel",
-        resource_type="WorkItem",
-        resource_id=cancelled.work_item_id,
-        scope=workspace_id,
-        before=before,
-        after={
-            "status": cancelled.status,
-            "cancel_requested": bool(cancelled.cancel_requested_at),
-        },
-        details={"thread_id": thread.id},
+    return await cancel_owned_chat_work(
+        item, user_id=user_id, workspace_id=workspace_id, thread_id=thread.id
     )
-    receipt = ChatTurnCancellationReceipt(
-        work_item_id=cancelled.work_item_id,
-        status=cancelled.status,
-        cancel_requested=bool(cancelled.cancel_requested_at),
-    )
-    return receipt.model_dump()
 
 
 # ---------------------------------------------------------------------------
@@ -1194,8 +1154,15 @@ async def list_threads(
         provider_id=provider_id,
         agent_id=agent_id,
     )
+    identities = await chat_store.thread_profile_metadata(workspace_id, threads)
     return {
-        "threads": [chat_store.thread_to_dict(t) for t in threads],
+        "threads": [
+            chat_store.thread_to_dict(
+                thread,
+                agent_profile=identities.get(thread.id),
+            )
+            for thread in threads
+        ],
     }
 
 
@@ -1273,12 +1240,34 @@ async def _resolve_agent_for_new_thread(
     return resolved
 
 
+@endpoint("/chat/agent-profiles", methods=["GET"], auth=True, tags=["AI Chat"])
+async def list_native_chat_profiles(request: Request) -> dict:
+    """List the profiles offered to this authenticated chat principal."""
+    from app.agentive.services.profile_management import (
+        WORKSPACE_ASSISTANT_KEY,
+        native_chat_choices,
+        thread_profile_identities,
+    )
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id, _ = _resolve_principal(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    identities = await thread_profile_identities(
+        workspace_id, {WORKSPACE_ASSISTANT_KEY}
+    )
+    return {
+        "workspace_assistant": identities.get(WORKSPACE_ASSISTANT_KEY),
+        "profiles": await native_chat_choices(workspace_id, user_id),
+    }
+
+
 @endpoint("/chat/threads", methods=["POST"], auth=True, tags=["AI Chat"])
 async def create_thread(
     request: Request,
     provider_id: str = "",
     agent_id: str = "",
     title: Optional[str] = None,
+    agent_profile_key: str = "",
 ) -> Dict[str, Any]:
     """Create a new chat thread bound to a registered provider + agent.
 
@@ -1301,6 +1290,13 @@ async def create_thread(
 
     workspace_id = await resolve_workspace_id_from_request(request, user_id) or ""
 
+    if agent_profile_key:
+        from app.agentive.services.profile_management import require_native_chat_profile
+
+        if provider_id != "integral_native":
+            raise BadRequestError(message="Agent profiles require native chat")
+        await require_native_chat_profile(workspace_id, user_id, agent_profile_key)
+
     resolved_agent_id = await _resolve_agent_for_new_thread(
         user_id=user_id,
         workspace_id=workspace_id,
@@ -1314,8 +1310,12 @@ async def create_thread(
         agent_id=resolved_agent_id,
         title=title or "",
         workspace_id=workspace_id,
+        **({"agent_profile_key": agent_profile_key} if agent_profile_key else {}),
     )
-    return chat_store.thread_to_dict(thread, message_count=0)
+    identities = await chat_store.thread_profile_metadata(workspace_id, [thread])
+    return chat_store.thread_to_dict(
+        thread, message_count=0, agent_profile=identities.get(thread.id)
+    )
 
 
 async def _admit_chat_history_read(
@@ -1395,8 +1395,15 @@ async def get_thread(
         messages = await project_chat_approval_receipts(
             thread=thread, messages=messages
         )
+    identities = await chat_store.thread_profile_metadata(
+        admission_workspace_id, [thread]
+    )
     response = {
-        **chat_store.thread_to_dict(thread, message_count=len(messages)),
+        **chat_store.thread_to_dict(
+            thread,
+            message_count=len(messages),
+            agent_profile=identities.get(thread.id),
+        ),
         **({"parked_work_item_id": parked_work_item_id} if parked_work_item_id else {}),
         "messages": messages,
     }
@@ -2569,6 +2576,17 @@ async def send_message(
     # conversation belongs to. See ``_resolve_turn_workspace`` for why the
     # ``X-Integral-Scope`` header is a consistency check here, not the source.
     active_workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if profile_key := getattr(thread, "agent_profile_key", ""):
+        from app.agentive.services.profile_management import require_native_chat_profile
+
+        await require_native_chat_profile(active_workspace_id, user_id, profile_key)
+        if images or attachment_ids or host_action or entity_refs:
+            raise BadRequestError(
+                message="Profile conversations support plain text only"
+            )
+        # Ambient page content is outside the selected profile's capabilities.
+        page_context = None
+        focused_track_id = focused_space_id = focused_view_id = None
     if durable_turn and not active_workspace_id:
         raise BadRequestError(message="Durable chat requires a workspace")
     client_payload_digest = (

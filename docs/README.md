@@ -20,6 +20,8 @@ Understand dependencies and decision evidence with [workspace graph context](pro
 
 ## Build on it
 
+For declarative connectors, follow [connector packages v1](platform/connector-extension-v1.md) to install a package folder and rescan it in Settings. The [Connector Standard v1](backend/connector-extension-standard-v1.md) describes the separately admitted managed-text adapter contract and its runnable example.
+
 Apps, Tracks and entry types can name an icon from a fixed list: see [App, Track and entry type icons](platform/app-icons.md).
 
 All App authors follow the [App settings UI contract](platform/app-settings-ui.md):

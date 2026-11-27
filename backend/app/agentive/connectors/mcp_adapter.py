@@ -489,6 +489,7 @@ async def mount_mcp_connector(
     headers: Optional[Dict[str, str]] = None,
     connection_mode: str = "per_user",
     label: str = "",
+    require_oauth: bool = False,
 ) -> Connector:
     """Create an MCP Connector, discover tools, and register them (no restart)."""
     from app.agentive.services.connector_registry_node import create_connector
@@ -517,7 +518,7 @@ async def mount_mcp_connector(
             details={"reauth_required": True, "status": 401},
         )
 
-    if probe.needs_oauth:
+    if probe.needs_oauth or require_oauth:
         oauth = await start_mcp_oauth_session(
             url,
             probe_response=probe.response,
@@ -651,6 +652,7 @@ async def complete_mcp_oauth(
     """Exchange the authorization code, persist tokens, then discover tools."""
     from app.agentive.connectors.mcp_oauth import (
         OAUTH_STATUS_AUTHORIZED,
+        OAUTH_STATUS_PENDING,
         exchange_mcp_oauth_code,
         verify_mcp_oauth_state,
     )
@@ -674,7 +676,13 @@ async def complete_mcp_oauth(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},
         )
-    if (getattr(connector, "subclass_slug", "") or "") != MCP_SUBCLASS_SLUG:
+    packaged = getattr(connector, "mapping_profile", "") == "package"
+    if packaged:
+        from app.agentive.services.connector_packages import _owned, _require_admitted
+
+        connector = await _owned(connector.id, user_id, connector.workspace_id)
+        _require_admitted(connector)
+    elif (getattr(connector, "subclass_slug", "") or "") != MCP_SUBCLASS_SLUG:
         raise BadRequestError(message="Connector is not an MCP mount")
     # F-9: completing OAuth exchanges tokens and hot-registers this server's
     # tools into the workspace. Ownership is a scalar that survives removal
@@ -690,7 +698,25 @@ async def complete_mcp_oauth(
             message="MCP OAuth callback rejected — state token invalid or expired",
             details={"reauth_required": False, "reason": "state_mismatch"},
         )
+    if packaged and (
+        oauth.get("status") != OAUTH_STATUS_PENDING
+        or oauth.get("package_revision") != connector.package_revision
+    ):
+        raise BadRequestError("Connector changed during authorization")
     tokens = await exchange_mcp_oauth_code(oauth, code)
+    if packaged:
+        fresh = await _owned(connector.id, user_id, connector.workspace_id)
+        _require_admitted(fresh)
+        auth = plain_auth_state(fresh)
+        pending = auth.get("oauth") or {}
+        if (
+            pending.get("status") != OAUTH_STATUS_PENDING
+            or fresh.package_revision != connector.package_revision
+            or pending.get("state") != state
+        ):
+            raise BadRequestError("Connector changed during authorization")
+        connector = fresh
+
     oauth["tokens"] = tokens
     oauth["status"] = OAUTH_STATUS_AUTHORIZED
     oauth.pop("code_verifier", None)
@@ -699,6 +725,8 @@ async def complete_mcp_oauth(
     auth["oauth"] = oauth
     store_auth_state(connector, auth)
     await connector.save()
+    if packaged:
+        return connector
     await discover(connector)
     # I-CON-04: the connector subject needs tool.invoke before anyone may call
     # its tools. Grant it now. It used to happen only at the next API restart

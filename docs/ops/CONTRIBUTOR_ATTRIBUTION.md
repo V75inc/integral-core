@@ -1,6 +1,6 @@
 # Contributor attribution policy
 
-Human author, committer and coauthor credit must remain accurate. Do not attribute commits to `cursoragent@cursor.com`, `noreply@anthropic.com`, or the `cursoragent` / `claude` GitHub noreply identities. Product mentions, provider integrations, licenses and AGENTS.md guidance are separate from commit attribution.
+I-GIT-ATTRIBUTION-01 in [AGENTS.md](../../AGENTS.md) prohibits coding-agent credit in commits and PRs. Human author, committer and coauthor credit must remain accurate. Use the authorized human Git identity. The automated check recognizes the Cursor, Claude and Codex account email identities (including `noreply@openai.com`), credit trailers and standard generated-by footers. Preserve product mentions, provider integrations, licenses and required notices.
 
 ## Prevent new attribution
 
@@ -13,18 +13,18 @@ python3 scripts/commit_attribution.py audit HEAD
 python3 scripts/commit_attribution.py check HEAD
 ```
 
-The local message check rejects coauthor trailers for the targeted account emails
-case-insensitively without editing the message. `audit` reports reachable trailer
-matches and descendant impact; it is an inventory command and does not fail on
-matches. `check` fails on targeted coauthors or raw author/committer email
-identities anywhere in the selected refs' reachable history. It requires complete
+The local check rejects targeted contributor trailers, standard coding-agent
+footers and agent author/committer email identities without editing the message.
+`audit` reports reachable credit matches and descendant impact without failing on
+matches. `check` fails on targeted identities, credit trailers or footers anywhere
+in the selected refs' reachable history. It requires complete
 history, so a shallow clone must fetch its ancestors first.
 
 The separate **Contributor attribution** workflow runs for every PR, including
 documentation-only changes and title/body edits, for main pushes, and for merge
 groups. It checks GitHub's synthetic PR merge commit and all ancestors, so merging
 an old attributed branch cannot hide behind a clean tip. It also checks PR title
-and body trailers that could become squash text. Event text is read as JSON data,
+and body attribution that could become squash text. Event text is read as JSON data,
 never interpolated into shell commands. Human coauthors and ordinary provider
 mentions remain valid. The check does not rewrite history or remove content.
 

@@ -116,6 +116,12 @@ The CLI's JSON descriptor has `contract_version: 1`, installation identity, stat
 
 Core owns the database helper, API, durable event worker, workspace and their supervisor. Lifecycle operations are locked per installation. PID checks include process creation time. A private authenticated readiness handshake verifies the served installation rather than trusting any process listening on a port.
 
+Voice review uses an installed local browser voice where available. A macOS
+host can synthesize the exact readback offline using its system speech tools.
+For Linux wheel installations, install the system eSpeak NG package if the
+browser lacks local voices. The Core runtime container includes that package.
+No additional cloud text-to-speech credential is needed.
+
 The PostgreSQL helper is pinned to pgserver 0.1.4 in a separate Python 3.12 environment. The helper has native wheels for macOS Intel/Apple Silicon, Linux x86-64, and Windows x86-64; that is not proof that the complete Core dependency set or client installer supports each platform. In particular, the pinned ONNX runtime dependency must be independently resolved and exercised on Intel macOS before advertising that target. Linux ARM and other architectures are not qualified by this launcher. First-launch provisioning and native installers must be tested on each advertised platform before release.
 
 The Integral One desktop host owns Electron and its installers. It calls this public launcher contract and loads the same Core workspace over loopback HTTP; Core contains no Electron or commercial App imports. See [deployment](DEPLOY.md) for hosted environments and [qualification](QUALIFICATION.md) for the separate release gates.

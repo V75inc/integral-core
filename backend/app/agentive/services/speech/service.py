@@ -414,3 +414,51 @@ async def transcribe_attachment_for_agent(
         "model": transcript.model,
         "content_untrusted": True,
     }
+
+
+def speech_credential_binding(cred: SpeechCredential):
+    """Compare the selected credential without retaining it in the call."""
+    return (
+        cred.provider,
+        cred.model,
+        cred.source,
+        hashlib.sha256(cred.api_key.encode()).hexdigest(),
+    )
+
+
+async def transcribe_voice_confirmation(
+    user_id: str, workspace_id: str, audio: bytes, *, expected_binding
+) -> str:
+    """Recognize only a bounded, independently captured voice confirmation."""
+    if await can_access_workspace(user_id, workspace_id) not in _PROVIDER_ROLES:
+        raise SpeechAccessDenied("Voice confirmation unavailable")
+    if not allow("speech.transcribe", user_id, settings.SPEECH_TRANSCRIBE_RATE_LIMIT):
+        raise SpeechRateLimited("Voice confirmation temporarily unavailable")
+    cred = await resolve_speech_credential(workspace_id)
+    provider = _batch_provider(cred)
+    if (
+        not cred
+        or not provider
+        or "audio/wav" not in provider.capabilities.batch_mime_types
+    ):
+        raise SpeechNotConfigured(
+            "Choose a batch-capable Speech to Text model for voice confirmation."
+        )
+    if speech_credential_binding(cred) != expected_binding:
+        raise SpeechNotConfigured("Speech to Text settings changed")
+    if not 44 < len(audio) <= 400_000:
+        raise SpeechProviderFailure("bad_request", "Invalid confirmation recording")
+    transcript = await provider.transcribe(
+        ProviderContext(
+            provider=cred.provider,
+            model=cred.model,
+            api_key=cred.api_key,
+            source=cred.source,
+            safety_id=safety_identifier(user_id),
+        ),
+        audio,
+        mime_type="audio/wav",
+        filename="confirmation.wav",
+        opts=TranscribeOptions(language="en", timeout_seconds=12),
+    )
+    return transcript.text

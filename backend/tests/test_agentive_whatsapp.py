@@ -271,9 +271,38 @@ class TestChannelIdentityService:
 
         user = await _make_user("u_whatsapp_init")
         result = await initiate_link(user.id, "whatsapp", "+15553333333")
-        assert result["otp_code"] is not None
-        assert result["link_token"] is not None
+        assert result["pairing_code"]
         assert result["verified"] is False
+        assert "otp_code" not in result
+        assert "link_token" not in result
+        from app.agentive.nodes import ChannelIdentity
+
+        identity = await ChannelIdentity.get(result["identity_id"])
+        assert (
+            identity.preferences["claim_code_hash"]
+            == hashlib.sha256(result["pairing_code"].encode()).hexdigest()
+        )
+        assert result["pairing_code"] not in str(identity.preferences)
+
+    @pytest.mark.asyncio
+    async def test_pairing_preserves_existing_verified_number(self):
+        from app.agentive.services.channel_identity import (
+            create_channel_identity_with_otp,
+            initiate_link,
+            verify_channel_otp,
+        )
+
+        owner = await _make_user("u_whatsapp_existing_owner")
+        phone = "+15553456789"
+        legacy = await create_channel_identity_with_otp(owner.id, "whatsapp", phone)
+        confirmed = await verify_channel_otp("whatsapp", phone, legacy["otp_code"])
+        assert confirmed["verified"] is True
+
+        result = await initiate_link(owner.id, "whatsapp", phone)
+
+        assert result["verified"] is True
+        assert result["identity_id"] == confirmed["identity_id"]
+        assert "pairing_code" not in result
 
 
 class TestNewMCPTools:

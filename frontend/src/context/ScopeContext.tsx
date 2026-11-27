@@ -1,3 +1,5 @@
+import { useVoiceDepartureGuard } from "../features/ai-chat/useVoiceDepartureGuard";
+import { peekVoiceSession } from "../features/ai-chat/nativeVoiceSession";
 /**
  * ScopeContext — active Workspace.
  *
@@ -50,7 +52,7 @@ interface ScopeContextValue {
   scope: Scope | null;
   workspaces: Workspace[];
   workspacesLoading: boolean;
-  setScope: (next: Scope) => void;
+  setScope: (next: Scope, onAccepted?: () => void, onCancelled?: () => void) => void;
   activeWorkspace: Workspace | null;
   /** Convenience: did the active workspace resolve to a Personal one? */
   isPersonal: boolean;
@@ -191,7 +193,7 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspacesQuery.isSuccess, scopeQuery.isSuccess]);
 
-  const setScope = useCallback(
+  const applyScope = useCallback(
     (next: Scope) => {
       setActiveScopeHeader(`ws:${next.workspaceId}`);
       setScopeState(previous => previous?.workspaceId === next.workspaceId ? previous : next);
@@ -223,6 +225,17 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     },
     [qc, user?.id],
   );
+
+  const { confirmDeparture } = useVoiceDepartureGuard();
+  const setScope = useCallback((next: Scope, onAccepted?: () => void, onCancelled?: () => void) => {
+    const apply = () => { applyScope(next); onAccepted?.(); };
+    const call = peekVoiceSession();
+    if (!call || call.workspaceId === next.workspaceId) { apply(); return; }
+    void confirmDeparture(voice => voice.workspaceId !== next.workspaceId).then(approved => {
+      if (approved) apply();
+      else onCancelled?.();
+    });
+  }, [applyScope, confirmDeparture]);
 
   // Publish header value on every scope change so axios + chat fetch
   // forward ``X-Integral-Scope: ws:<id>`` to the backend.

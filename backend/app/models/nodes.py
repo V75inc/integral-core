@@ -199,6 +199,14 @@ class OperationalModel(Node):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+PROFILE_USER_PREFIX = "n.User.profile-"
+
+
+def is_profile_user_id(value: str) -> bool:
+    """Recognize the reserved profile-user identifier namespace."""
+    return value.startswith(PROFILE_USER_PREFIX)
+
+
 class User(Node):
     """System user profile (AuthUser linked via user_id).
 
@@ -211,6 +219,9 @@ class User(Node):
     """
 
     user_id: str = attribute(default="", indexed=True)
+    # Set only by profile publication. These principals have no AuthUser or login.
+    service_workspace_id: str = ""
+    service_profile_key: str = ""
     display_name: str = ""
     avatar_url: str = ""
     # Phase 9 Plan 09-01 (AVT-01) — FK to the canonical 128px Attachment.
@@ -327,6 +338,19 @@ class Workspace(Node):
     applied_profiles: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class WorkspaceConnectionProfiles(Node):
+    """Private workspace-rooted revision-bound agent profiles and bindings."""
+
+    workspace_id: str = attribute(default="", indexed=True)
+    revision: int = 0
+    profiles: Dict[str, Any] = Field(default_factory=dict)
+    bindings: Dict[str, Any] = Field(default_factory=dict)
+    native_chat_profiles: List[str] = Field(default_factory=list)
+    public_web_chat: Dict[str, Any] = Field(default_factory=dict)
+    # Private, independently validated authoring facts, never a workspace ACL.
+    public_profile_service_identities: Dict[str, Any] = Field(default_factory=dict)
+
+
 class WorkspaceEmailConfiguration(Node):
     """Private, workspace-rooted email drafts and active connection revisions."""
 
@@ -358,6 +382,8 @@ class WorkspaceModelConfiguration(Node):
     embedding_continue_previous_provider: bool = False
     voice_settings: Dict[str, Any] = Field(default_factory=dict)
     voice_settings_revision: int = Field(default=0, ge=0)
+    realtime_voice_settings: Dict[str, Any] = Field(default_factory=dict)
+    realtime_voice_settings_revision: int = Field(default=0, ge=0)
     attachment_settings: Dict[str, Any] = Field(default_factory=dict)
     attachment_settings_revision: int = Field(default=0, ge=0)
 
@@ -563,6 +589,9 @@ class ApplicationDefinition(Node):
     # distinguishes verified materialization from declared-but-not-yet-checked
     # requirements; absence is never interpreted as completion.
     materialization_evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    # A historical receipt produced only by fresh package installation.
+    # This is not a live resource binding or startup readiness assertion.
+    initial_track_materialization: Optional[Dict[str, Any]] = None
     verified_at: Optional[str] = None
     local_overrides: Dict[str, Any] = Field(default_factory=dict)
     compiled_at: Optional[str] = None
@@ -618,6 +647,17 @@ class Track(Node):
     nav_visible: bool = True
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+    def allows_resident_write_permission(self, principal: str, workspace: str) -> bool:
+        """Eligibility for an owner's explicit permission for ordinary record changes."""
+        return bool(
+            principal
+            and workspace
+            and self.owner_id == principal
+            and self.workspace_id == workspace
+            and self.visibility == "private"
+            and not self.kind
+        )
 
 
 class EntryType(Node):
@@ -912,6 +952,7 @@ class ChatThread(Node):
     ChatThread → ChatMessage via ``CONTAINS``.
     """
 
+    agent_profile_key: str = ""
     model_profile_id: str = ""
     model_routing_mode: str = "inherit"
     model_reasoning_efforts: Dict[str, str] = Field(default_factory=dict)

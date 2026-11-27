@@ -45,7 +45,7 @@ async def test_chat_message_with_mock_connector(authenticated_client, monkeypatc
 
     monkeypatch.setattr(uplink_registry, "get_system_agent", mock_get_system)
     monkeypatch.setattr(
-        "app.agentive.api.chat.get_chat_connector",
+        "app.agentive.api.chat.get_chat_agent",
         mock_get_connector,
     )
 

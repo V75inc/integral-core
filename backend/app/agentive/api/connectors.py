@@ -16,9 +16,8 @@ Phase 8 Plan 08-02 Task 3: appends IS_CONNECTED_TO Track binding routes
 All endpoints require an authenticated principal — either a user JWT or the
 service-auth signed envelope (Plan 01-02 hardened middleware enforces D-01).
 
-Routes are auto-registered via ``@endpoint`` from ``jvspatial.api`` (side-effect
-import in ``app/agentive/__init__.py``); the agentive surface is only mounted
-when ``AGENTIVE_ENABLED=1`` at process start (D-08, app/main.py).
+Routes are auto-registered via ``@endpoint`` from ``jvspatial.api``. The
+agentive surface is always mounted.
 """
 
 import asyncio
@@ -77,6 +76,7 @@ from app.schemas.agentive.connectors import (
     McpRegistrySearchResponse,
     MountMcpConnectorRequest,
     MountMcpFromRegistryRequest,
+    StandaloneMcpEnablement,
     UpdateConnectorRequest,
     redact_auth_state,
 )
@@ -93,19 +93,47 @@ from app.services.policy_engine import evaluate as policy_evaluate
 logger = logging.getLogger(__name__)
 
 
-def _derive_conflict_policy(subclass_slug: str) -> Optional[str]:
-    """Read ``conflict_policy`` from the SyncConnector subclass registry.
+def _settings_surface(connector: Any) -> Optional[str]:
+    """Return the post-connect surface from the snapshot, then the package."""
+    from app.connectors.package_runtime import admitted_manifest
 
-    Returns ``None`` when no slug is set or the slug is unregistered. Per A5 of
-    Phase 8 planning context: this is the canonical read-only derivation —
-    ``conflict_policy`` is NEVER persisted on the Connector Node.
+    def declared(source: Any) -> Optional[str]:
+        if not isinstance(source, dict) or "settings_surface" not in source:
+            return None
+        value = source.get("settings_surface")
+        if value in {"labels", "sync_interval"}:
+            return str(value)
+        raise ValueError("package does not declare a settings surface")
+
+    stored = getattr(connector, "package_manifest", None)
+    found = declared(stored)
+    if found:
+        return found
+    package_id = str(getattr(connector, "subclass_slug", "") or "")
+    return declared(admitted_manifest(package_id) if package_id else None)
+
+
+def _derive_conflict_policy(subclass_slug: str, connector: Any = None) -> Optional[str]:
+    """Read ``conflict_policy`` from the installed source, or the registered adapter.
+
+    Returns ``None`` when no slug is set or nothing can sync it. The value is
+    not stored on the Connector node.
     """
-    if not subclass_slug:
+    if not subclass_slug and connector is None:
         return None
     try:
-        from app.services.connectors.registry import get_sync_connector
+        from app.services.connectors.sync_runtime import (
+            adapter_for_connector,
+            adapter_for_slug,
+        )
 
-        instance = get_sync_connector(subclass_slug)
+        instance = (
+            adapter_for_connector(connector)
+            if connector is not None
+            else adapter_for_slug(subclass_slug)
+        )
+        if instance is None:
+            return None
         return getattr(instance, "conflict_policy", "manual_resolve")
     except Exception:
         return None
@@ -132,6 +160,12 @@ def _audit_snapshot(connector: Any) -> Dict[str, Any]:
     }
 
 
+def _legacy_sync_enabled(row):
+    from app.agentive.services.legacy_sync_lifecycle import lifecycle_package
+
+    return not row.legacy_sync_paused if lifecycle_package(row) else None
+
+
 def _to_response(c: Any) -> ConnectorResponse:
     """Project a Connector Node into the wire response shape.
 
@@ -140,9 +174,13 @@ def _to_response(c: Any) -> ConnectorResponse:
     ``conflict_policy`` field (A5 — read-only from the SyncConnector subclass
     registry). ADR-009 — MCP connectors redact ``env``/``headers`` secrets.
     """
+    from app.agentive.services.connector_packages import installed_sync_interval
     from app.schemas.agentive.connectors import mcp_safe_auth_state
 
     subclass_slug = getattr(c, "subclass_slug", "") or ""
+    sync_interval = installed_sync_interval(c)
+    if sync_interval is None:
+        sync_interval = int(getattr(c, "sync_interval_seconds", 300) or 300)
     raw_auth = dict(getattr(c, "auth_state", None) or {})
     if subclass_slug == "mcp" or getattr(c, "kind", None) == "mcp":
         # ADR-005 — redact env/headers value maps (keys stay for UX).
@@ -152,17 +190,14 @@ def _to_response(c: Any) -> ConnectorResponse:
             node_tools = getattr(c, "discovered_tools", None)
             if isinstance(node_tools, list):
                 safe_auth["discovered_tools"] = node_tools
-    elif subclass_slug == "quickbooks":
-        from app.schemas.agentive.quickbooks import quickbooks_safe_auth_state
-
-        safe_auth = quickbooks_safe_auth_state(raw_auth)
-    elif subclass_slug == "gmail":
-        from app.schemas.agentive.gmail import gmail_safe_auth_state
-
-        safe_auth = gmail_safe_auth_state(raw_auth)
     else:
-        # OAuth / API-key material never leaves the server.
-        safe_auth = redact_auth_state(c.auth_state)
+        # Tokens, secrets, and token lifetimes never leave the server.
+        # Provider name does not choose a different redactor.
+        safe_auth = {
+            key: value
+            for key, value in redact_auth_state(raw_auth).items()
+            if not str(key).lower().endswith("_expires_at")
+        }
     return ConnectorResponse(
         id=c.id,
         kind=c.kind,
@@ -172,9 +207,12 @@ def _to_response(c: Any) -> ConnectorResponse:
         mapping_profile=c.mapping_profile,
         permissions=c.permissions,
         capabilities=c.capabilities,
-        conflict_policy=_derive_conflict_policy(subclass_slug),
+        conflict_policy=_derive_conflict_policy(subclass_slug, c),
         subclass_slug=subclass_slug or None,
-        sync_interval_seconds=int(getattr(c, "sync_interval_seconds", 300) or 300),
+        sync_interval_seconds=sync_interval,
+        enabled=bool(getattr(c, "enabled", False)),
+        legacy_sync_enabled=_legacy_sync_enabled(c),
+        standalone_mcp_paused=bool(getattr(c, "standalone_mcp_paused", False)),
         last_synced_at=getattr(c, "last_synced_at", None),
         connection_mode=getattr(c, "connection_mode", "") or "per_user",
         label=getattr(c, "label", "") or "",
@@ -182,6 +220,7 @@ def _to_response(c: Any) -> ConnectorResponse:
         health_status=getattr(c, "health_status", None) or None,
         last_error=getattr(c, "last_error", None),
         last_health_at=getattr(c, "last_health_at", None),
+        settings_surface=_settings_surface(c),
         created_at=c.created_at,
         updated_at=c.updated_at,
     )
@@ -374,6 +413,22 @@ async def install_connector_from_catalog_endpoint(
             details={"slug": slug, "deprecated_in_favor_of": successor or None},
         )
 
+    from app.agentive.services.connector_packages import (
+        _binding_scopes,
+        require_installation_target,
+    )
+    from app.connectors.package_runtime import admitted_manifest
+
+    manifest = admitted_manifest(slug)
+    if manifest:
+        supported_scopes = _binding_scopes(manifest)
+        if len(supported_scopes) > 1 and "connection_mode" not in body.model_fields_set:
+            raise BadRequestError("Choose an installation scope")
+        binding = "workspace" if connection_mode == "shared" else "personal"
+        if binding not in supported_scopes:
+            raise BadRequestError("This package does not support the selected scope")
+        await require_installation_target(user_id, workspace_id, binding)
+
     secrets = dict(body.secrets or {})
     auth_type = entry["auth"]["type"]
     install_kwargs: Dict[str, Any] = {
@@ -386,8 +441,10 @@ async def install_connector_from_catalog_endpoint(
             workspace_id=workspace_id, entry=entry, label=label
         )
 
-    if entry["slug"] == "quickbooks_mcp":
-        return await _catalog_install_quickbooks_mcp_oauth(
+    from app.connectors.package_runtime import stdio_oauth_package
+
+    if stdio_oauth_package(entry["slug"]):
+        return await _catalog_install_stdio_oauth(
             user_id=user_id,
             workspace_id=workspace_id,
             entry=entry,
@@ -1115,7 +1172,6 @@ async def reauthorize_mcp_connector_endpoint(
     from app.agentive.connectors.mcp_oauth import (
         OAUTH_STATUS_PENDING,
         authorization_url_for_oauth,
-        google_oauth_client_credentials,
         mcp_oauth_redirect_uri,
         probe_mcp_authorization,
         sign_mcp_oauth_state,
@@ -1162,20 +1218,42 @@ async def reauthorize_mcp_connector_endpoint(
 
     before_snap = _audit_snapshot(existing)
     catalog_slug = str(auth.get("catalog_slug") or "").strip()
-    oauth_cfg: Dict[str, Any] = {}
-    if catalog_slug:
-        from app.connectors.catalog_loader import get_catalog_entry
+    from app.connectors.package_runtime import admitted_oauth, deployment_setting
 
-        try:
-            entry = await asyncio.to_thread(get_catalog_entry, catalog_slug)
-        except KeyError:
-            entry = {}
-        raw_cfg = entry.get("oauth")
-        oauth_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+    package_auth = admitted_oauth(catalog_slug) if catalog_slug else None
+    if package_auth and package_auth.get("authorize_url"):
+        oauth_cfg = {
+            "authorization_endpoint": package_auth["authorize_url"],
+            "token_endpoint": package_auth.get("token_url") or "",
+            "scopes": list(package_auth.get("scopes") or []),
+            "extra_authorize_params": dict(
+                package_auth.get("extra_authorize_params") or {}
+            ),
+            "token_endpoint_auth_method": (
+                "client_secret_basic"
+                if package_auth.get("client_authentication") == "client_secret_basic"
+                else "client_secret_post"
+            ),
+        }
+    else:
+        oauth_cfg = {}
+        if catalog_slug:
+            from app.connectors.catalog_loader import get_catalog_entry
+
+            try:
+                entry = await asyncio.to_thread(get_catalog_entry, catalog_slug)
+            except KeyError:
+                entry = {}
+            raw_cfg = entry.get("oauth")
+            oauth_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
 
     try:
         if oauth_cfg.get("authorization_endpoint"):
-            env_id, env_secret = google_oauth_client_credentials()
+            package_client = (package_auth or {}).get("client") or {}
+            env_id = deployment_setting(list(package_client.get("id_env") or []))
+            env_secret = deployment_setting(
+                list(package_client.get("secret_env") or [])
+            )
             prior = auth.get("oauth") if isinstance(auth.get("oauth"), dict) else {}
             client_id = str(prior.get("client_id") or "").strip() or env_id
             client_secret = str(prior.get("client_secret") or "").strip() or env_secret
@@ -1411,7 +1489,12 @@ async def list_connector_tools(
             )
             write = bool(spec.get("_native_write", False))
             if not spec.get("_native_tool_name"):
-                write = await asyncio.to_thread(is_write_tool, spec, auth_state=auth)
+                write = await asyncio.to_thread(
+                    is_write_tool,
+                    spec,
+                    auth_state=auth,
+                    manifest=getattr(existing, "package_manifest", None),
+                )
             _emit(
                 key=str(spec.get("key") or ""),
                 name=name,
@@ -1432,7 +1515,12 @@ async def list_connector_tools(
                 continue
             write = bool(spec.get("_native_write", False))
             if not spec.get("_native_tool_name"):
-                write = await asyncio.to_thread(is_write_tool, spec, auth_state=auth)
+                write = await asyncio.to_thread(
+                    is_write_tool,
+                    spec,
+                    auth_state=auth,
+                    manifest=getattr(existing, "package_manifest", None),
+                )
             _emit(
                 key=str(spec.get("key") or ""),
                 name=name,
@@ -1464,52 +1552,32 @@ async def list_connector_tools(
 
 
 def _platform_configured_fields(entry: Dict[str, Any]) -> List[str]:
-    """Auth field names the platform already provides via server env.
+    """Auth field names the admitted package already provides via server env.
 
     Powers the install sheet's Advanced Options toggle: configured fields
     hide by default (the server fills them in), unconfigured ones always
     show. Names only — values never leave the server.
     """
-    import os
+    from app.connectors.package_runtime import admitted_oauth, deployment_setting
 
-    from app.config import settings
-
-    def _set(*names: str) -> bool:
-        for name in names:
-            if (getattr(settings, name, None) or "").strip():
-                return True
-            if (os.getenv(name) or "").strip():
-                return True
-        return False
-
-    slug = entry.get("slug") or ""
     fields = {
         str(f.get("name") or "")
         for f in entry["auth"].get("fields") or []
         if isinstance(f, dict)
     }
+    client = (admitted_oauth(str(entry.get("slug") or "")) or {}).get("client") or {}
     out: List[str] = []
-    if slug in (
-        "google_drive",
-        "google_sheets",
-        "google_gmail",
-        "drive_native",
-        "sheets_native",
-        "gmail",
-    ):
-        if "client_id" in fields and _set(
-            "GOOGLE_OAUTH_CLIENT_ID", "GMAIL_OAUTH_CLIENT_ID"
-        ):
-            out.append("client_id")
-        if "client_secret" in fields and _set(
-            "GOOGLE_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_CLIENT_SECRET"
-        ):
-            out.append("client_secret")
-    elif slug in ("quickbooks", "quickbooks_mcp"):
-        if "client_id" in fields and _set("QUICKBOOKS_CLIENT_ID"):
-            out.append("client_id")
-        if "client_secret" in fields and _set("QUICKBOOKS_CLIENT_SECRET"):
-            out.append("client_secret")
+    pairs = (
+        (str(client.get("id_field") or "client_id"), client.get("id_env") or []),
+        (
+            str(client.get("secret_field") or "client_secret"),
+            client.get("secret_env") or [],
+        ),
+    )
+    for field_name, env_names in pairs:
+        names = [str(name) for name in env_names] if isinstance(env_names, list) else []
+        if field_name in fields and names and deployment_setting(names):
+            out.append(field_name)
     return sorted(out)
 
 
@@ -1621,23 +1689,20 @@ async def _catalog_install_oauth(
     slug = entry["slug"]
     collected = _collect_catalog_secrets(entry, secrets)
     client_id = (collected.get("client_id") or "").strip()
-    if slug == "gmail":
-        from app.services.connectors.gmail_oauth import (
-            _env_client_id as env_oauth_client_id,
-        )
-        from app.services.connectors.gmail_oauth import (
-            build_consent_url,
-        )
-    elif slug == "quickbooks":
-        from app.services.connectors.quickbooks_oauth import (
-            _env_client_id as env_oauth_client_id,
-        )
-        from app.services.connectors.quickbooks_oauth import (
-            build_consent_url,
-        )
-    else:
+    from app.connectors.package_discovery import current_admission, rescan
+    from app.connectors.package_runtime import (
+        consent_url_for_package,
+        deployment_setting,
+    )
+    from app.services.connectors.gmail_oauth import _build_state
+
+    if slug not in current_admission().packages:
+        rescan()
+    auth = (current_admission().packages.get(slug) or {}).get("auth") or {}
+    if auth.get("type") != "oauth2":
         raise BadRequestError(message=f"No OAuth handler for catalog slug {slug!r}")
-    if not client_id and not env_oauth_client_id():
+    client = auth.get("client") if isinstance(auth.get("client"), dict) else {}
+    if not client_id and not deployment_setting(list(client.get("id_env") or [])):
         raise BadRequestError(
             message=(
                 f"{entry['display_name']} Client ID is required. Enter it in "
@@ -1650,23 +1715,53 @@ async def _catalog_install_oauth(
         "display_name": entry["display_name"],
         **collected,
     }
-    connector = await create_connector(
-        owner=user_id,
-        kind="custom",
-        auth_state=auth_state,
-        capabilities=["connector.sync"],
-        workspace_id=workspace_id,
+    workspace_package = connection_mode == "shared" and "workspace" in (
+        current_admission().packages[slug].get("binding", {}).get("scopes", [])
     )
-    impl = (entry.get("implementation") or {}).get("sync_connector_class") or slug
-    connector.subclass_slug = impl
-    connector.workspace_id = workspace_id
-    _apply_install_identity(connector, label=label, connection_mode=connection_mode)
-    await connector.save()
-    url, state = build_consent_url(
-        user_id,
-        client_id=client_id or None,
-        connector_id=connector.id,
-    )
+    if workspace_package:
+        from app.agentive.services.connector_packages import install_package
+
+        declared = {
+            field["key"]
+            for field in current_admission().packages[slug].get("configuration", [])
+        }
+        connector = await install_package(
+            actor_id=user_id,
+            workspace_id=workspace_id,
+            package_id=slug,
+            values={key: value for key, value in collected.items() if key in declared},
+        )
+    else:
+        connector = await create_connector(
+            owner=user_id,
+            kind="custom",
+            auth_state=auth_state,
+            capabilities=["connector.sync"],
+            workspace_id=workspace_id,
+        )
+        impl = (entry.get("implementation") or {}).get("sync_connector_class") or slug
+        connector.subclass_slug = impl
+        connector.legacy_sync_paused = True
+        connector.workspace_id = workspace_id
+        _apply_install_identity(connector, label=label, connection_mode=connection_mode)
+        await connector.save()
+    state = _build_state(user_id, connector_id=connector.id)
+    try:
+        url = consent_url_for_package(
+            slug,
+            stored_client_id=client_id or None,
+            redirect_uri=None,
+            state=state,
+        )
+    except ValueError as exc:
+        raise BadRequestError(
+            message=(
+                f"{entry['display_name']} Client ID is required. Enter it in "
+                f"the install form, or set {exc} on the server."
+            )
+        ) from exc
+    if not url:
+        raise BadRequestError(message=f"No OAuth handler for catalog slug {slug!r}")
 
     await emit_change_event(
         actor_kind="human",
@@ -1688,7 +1783,7 @@ async def _catalog_install_oauth(
     )
 
 
-async def _catalog_install_quickbooks_mcp_oauth(
+async def _catalog_install_stdio_oauth(
     *,
     user_id: str,
     workspace_id: str,
@@ -1697,27 +1792,29 @@ async def _catalog_install_quickbooks_mcp_oauth(
     label: str = "",
     connection_mode: str = "per_user",
 ) -> CatalogInstallResponse:
-    """Start Intuit OAuth, then spawn the local MCP server after callback."""
-    from app.services.connectors.quickbooks_oauth import (
-        _env_client_id as env_oauth_client_id,
+    """Start the package OAuth consent, then spawn the local MCP server after callback."""
+    from app.connectors.package_runtime import (
+        admitted_oauth,
+        consent_url_for_package,
+        deployment_setting,
     )
-    from app.services.connectors.quickbooks_oauth import (
-        build_consent_url,
-    )
+    from app.services.connectors.gmail_oauth import _build_state
 
     collected = _collect_catalog_secrets(entry, secrets)
     client_id = (collected.get("client_id") or "").strip()
-    if not client_id and not env_oauth_client_id():
+    auth = admitted_oauth(entry["slug"]) or {}
+    client = auth.get("client") or {}
+    if not client_id and not deployment_setting(list(client.get("id_env") or [])):
         raise BadRequestError(
             message=(
                 f"{entry['display_name']} Client ID is required. Enter it in "
-                "the install form, or set QUICKBOOKS_CLIENT_ID on the server."
+                "the install form, or set the package client id variable "
+                "on the server."
             )
         )
-    # ``collected`` carries the operator-entered ``client_secret`` from
-    # quickbooks_mcp.yaml. It is needed again at callback time (Intuit's token
-    # exchange), so it stays on ``auth_state`` — but encrypted at rest (F-7),
-    # and the MCP allowlist redactor keeps it off every wire response (F-5).
+    # ``collected`` carries the operator-entered client secret. The callback
+    # needs it for token exchange, so it stays on ``auth_state``, encrypted
+    # at rest, and the MCP allowlist redactor keeps it off every wire response.
     auth_state: Dict[str, Any] = {
         "catalog_slug": entry["slug"],
         "display_name": entry["display_name"],
@@ -1740,11 +1837,25 @@ async def _catalog_install_quickbooks_mcp_oauth(
     connector.health_status = "unknown"
     _apply_install_identity(connector, label=label, connection_mode=connection_mode)
     await connector.save()
-    url, state = build_consent_url(
-        user_id,
-        client_id=client_id or None,
-        connector_id=connector.id,
-    )
+    state = _build_state(user_id, connector_id=connector.id)
+    try:
+        url = consent_url_for_package(
+            entry["slug"],
+            stored_client_id=client_id or None,
+            redirect_uri=None,
+            state=state,
+        )
+    except ValueError as exc:
+        raise BadRequestError(
+            message=(
+                f"{entry['display_name']} Client ID is required. Enter it in "
+                f"the install form, or set {exc} on the server."
+            )
+        ) from exc
+    if not url:
+        raise BadRequestError(
+            message=f"{entry['display_name']} package is not admitted"
+        )
 
     await emit_change_event(
         actor_kind="human",
@@ -1781,8 +1892,13 @@ async def _finish_quickbooks_mcp_oauth(
     )
 
     auth_state = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
+    catalog_slug = str(auth_state.get("catalog_slug") or "")
     try:
-        entry = await asyncio.to_thread(get_catalog_entry, "quickbooks_mcp")
+        entry = (
+            await asyncio.to_thread(get_catalog_entry, catalog_slug)
+            if catalog_slug
+            else {}
+        )
     except KeyError:
         entry = {}
     spawn = spawn_env_from_quickbooks_oauth(
@@ -1817,7 +1933,7 @@ async def _finish_quickbooks_mcp_oauth(
         display_name=str(
             auth_state.get("display_name") or entry.get("display_name") or ""
         ),
-        catalog_slug="quickbooks_mcp",
+        catalog_slug=catalog_slug,
     )
     auth = dict(getattr(connector, "auth_state", None) or {})
     auth["env"] = dict(persist_env)
@@ -1839,12 +1955,28 @@ async def _catalog_install_mcp_oauth(
     from app.agentive.connectors.mcp_adapter import begin_pre_registered_mcp_oauth
     from app.agentive.connectors.mcp_oauth import (
         authorization_url_for_oauth,
-        google_oauth_client_credentials,
         mcp_oauth_redirect_uri,
         start_pre_registered_oauth_session,
     )
+    from app.connectors.package_runtime import admitted_oauth, mcp_mount_fields
 
-    oauth_cfg = entry.get("oauth") or {}
+    package_auth = admitted_oauth(entry["slug"])
+    if package_auth:
+        oauth_cfg = {
+            "authorization_endpoint": package_auth["authorize_url"],
+            "token_endpoint": package_auth["token_url"],
+            "scopes": list(package_auth.get("scopes") or []),
+            "extra_authorize_params": dict(
+                package_auth.get("extra_authorize_params") or {}
+            ),
+            "token_endpoint_auth_method": (
+                "client_secret_basic"
+                if package_auth.get("client_authentication") == "client_secret_basic"
+                else "client_secret_post"
+            ),
+        }
+    else:
+        oauth_cfg = entry.get("oauth") or {}
     if not isinstance(oauth_cfg, dict) or not oauth_cfg.get("authorization_endpoint"):
         raise BadRequestError(
             message=(
@@ -1852,32 +1984,47 @@ async def _catalog_install_mcp_oauth(
                 "Check the package YAML."
             )
         )
-    if (entry.get("transport") or "streamable_http") != "streamable_http":
+    mount = mcp_mount_fields(entry)
+    if mount["transport"] != "streamable_http":
         raise BadRequestError(
             message="Pre-registered MCP OAuth is only supported for HTTP mounts"
         )
-    url = (entry.get("url") or "").strip()
+    url = str(mount["url"] or "").strip()
     if not url:
-        raise BadRequestError(message="MCP catalog entry is missing url")
+        raise BadRequestError(
+            message=f"{entry['display_name']} package is missing an MCP url"
+        )
 
     collected = _collect_catalog_secrets(entry, secrets)
-    env_id, env_secret = google_oauth_client_credentials()
+    client = (
+        (package_auth or {}).get("client")
+        if isinstance((package_auth or {}).get("client"), dict)
+        else {}
+    )
+    from app.connectors.package_runtime import deployment_setting
+
+    env_id = deployment_setting(list(client.get("id_env") or []))
+    env_secret = deployment_setting(list(client.get("secret_env") or []))
     client_id = (collected.get("client_id") or "").strip() or env_id
     client_secret = (collected.get("client_secret") or "").strip() or env_secret
+    id_names = client.get("id_env") if isinstance(client.get("id_env"), list) else []
+    secret_names = (
+        client.get("secret_env") if isinstance(client.get("secret_env"), list) else []
+    )
     if not client_id:
+        missing = id_names[0] if id_names else "the package client id"
         raise BadRequestError(
             message=(
                 f"{entry['display_name']} Client ID is required. Enter it in "
-                "the install form, or set GOOGLE_OAUTH_CLIENT_ID / "
-                "GMAIL_OAUTH_CLIENT_ID on the server."
+                f"the install form, or set {missing} on the server."
             )
         )
     if not client_secret:
+        missing = secret_names[0] if secret_names else "the package client secret"
         raise BadRequestError(
             message=(
                 f"{entry['display_name']} Client secret is required. Enter it "
-                "in the install form, or set GOOGLE_OAUTH_CLIENT_SECRET / "
-                "GMAIL_OAUTH_CLIENT_SECRET on the server."
+                f"in the install form, or set {missing} on the server."
             )
         )
 
@@ -1976,8 +2123,12 @@ async def _catalog_install_sync(
         workspace_id=workspace_id,
     )
     connector.subclass_slug = impl
+    connector.legacy_sync_paused = True
     connector.workspace_id = workspace_id
     _apply_install_identity(connector, label=label, connection_mode=connection_mode)
+    from app.connectors.package_runtime import capture_package_snapshot
+
+    capture_package_snapshot(connector, entry["slug"])
     await connector.save()
     await emit_change_event(
         actor_kind="human",
@@ -2002,8 +2153,11 @@ async def _catalog_install_mcp(
     label: str = "",
     connection_mode: str = "per_user",
 ) -> Any:
+    from app.connectors.package_runtime import mcp_mount_fields
+
     collected = _collect_catalog_secrets(entry, secrets)
-    transport = entry.get("transport") or "streamable_http"
+    mount = mcp_mount_fields(entry)
+    transport = mount["transport"]
     headers: Optional[Dict[str, str]] = None
     env: Optional[Dict[str, str]] = None
     if entry["auth"]["type"] == "headers":
@@ -2018,14 +2172,16 @@ async def _catalog_install_mcp(
             from app.agentive.connectors.mcp_adapter import (
                 mount_mcp_connector as mount_http,
             )
+            from app.connectors.package_runtime import package_requires_mcp_oauth
 
             connector = await mount_http(
                 owner_id=user_id,
                 workspace_id=workspace_id,
-                url=entry.get("url") or "",
+                url=mount["url"],
                 headers=headers,
                 connection_mode=connection_mode,
                 label=label,
+                require_oauth=package_requires_mcp_oauth(entry["slug"]),
             )
         else:
             from app.agentive.connectors.mcp_mount import mount_mcp_connector
@@ -2034,10 +2190,10 @@ async def _catalog_install_mcp(
                 owner_id=user_id,
                 workspace_id=workspace_id,
                 transport=transport,
-                command=entry.get("command"),
-                args=list(entry.get("args") or []),
+                command=mount["command"],
+                args=list(mount["args"]),
                 env=env,
-                url=entry.get("url"),
+                url=mount["url"] or None,
                 headers=headers,
                 display_name=entry["display_name"],
                 catalog_slug=entry["slug"],
@@ -2693,8 +2849,9 @@ async def post_quickbooks_authorize(
     that connector instead of creating a fresh one. The caller MUST own
     the connector (T-01-04-02 mitigation — return 404 on cross-user).
     """
+    from app.connectors.package_runtime import consent_url_for_package
     from app.schemas.agentive.quickbooks import QuickBooksAuthorizeResponse
-    from app.services.connectors.quickbooks_oauth import build_consent_url
+    from app.services.connectors.gmail_oauth import _build_state
 
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -2709,14 +2866,31 @@ async def post_quickbooks_authorize(
                 details={"connector_id": connector_id},
             )
         stored = dict(c.auth_state or {})
+        package_id = _oauth_start_package(c, "quickbooks")
         stored_client_id = stored.get("client_id") or None
+    else:
+        package_id = "quickbooks"
 
-    consent_url, state = build_consent_url(
-        user_id,
-        redirect_uri=redirect_uri,
-        client_id=stored_client_id,
-        connector_id=connector_id,
-    )
+    state = _build_state(user_id, connector_id=connector_id)
+    try:
+        consent_url = consent_url_for_package(
+            package_id,
+            stored_client_id=stored_client_id,
+            redirect_uri=redirect_uri,
+            state=state,
+        )
+    except ValueError as exc:
+        from app.api.errors import ConnectorAuthError
+
+        raise ConnectorAuthError(
+            message=(
+                "QuickBooks Client ID is required. Enter it in the install "
+                f"form, or set {exc} on the server."
+            ),
+            details={"reauth_required": False, "config_missing": str(exc)},
+        ) from exc
+    if consent_url is None:
+        raise BadRequestError(message="No OAuth package 'quickbooks'")
     return QuickBooksAuthorizeResponse(consent_url=consent_url, state=state)
 
 
@@ -2767,7 +2941,10 @@ async def post_quickbooks_callback(
             details={"reauth_required": False, "reason": "state_mismatch"},
         )
 
-    resolved_id = connector_id or connector_id_from_state(state)
+    state_connector_id = connector_id_from_state(state)
+    if connector_id and state_connector_id and connector_id != state_connector_id:
+        raise BadRequestError(message="OAuth state belongs to a different installation")
+    resolved_id = state_connector_id or connector_id
     existing_auth: Dict[str, Any] = {}
     existing_connector = None
     if resolved_id:
@@ -2781,7 +2958,15 @@ async def post_quickbooks_callback(
             )
         # Decrypt is a no-op for plaintext rows; MCP rows store the operator's
         # client_secret encrypted at rest (F-7).
-        existing_auth = decrypt_auth_state(existing_connector.auth_state or {})
+        await _recheck_package_oauth(existing_connector, user_id, state_connector_id)
+        existing_auth = _oauth_installation_credentials(existing_connector)
+        catalog_slug = str(existing_auth.get("catalog_slug") or "")
+        from app.connectors.package_runtime import stdio_oauth_package
+
+        if not _shares_oauth_token_url(
+            catalog_slug, "quickbooks"
+        ) and not stdio_oauth_package(catalog_slug):
+            _require_package_connector(existing_connector, "quickbooks")
 
     token_response = await exchange_code(
         code,
@@ -2789,6 +2974,10 @@ async def post_quickbooks_callback(
         client_id=existing_auth.get("client_id") or None,
         client_secret=existing_auth.get("client_secret") or None,
     )
+    if existing_connector is not None:
+        existing_connector = await _recheck_package_oauth(
+            existing_connector, user_id, state_connector_id
+        )
     now = datetime.now(timezone.utc)
     access_expires_at = now + timedelta(
         seconds=int(token_response.get("expires_in") or 3600)
@@ -2798,16 +2987,29 @@ async def post_quickbooks_callback(
         (now + timedelta(seconds=rt_expires_in)).isoformat() if rt_expires_in else ""
     )
 
-    from app.config import settings
-
-    environment = str(
-        existing_auth.get("environment") or settings.QUICKBOOKS_ENVIRONMENT or "sandbox"
+    from app.connectors.package_runtime import (
+        admitted_manifest,
+        deployment_setting,
+        stdio_oauth_package,
     )
 
-    if (
-        existing_connector is not None
-        and existing_auth.get("catalog_slug") == "quickbooks_mcp"
-    ):
+    catalog_slug = str(existing_auth.get("catalog_slug") or "")
+    package_default = ""
+    for field in (admitted_manifest(catalog_slug) or {}).get("configuration") or []:
+        if (
+            isinstance(field, dict)
+            and field.get("key") == "environment"
+            and field.get("default") not in (None, {})
+        ):
+            package_default = str(field["default"])
+            break
+    environment = str(
+        existing_auth.get("environment")
+        or deployment_setting(["QUICKBOOKS_ENVIRONMENT"])
+        or package_default
+    )
+
+    if existing_connector is not None and stdio_oauth_package(catalog_slug):
         existing_connector.auth_state = encrypt_auth_state(
             {
                 **existing_auth,
@@ -2829,7 +3031,10 @@ async def post_quickbooks_callback(
             existing_connector.updated_at = utc_now_iso()
             await existing_connector.save()
             raise BadRequestError(
-                message=f"QuickBooks MCP mount failed: {detail}",
+                message=(
+                    f"{existing_auth.get('display_name') or catalog_slug} "
+                    f"MCP mount failed: {detail}"
+                ),
                 details={"reason": detail},
             )
         await emit_change_event(
@@ -2859,7 +3064,9 @@ async def post_quickbooks_callback(
         **existing_auth,
         "realm_id": realmId,
         "access_token": token_response.get("access_token") or "",
-        "refresh_token": token_response.get("refresh_token") or "",
+        "refresh_token": token_response.get("refresh_token")
+        or existing_auth.get("refresh_token")
+        or "",
         "access_token_expires_at": access_expires_at.isoformat(),
         "refresh_token_expires_at": refresh_expires_at,
         "environment": environment,
@@ -2867,8 +3074,13 @@ async def post_quickbooks_callback(
 
     # Update existing connector OR create a fresh one.
     if existing_connector is not None:
-        existing_connector.auth_state = new_auth_state
+        existing_connector.auth_state = encrypt_auth_state(
+            new_auth_state, require_key=True
+        )
         existing_connector.subclass_slug = "quickbooks"
+        from app.connectors.package_runtime import capture_package_snapshot
+
+        capture_package_snapshot(existing_connector, "quickbooks", replace=False)
         await existing_connector.save()
         connector = existing_connector
         action = "connector.update"
@@ -2876,8 +3088,12 @@ async def post_quickbooks_callback(
         connector = await create_connector(
             owner=user_id,
             auth_state=new_auth_state,
+            capabilities=["connector.sync"],
         )
         connector.subclass_slug = "quickbooks"
+        from app.connectors.package_runtime import capture_package_snapshot
+
+        capture_package_snapshot(connector, "quickbooks", replace=False)
         await connector.save()
         action = "connector.create"
 
@@ -2908,6 +3124,177 @@ async def post_quickbooks_callback(
 # ---------------------------------------------------------------------------
 
 
+async def _recheck_package_oauth(
+    connector, actor_id: str, state_connector_id: str | None
+):
+    """Recheck current package ownership and revision around token exchange."""
+    if getattr(connector, "mapping_profile", "") != "package":
+        return connector
+    from app.agentive.services.connector_packages import _owned, _require_admitted
+    from app.api.errors import ResourceConflictError
+
+    if state_connector_id != connector.id:
+        raise BadRequestError("OAuth state must identify this installation")
+    fresh = await _owned(connector.id, actor_id, connector.workspace_id)
+    _require_admitted(fresh)
+    if fresh.package_revision != connector.package_revision:
+        raise ResourceConflictError(
+            "Connector configuration changed during authorization"
+        )
+    return fresh
+
+
+def _oauth_installation_credentials(connector) -> Dict[str, Any]:
+    """Read legacy OAuth state and the package's manifest-defined client fields."""
+    state = decrypt_auth_state(connector.auth_state or {})
+    if getattr(connector, "mapping_profile", "") != "package":
+        return state
+    manifest = connector.package_manifest or {}
+    client = (manifest.get("auth") or {}).get("client") or {}
+    config = connector.package_config or {}
+    if config.get("environment") in {"production", "sandbox"}:
+        state["environment"] = config["environment"]
+    for key, target in (("id_field", "client_id"), ("secret_field", "client_secret")):
+        source = client.get(key)
+        if source and (value := state.get(source) or config.get(source)):
+            state[target] = value
+    return state
+
+
+def _shares_oauth_token_url(catalog_slug: str, package_id: str) -> bool:
+    """True when both packages declare the same OAuth token URL."""
+    from app.connectors.package_runtime import admitted_oauth
+
+    provider = admitted_oauth(package_id) or {}
+    token_url = str(provider.get("token_url") or "")
+    other = admitted_oauth(catalog_slug) or {}
+    return bool(token_url) and str(other.get("token_url") or "") == token_url
+
+
+def _declared_action_url(connector, action_name: str) -> str:
+    """Return one action URL from the connector's package. A missing action is refused."""
+    from app.connectors.package_runtime import package_action_url
+
+    stored = dict(getattr(connector, "auth_state", None) or {})
+    package_id = str(
+        stored.get("catalog_slug") or getattr(connector, "subclass_slug", "") or ""
+    )
+    manifest = getattr(connector, "package_manifest", None)
+    url = package_action_url(
+        package_id,
+        action_name,
+        manifest=manifest if isinstance(manifest, dict) else None,
+    )
+    if not url:
+        raise BadRequestError(message="Connector package does not declare this action")
+    return url
+
+
+def _oauth_start_package(connector, provider: str) -> str:
+    """Use the connector package when it declares the provider token URL."""
+    stored = dict(getattr(connector, "auth_state", None) or {})
+    package_id = str(
+        stored.get("catalog_slug") or getattr(connector, "subclass_slug", "") or ""
+    )
+    if _shares_oauth_token_url(package_id, provider):
+        return package_id
+    _require_package_connector(connector, provider)
+    return provider
+
+
+def _require_package_connector(connector, package_id: str) -> None:
+    """Refuse a saved connector that belongs to a different package."""
+    stored = dict(getattr(connector, "auth_state", None) or {})
+    linked = {
+        str(stored.get("catalog_slug") or ""),
+        str(getattr(connector, "subclass_slug", "") or ""),
+    }
+    if package_id not in linked:
+        raise BadRequestError(message="Connector is not this package")
+
+
+@endpoint(
+    "/agentive/connector-packages/{package_id}/oauth/start",
+    methods=["POST"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def post_package_oauth_start(request: Request, package_id: str):
+    """Start OAuth from the admitted package. The package id selects the manifest."""
+    from app.connectors.package_runtime import consent_url_for_package
+    from app.services.connectors.gmail_oauth import _build_state
+
+    if (
+        not package_id
+        or not package_id.replace("_", "").isalnum()
+        or package_id != package_id.lower()
+    ):
+        raise BadRequestError(message="Unknown connector package")
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    connector_id = payload.get("connector_id")
+    if not connector_id:
+        raise BadRequestError(
+            "Add the connector in its intended scope before authorizing"
+        )
+    redirect_uri = payload.get("redirect_uri")
+    owned = await get_connector(str(connector_id))
+    if owned is None or not await connector_owner_is(owned, user_id):
+        raise ResourceNotFoundError(
+            message=f"Connector {connector_id!r} not found",
+            details={"connector_id": connector_id},
+        )
+    _require_package_connector(owned, package_id)
+    if getattr(owned, "mapping_profile", "") == "package":
+        from app.agentive.services.connector_packages import _owned
+        from app.services.scope_header import parse_scope_header
+
+        scope = parse_scope_header(request.headers.get("X-Integral-Scope"))
+        if not scope or scope.get("workspace_id") != owned.workspace_id:
+            raise BadRequestError("An exact workspace scope is required")
+        await _owned(owned.id, user_id, owned.workspace_id)
+        from app.agentive.services.connector_packages import start_package_mcp_oauth
+        from app.connectors.package_runtime import admitted_manifest
+
+        manifest = admitted_manifest(package_id) or {}
+        if manifest.get("auth", {}).get("type") == "mcp_oauth":
+            return {
+                "consent_url": await start_package_mcp_oauth(
+                    owned.id, user_id, owned.workspace_id, package_id
+                )
+            }
+
+    stored_client_id = _oauth_installation_credentials(owned).get("client_id") or None
+    state = _build_state(user_id, connector_id=str(connector_id))
+    try:
+        url = consent_url_for_package(
+            package_id,
+            stored_client_id=stored_client_id,
+            redirect_uri=str(redirect_uri) if redirect_uri else None,
+            state=state,
+        )
+    except ValueError as exc:
+        from app.api.errors import ConnectorAuthError
+
+        raise ConnectorAuthError(
+            message=(
+                "Client ID is required. Enter it on the connector, "
+                f"or set {exc} on the server."
+            ),
+            details={"reauth_required": False, "config_missing": str(exc)},
+        ) from exc
+    if url is None:
+        raise BadRequestError(message=f"No OAuth package {package_id!r}")
+    return {"consent_url": url, "state": state}
+
+
 @endpoint(
     "/agentive/connectors/gmail/oauth/start",
     methods=["POST"],
@@ -2920,8 +3307,9 @@ async def post_gmail_oauth_start(
     redirect_uri: Optional[str] = None,
 ):
     """Build Google's consent URL + return it with a signed CSRF state token."""
+    from app.connectors.package_runtime import consent_url_for_package
     from app.schemas.agentive.gmail import GmailOAuthStartResponse
-    from app.services.connectors.gmail_oauth import build_consent_url
+    from app.services.connectors.gmail_oauth import _build_state
 
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -2934,13 +3322,30 @@ async def post_gmail_oauth_start(
                 message=f"Connector {connector_id!r} not found",
                 details={"connector_id": connector_id},
             )
+        package_id = _oauth_start_package(c, "gmail")
         stored_client_id = dict(c.auth_state or {}).get("client_id") or None
-    url, state = build_consent_url(
-        user_id,
-        redirect_uri=redirect_uri,
-        client_id=stored_client_id,
-        connector_id=connector_id,
-    )
+    else:
+        package_id = "gmail"
+    state = _build_state(user_id, connector_id=connector_id)
+    try:
+        url = consent_url_for_package(
+            package_id,
+            stored_client_id=stored_client_id,
+            redirect_uri=redirect_uri,
+            state=state,
+        )
+    except ValueError as exc:
+        from app.api.errors import ConnectorAuthError
+
+        raise ConnectorAuthError(
+            message=(
+                "Gmail Client ID is required. Enter it in the install form, "
+                f"or set {exc} on the server."
+            ),
+            details={"reauth_required": False, "config_missing": str(exc)},
+        ) from exc
+    if url is None:
+        raise BadRequestError(message="No OAuth package 'gmail'")
     return GmailOAuthStartResponse(consent_url=url, state=state)
 
 
@@ -2982,7 +3387,10 @@ async def post_gmail_oauth_callback(
             message="Gmail OAuth callback rejected — state token invalid or expired",
             details={"reauth_required": False, "reason": "state_mismatch"},
         )
-    resolved_id = connector_id or connector_id_from_state(state)
+    state_connector_id = connector_id_from_state(state)
+    if connector_id and state_connector_id and connector_id != state_connector_id:
+        raise BadRequestError(message="OAuth state belongs to a different installation")
+    resolved_id = state_connector_id or connector_id
     existing_auth: Dict[str, Any] = {}
     existing_connector = None
     if resolved_id:
@@ -2994,13 +3402,21 @@ async def post_gmail_oauth_callback(
                 message=f"Connector {resolved_id!r} not found",
                 details={"connector_id": resolved_id},
             )
-        existing_auth = dict(existing_connector.auth_state or {})
+        await _recheck_package_oauth(existing_connector, user_id, state_connector_id)
+        existing_auth = _oauth_installation_credentials(existing_connector)
+        catalog_slug = str(existing_auth.get("catalog_slug") or "")
+        if not _shares_oauth_token_url(catalog_slug, "gmail"):
+            _require_package_connector(existing_connector, "gmail")
     token_response = await exchange_code(
         code,
         redirect_uri=redirect_uri,
         client_id=existing_auth.get("client_id") or None,
         client_secret=existing_auth.get("client_secret") or None,
     )
+    if existing_connector is not None:
+        existing_connector = await _recheck_package_oauth(
+            existing_connector, user_id, state_connector_id
+        )
     now = datetime.now(timezone.utc)
     access_expires_at = now + timedelta(
         seconds=int(token_response.get("expires_in") or 3600)
@@ -3008,14 +3424,25 @@ async def post_gmail_oauth_callback(
     new_auth_state: Dict[str, Any] = {
         **existing_auth,
         "access_token": token_response.get("access_token") or "",
-        "refresh_token": token_response.get("refresh_token") or "",
+        "refresh_token": token_response.get("refresh_token")
+        or existing_auth.get("refresh_token")
+        or "",
         "access_token_expires_at": access_expires_at.isoformat(),
         "labels": existing_auth.get("labels") or [],
         "consent_acknowledged": bool(existing_auth.get("consent_acknowledged")),
     }
     if existing_connector is not None:
-        existing_connector.auth_state = new_auth_state
-        existing_connector.subclass_slug = "gmail"
+        existing_connector.auth_state = encrypt_auth_state(
+            new_auth_state, require_key=True
+        )
+        package_id = (
+            catalog_slug if _shares_oauth_token_url(catalog_slug, "gmail") else "gmail"
+        )
+        if package_id == "gmail":
+            existing_connector.subclass_slug = "gmail"
+        from app.connectors.package_runtime import capture_package_snapshot
+
+        capture_package_snapshot(existing_connector, package_id, replace=False)
         await existing_connector.save()
         connector = existing_connector
         action = "connector.update"
@@ -3023,8 +3450,12 @@ async def post_gmail_oauth_callback(
         connector = await create_connector(
             owner=user_id,
             auth_state=new_auth_state,
+            capabilities=["connector.sync"],
         )
         connector.subclass_slug = "gmail"
+        from app.connectors.package_runtime import capture_package_snapshot
+
+        capture_package_snapshot(connector, "gmail", replace=False)
         await connector.save()
         action = "connector.create"
 
@@ -3046,6 +3477,175 @@ async def post_gmail_oauth_callback(
     )
 
 
+def _declared_read_action(connector: Any, action_name: str) -> None:
+    """Refuse a name the package does not declare as a read action."""
+    import re
+
+    from app.connectors.package_runtime import admitted_manifest
+
+    if not re.fullmatch(r"[a-z][a-z0-9_]{0,40}", action_name or ""):
+        raise BadRequestError(
+            message="Connector package does not declare this read action"
+        )
+    stored = dict(getattr(connector, "auth_state", None) or {})
+    package_id = str(
+        stored.get("catalog_slug") or getattr(connector, "subclass_slug", "") or ""
+    )
+    manifest = getattr(connector, "package_manifest", None)
+    sources = []
+    if isinstance(manifest, dict):
+        sources.append(manifest)
+    admitted = admitted_manifest(package_id) or {}
+    if admitted not in sources:
+        sources.append(admitted)
+    for source in sources:
+        for action in (source.get("capabilities") or {}).get("actions") or []:
+            if (
+                isinstance(action, dict)
+                and action.get("name") == action_name
+                and action.get("effect") == "read"
+            ):
+                return
+    raise BadRequestError(message="Connector package does not declare this read action")
+
+
+@endpoint(
+    "/agentive/connectors/{connector_id}/actions/{action_name}",
+    methods=["GET"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def get_connector_read_action(
+    request: Request, connector_id: str, action_name: str
+):
+    """Return the JSON body of one declared read action."""
+    import httpx
+
+    from app.agentive.services.connector_registry_node import decrypt_auth_state
+    from app.api.errors import ConnectorAuthError
+    from app.connectors.package_runtime import (
+        package_action_request,
+        package_http,
+        perform_request,
+    )
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    connector = await get_connector(connector_id)
+    if connector is None or not await connector_owner_is(connector, user_id):
+        raise ResourceNotFoundError(
+            message=f"Connector {connector_id!r} not found",
+            details={"connector_id": connector_id},
+        )
+    _declared_read_action(connector, action_name)
+    stored = decrypt_auth_state(connector.auth_state or {})
+    package_id = str(
+        stored.get("catalog_slug") or getattr(connector, "subclass_slug", "") or ""
+    )
+    manifest = getattr(connector, "package_manifest", None)
+    snapshot = manifest if isinstance(manifest, dict) else None
+    action_request = package_action_request(package_id, action_name, snapshot)
+    if not isinstance(action_request, dict) or not action_request.get("path"):
+        raise BadRequestError(
+            message="Connector package does not declare this read action"
+        )
+    if str(action_request.get("method") or "").upper() != "GET":
+        raise BadRequestError(message="Read action must use GET")
+    access_token = stored.get("access_token") or ""
+    if not access_token:
+        raise ConnectorAuthError(
+            message="Connector has no access token",
+            details={"reauth_required": True},
+        )
+    sent = dict(action_request)
+    headers = dict(sent.get("headers") or {})
+    headers["Authorization"] = f"Bearer {access_token}"
+    sent["headers"] = headers
+    http = dict(package_http(package_id, snapshot))
+    if not str(http.get("base_url") or "").strip():
+        raise BadRequestError(message="package does not declare a host")
+    host = {"http": http, "auth": {"type": "none"}}
+    config = dict(getattr(connector, "package_config", None) or {})
+    try:
+        body = await perform_request(host, sent, config, {})
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        raise ConnectorAuthError(
+            message=f"Read action returned {status}",
+            details={
+                "status_code": status,
+                "reauth_required": status == 401,
+            },
+        ) from exc
+    return {"body": body if isinstance(body, (dict, list)) else {}}
+
+
+@endpoint(
+    "/agentive/connectors/{connector_id}/configuration",
+    methods=["POST"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def save_connector_configuration(request: Request, connector_id: str):
+    """Merge declared non-secret settings into the saved connector state."""
+    from app.connectors.package_runtime import admitted_manifest
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    connector = await get_connector(connector_id)
+    if connector is None or not await connector_owner_is(connector, user_id):
+        raise ResourceNotFoundError(
+            message=f"Connector {connector_id!r} not found",
+            details={"connector_id": connector_id},
+        )
+    raw = await request.json()
+    values = raw.get("values") if isinstance(raw, dict) else None
+    if not isinstance(values, dict):
+        raise BadRequestError(message="Configuration values must be an object")
+    stored_auth = dict(connector.auth_state or {})
+    package_id = str(
+        stored_auth.get("catalog_slug") or getattr(connector, "subclass_slug", "") or ""
+    )
+    manifest = connector.package_manifest
+    source = (
+        manifest
+        if isinstance(manifest, dict)
+        else (admitted_manifest(package_id) or {})
+    )
+    fields = {
+        field["key"]: field
+        for field in (source.get("configuration") or [])
+        if isinstance(field, dict) and field.get("key")
+    }
+    state = dict(connector.auth_state or {})
+    for key, value in values.items():
+        field = fields.get(key)
+        if not isinstance(field, dict) or field.get("type") == "secret":
+            raise BadRequestError(message="Unknown configuration field")
+        if field.get("type") == "number" and key == "sync_interval_seconds":
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise BadRequestError(message="Sync interval must be a number")
+            connector.sync_interval_seconds = max(60, int(value))
+            continue
+        if not field.get("options_from"):
+            raise BadRequestError(message="Unknown configuration field")
+        if field.get("multiple"):
+            if not isinstance(value, list) or not all(
+                isinstance(item, str) and item for item in value
+            ):
+                raise BadRequestError(message="Selection must be a list of choices")
+            state[key] = list(value)
+        elif isinstance(value, str):
+            state[key] = value
+        else:
+            raise BadRequestError(message="Selection must be one choice")
+    connector.auth_state = encrypt_auth_state(state)
+    await connector.save()
+    return {"connector_id": connector.id}
+
+
 @endpoint(
     "/agentive/connectors/{connector_id}/gmail/labels",
     methods=["GET"],
@@ -3054,47 +3654,19 @@ async def post_gmail_oauth_callback(
 )
 async def get_gmail_labels(request: Request, connector_id: str):
     """List the connected Gmail account's labels."""
-    import httpx
-
-    from app.api.errors import ConnectorAuthError
     from app.schemas.agentive.gmail import GmailLabel, GmailLabelsResponse
 
-    user_id = resolve_principal_id(request)
-    if not user_id:
-        raise MissingAuthenticationError(message="Authentication required")
-    c = await get_connector(connector_id)
-    if c is None or not await connector_owner_is(c, user_id):
-        raise ResourceNotFoundError(
-            message=f"Connector {connector_id!r} not found",
-            details={"connector_id": connector_id},
-        )
-    access_token = (c.auth_state or {}).get("access_token") or ""
-    if not access_token:
-        raise ConnectorAuthError(
-            message="Gmail connector has no access_token — complete OAuth first",
-            details={"reauth_required": True},
-        )
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(
-            "https://gmail.googleapis.com/gmail/v1/users/me/labels",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-    if resp.status_code != 200:
-        raise ConnectorAuthError(
-            message=f"Gmail labels endpoint returned {resp.status_code}",
-            details={
-                "status_code": resp.status_code,
-                "reauth_required": resp.status_code == 401,
-            },
-        )
-    body = resp.json() or {}
+    result = await get_connector_read_action(request, connector_id, "list_labels")
+    body = result.get("body") if isinstance(result, dict) else {}
+    rows = body.get("labels") if isinstance(body, dict) else []
     out_labels = [
         GmailLabel(
             id=str(lbl.get("id") or ""),
             name=str(lbl.get("name") or ""),
             type=str(lbl.get("type") or "user"),
         )
-        for lbl in body.get("labels") or []
+        for lbl in rows or []
+        if isinstance(lbl, dict)
     ]
     return GmailLabelsResponse(labels=out_labels)
 
@@ -3133,6 +3705,7 @@ async def post_gmail_set_labels(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},
         )
+    _declared_read_action(c, "list_labels")
     if not isinstance(label_ids, list) or not all(
         isinstance(x, str) for x in label_ids
     ):
@@ -3147,7 +3720,7 @@ async def post_gmail_set_labels(
     new_state["consent_acknowledged"] = bool(consent_acknowledged)
     if consent_acknowledged:
         new_state["consent"] = consent_marker
-    c.auth_state = new_state
+    c.auth_state = encrypt_auth_state(new_state, require_key=True)
     await c.save()
     await emit_change_event(
         actor_kind="human",
@@ -3165,3 +3738,69 @@ async def post_gmail_set_labels(
         consent_acknowledged=bool(consent_acknowledged),
         auth_state=gmail_safe_auth_state(c.auth_state or {}),
     )
+
+
+@endpoint(
+    "/agentive/connectors/{connector_id}/standalone-mcp-enabled",
+    methods=["PUT"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def set_standalone_mcp_enabled(request: Request, connector_id: str) -> dict:
+    """Toggle an authorized standalone MCP installation."""
+    from app.agentive.connectors.mcp_mount import (
+        set_standalone_mcp_enabled as change_state,
+    )
+
+    return await _legacy_connector_enablement(request, connector_id, change_state)
+
+
+@endpoint(
+    "/agentive/connectors/{connector_id}/legacy-sync-enabled",
+    methods=["PUT"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def set_legacy_sync_enabled(request: Request, connector_id: str) -> dict:
+    """Toggle an authorized legacy sync installation."""
+    from app.agentive.services.legacy_sync_lifecycle import set_enabled
+
+    return await _legacy_connector_enablement(
+        request, connector_id, set_enabled, exact_scope=True
+    )
+
+
+async def _legacy_connector_enablement(
+    request, connector_id, change_state, *, exact_scope=False
+):
+    actor = resolve_principal_id(request)
+    if not actor:
+        raise MissingAuthenticationError(message="Authentication required")
+    try:
+        change = StandaloneMcpEnablement.model_validate(await request.json())
+    except ValueError:
+        raise BadRequestError("Invalid connector enablement") from None
+
+    async def authorized_row():
+        row = await get_connector(connector_id)
+        await _require_owner_or_shared_admin(row, actor)
+        await _require_connector_workspace_authority(actor, row)
+        if exact_scope:
+            from app.services.scope_header import parse_scope_header
+
+            selected = parse_scope_header(request.headers.get("X-Integral-Scope"))
+            if not selected or selected["workspace_id"] != row.workspace_id:
+                raise BadRequestError("An exact workspace scope is required")
+        decision = await policy_evaluate(
+            subject=Subject(kind="human", id=actor),
+            action="connector.update",
+            resource=Resource(
+                kind="connector", id=connector_id, scope=f"connector:{connector_id}"
+            ),
+        )
+        if not decision.allowed:
+            raise InsufficientPermissionsError("connector.update denied")
+        return row
+
+    await change_state(await authorized_row(), change.enabled, authorized_row)
+    return {"enabled": change.enabled}

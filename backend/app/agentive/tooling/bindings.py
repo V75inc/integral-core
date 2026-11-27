@@ -2872,6 +2872,17 @@ async def _stage_call_workspace_tool(args: Dict[str, Any]) -> Dict[str, Any]:
     await require_workspace_tool_access(
         user_id=_bound_propose_principal(), workspace_id=workspace_id, spec=spec
     )
+    if spec.get("_package_installation_id"):
+        if batched:
+            raise ValueError("Package actions take a single input.")
+        output = await invoke_workspace_tool(
+            user_id=_bound_propose_principal(),
+            workspace_id=workspace_id,
+            tool_key=tool_key,
+            payload=inputs[0],
+            agent=True,
+        )
+        return {"_no_stage": True, "data": {"tool_key": tool_key, "output": output}}
     if batched:
         schema = spec.get("parameters_schema") or spec.get("input_schema") or {}
         # Validate the complete literal set before creating a proposal. Single
@@ -3927,7 +3938,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         service_param_map=_pick("target_kind", "target_id", "view_id"),
     ),
     "integral_list_workspaces": ToolBinding(
-        _h("app.api.workspaces", "list_workspaces")
+        _h("app.api.workspaces", "list_workspaces"), _pick("limit")
     ),
     "integral_list_apps": ToolBinding(
         _h("app.api.apps", "list_apps"), _pick("cursor", "limit")

@@ -32,12 +32,16 @@ interface ViewTabsProps<V extends string = string> {
   onChange: (next: V) => void;
   className?: string;
   ariaLabel?: string;
+  /** Prefix for tab IDs and their associated panel IDs. */
+  idPrefix?: string;
   /** Right-anchored slot for action buttons (e.g. "+ New entry"). */
   actions?: ReactNode;
   /** When true, omit the built-in ``border-b`` on the tab row. Use
    *  when a parent element supplies a full-bleed divider (Notion-style
    *  page rule) that the tabs sit on top of. */
   noBorder?: boolean;
+  /** Divide the available rail width evenly among the tabs. */
+  stretch?: boolean;
   /**
    * ``sm`` tightens padding, type and the count badge for narrow hosts —
    * the entry dialog's ~360px companion column, where three default-size
@@ -53,11 +57,14 @@ interface ViewTabsProps<V extends string = string> {
   onReorder?: (orderedValues: V[]) => void;
 }
 
-function SortableTabShell({ id, enabled, children }: { id: string; enabled: boolean; children: ReactNode }) {
+function SortableTabShell({ id, enabled, stretch, children }: {
+  id: string; enabled: boolean; stretch: boolean; children: ReactNode;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !enabled });
   return (
     <div
       ref={setNodeRef}
+      className={stretch ? 'flex min-w-0 flex-1' : undefined}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1, zIndex: isDragging ? 1 : undefined }}
       {...(enabled ? { ...attributes, ...listeners } : {})}
       // The tab button inside stays the ARIA tab; the shell only carries the drag handlers.
@@ -75,8 +82,10 @@ export function ViewTabs<V extends string = string>({
   onChange,
   className = '',
   ariaLabel,
+  idPrefix,
   actions,
   noBorder = false,
+  stretch = false,
   size = 'md',
   onReorder,
 }: ViewTabsProps<V>) {
@@ -149,19 +158,21 @@ export function ViewTabs<V extends string = string>({
     >
       <div
         ref={scrollerRef}
-        className={`flex items-end overflow-x-auto -mb-px ${compact ? 'gap-1' : 'gap-2'}`}
+        className={`flex overflow-x-auto -mb-px ${stretch ? 'min-w-0 flex-1 items-stretch' : 'items-end'} ${compact ? 'gap-1' : 'gap-2'}`}
       >
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={options.map(o => o.value)} strategy={horizontalListSortingStrategy}>
         {options.map((o) => {
           const active = o.value === value;
           return (
-            <SortableTabShell key={o.value} id={o.value} enabled={Boolean(onReorder) && !o.disabled}>
+            <SortableTabShell key={o.value} id={o.value} enabled={Boolean(onReorder) && !o.disabled} stretch={stretch}>
             <button
               ref={el => {
                 tabRefs.current[o.value] = el;
               }}
               role="tab"
+              id={idPrefix ? `${idPrefix}-tab-${o.value}` : undefined}
+              aria-controls={idPrefix ? `${idPrefix}-panel-${o.value}` : undefined}
               aria-selected={active}
               // Roving tabindex — only the active tab is in the page's Tab
               // order; the rest are reachable via the arrow keys above.
@@ -171,7 +182,8 @@ export function ViewTabs<V extends string = string>({
               title={o.title}
               onClick={() => !o.disabled && onChange(o.value)}
               className={[
-                'inline-flex items-center font-medium whitespace-nowrap',
+                'inline-flex items-center font-medium',
+                stretch ? 'min-h-11 w-full justify-center text-center leading-tight [overflow-wrap:anywhere]' : 'whitespace-nowrap',
                 compact
                   ? 'gap-1 px-2 py-2 text-xs'
                   : 'gap-1.5 px-4 py-3 text-sm',

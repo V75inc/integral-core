@@ -41,8 +41,24 @@ from app.services.permissions import get_user_node
 from app.utils.time import utc_now_iso
 
 
+async def _directory_workspace(request: Request) -> str:
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.workspace_permissions import can_access_workspace
+
+    principal = resolve_principal_id(request)
+    workspace = await resolve_workspace_id_from_request(request, principal)
+    if workspace and await can_access_workspace(principal, workspace) in (
+        "member",
+        "admin",
+        "owner",
+    ):
+        return workspace
+    return ""
+
+
 @endpoint("/users", methods=["GET"], auth=True, tags=["Users"])
 async def list_users(
+    request: Request,
     page: int = 1,
     per_page: int = 10,
     search: Optional[str] = None,
@@ -77,7 +93,14 @@ async def list_users(
         page_size = 10
     page_size = max(1, min(page_size, 100))
 
-    filters: Dict[str, Any] = {}
+    service_workspace = await _directory_workspace(request)
+    choices = [
+        {"context.service_workspace_id": {"$exists": False}},
+        {"context.service_workspace_id": ""},
+    ]
+    if service_workspace:
+        choices.append({"context.service_workspace_id": service_workspace})
+    filters: Dict[str, Any] = {"$or": choices}
     if search:
         filters["context.display_name"] = {
             "$regex": re.escape(search),
@@ -124,7 +147,7 @@ async def list_users(
 
 
 @endpoint("/users/{user_id}", methods=["GET"], auth=True, tags=["Users"])
-async def get_user(user_id: str) -> Dict[str, Any]:
+async def get_user(request: Request, user_id: str) -> Dict[str, Any]:
     """Get a specific user by ID.
 
     Visibility: Any authenticated user can view any user's profile. This supports
@@ -138,7 +161,10 @@ async def get_user(user_id: str) -> Dict[str, Any]:
         User information (id, display_name, email if linked, etc.)
     """
     user = await User.get(user_id)
-    if not user:
+    if not user or (
+        user.service_workspace_id
+        and user.service_workspace_id != await _directory_workspace(request)
+    ):
         raise ResourceNotFoundError(message="User not found")
 
     # Never full-export User — preferences hold reset/OTP hashes and phones.

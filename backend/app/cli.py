@@ -100,7 +100,11 @@ With a launcher-enabled Core wheel:
 integral up --apps ./integral-apps
 ```
 
-Run from this distro directory, or provide its absolute App path. Core
+Run from this distro directory, or provide its absolute App path. With either
+form, Core discovers declarative packages in the sibling `integral-connectors/`
+directory. Create a starter with `integral connectors new --kind actions acme_crm`
+from this distro directory, validate it, then use Settings → Connectors → Rescan.
+Core
 manages its own private PostgreSQL and web interface; no separate services
 are needed. Operator settings for this managed installation live in its
 `settings.env`, independently of the distro `.env` below.
@@ -219,6 +223,7 @@ POSTGRES_HOST=localhost
 POSTGRES_PORT=5433
 POSTGRES_DB=integral
 INTEGRAL_PACKAGE_PATHS={apps_dir}
+INTEGRAL_CONNECTOR_PATHS={apps_dir.parent / "integral-connectors"}
 INTEGRAL_CORE_ONLY=0
 DEBUG=true
 # JVSPATIAL_PORT=4010
@@ -283,6 +288,11 @@ def init_distro(
         raise FileExistsError(f"refusing to overwrite {listed} (pass --force)")
 
     apps.mkdir(parents=True, exist_ok=True)
+    connectors = dest / "integral-connectors"
+    connectors.mkdir(exist_ok=True)
+    keep = connectors / ".gitkeep"
+    if not keep.exists():
+        keep.touch()
     if bundle is None:
         keep = apps / ".gitkeep"
         if not keep.exists():
@@ -340,7 +350,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             lifecycle.add_argument("--no-open", action="store_true")
             lifecycle.add_argument(
-                "--apps", type=Path, help="External App discovery directory"
+                "--apps",
+                type=Path,
+                help="App discovery directory; Core also discovers its sibling integral-connectors/",
             )
         elif command == "logs":
             lifecycle.add_argument(
@@ -384,7 +396,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     export.add_argument("--output", type=Path, required=True)
     init = sub.add_parser(
-        "init", help="Write an App distro (.env, README, integral-apps/)"
+        "init",
+        help="Write a distro (.env, README, integral-apps/, integral-connectors/)",
     )
     init.add_argument(
         "dest",
@@ -402,6 +415,38 @@ def main(argv: list[str] | None = None) -> int:
         "--name", default="", help="Display name for --slug (default: from the slug)"
     )
     init.add_argument("--force", action="store_true", help="Overwrite generated files")
+    connectors = sub.add_parser(
+        "connectors", help="Validate, scaffold, or migrate connector packages"
+    )
+    connector_commands = connectors.add_subparsers(dest="connector_cmd", required=True)
+    validate = connector_commands.add_parser(
+        "validate", help="Check a connector package against the manifest contract"
+    )
+    validate.add_argument("directory", type=Path)
+    migrate_credentials_parser = connector_commands.add_parser(
+        "migrate-credentials",
+        help="Rewrite connector credentials in a stopped deployment",
+    )
+    migrate_credentials_parser.add_argument("--dry-run", action="store_true")
+    migrate_credentials_parser.add_argument("--reverse", action="store_true")
+    migrate_catalog_parser = connector_commands.add_parser(
+        "migrate-catalog",
+        help="Adopt existing catalog connectors in a stopped deployment",
+    )
+    migrate_catalog_parser.add_argument("--dry-run", action="store_true")
+    migrate_catalog_parser.add_argument("--reverse", action="store_true")
+    create = connector_commands.add_parser(
+        "new", help="Write a declarative connector package scaffold"
+    )
+    create.add_argument("package_id")
+    create.add_argument(
+        "--kind", required=True, choices=["actions", "mcp", "sync", "channel"]
+    )
+    create.add_argument(
+        "--directory",
+        type=Path,
+        help="Parent directory for the package (default: ./integral-connectors).",
+    )
     web = sub.add_parser("web", help="Serve the built React workspace")
     web.add_argument(
         "dest",
@@ -477,6 +522,52 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     args = parser.parse_args(argv)
+    if args.cmd == "connectors":
+        from app.connectors.package_discovery import (
+            scaffold_package,
+            validate_package_dir,
+        )
+
+        if args.connector_cmd == "new":
+            parent = (args.directory or Path("integral-connectors")).resolve()
+            reason = scaffold_package(
+                parent / args.package_id, args.package_id, args.kind
+            )
+            if reason:
+                print(reason, file=sys.stderr)
+                return 1
+            print(f"Created {args.package_id}")
+            return 0
+        if args.connector_cmd in {"migrate-credentials", "migrate-catalog"}:
+            import asyncio
+
+            from app.services.connectors import catalog_migration, credential_migration
+            from app.services.db_init import init_prime_db
+
+            migration = (
+                catalog_migration
+                if args.connector_cmd == "migrate-catalog"
+                else credential_migration
+            )
+
+            init_prime_db()
+            try:
+                changed = asyncio.run(
+                    migration.migrate(reverse=args.reverse, dry_run=args.dry_run)
+                )
+            except RuntimeError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            verb = "would change" if args.dry_run else "changed"
+            print(f"Connectors {verb} {changed}")
+            return 0
+        directory = args.directory.resolve()
+        reason = validate_package_dir(directory)
+        if reason:
+            print(reason, file=sys.stderr)
+            return 1
+        print(f"{directory.name}: ok")
+        return 0
     if args.cmd == "storage-upgrade":
         return native_upgrade.run_cli(args)
     if args.cmd == "indexes":

@@ -19,7 +19,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from app.models.edges import HAS_POLICY
-from app.models.nodes import Policy
+from app.models.nodes import Policy, is_profile_user_id
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,15 @@ async def _resolve_subject_node(subject_kind: str, subject_id: str) -> Optional[
 
         return await get_user_node(subject_id)
     if subject_kind == "agent":
+        if is_profile_user_id(subject_id):
+            from app.services.permissions import get_user_node
+
+            user = await get_user_node(subject_id)
+            return (
+                user
+                if user and user.service_workspace_id and not user.user_id
+                else None
+            )
         try:
             from app.agentive.nodes import AgentConfig
 

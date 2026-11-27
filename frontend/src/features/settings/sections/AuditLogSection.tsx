@@ -12,8 +12,8 @@ import { fetchAuditLog, type AuditLogEvent } from '../../../api/auditLog';
 import { Button } from '../../../components/ui/Button';
 import { EmptyState } from '../../../components/ui/EmptyState';
 import { Skeleton } from '../../../components/ui/Skeleton';
-import { SettingsSection } from '../components/Field';
 import { Input, Select, Surface, Text } from '../../../ui';
+import { SettingsPagePanel } from '../components/SettingsPageHeader';
 
 function parseHashFilters(hash: string): {
   action: string;
@@ -87,7 +87,7 @@ export function AuditLogSection() {
   const events = query.data?.events ?? [];
 
   return (
-    <SettingsSection
+    <SettingsPagePanel
       title="Audit log"
       description="Workspace ChangeEvents you are permitted to see. Use filters to diagnose policy denials and failed operations without database access."
     >
@@ -249,6 +249,6 @@ export function AuditLogSection() {
           })}
         </ul>
       )}
-    </SettingsSection>
+    </SettingsPagePanel>
   );
 }

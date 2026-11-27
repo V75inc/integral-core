@@ -8,14 +8,27 @@ import subprocess
 from pathlib import Path
 
 AGENT_EMAIL = (
-    rb"(?:cursoragent@cursor\.com|noreply@anthropic\.com|"
-    rb"(?:[0-9]+\+)?(?:cursoragent|claude)@users\.noreply\.github\.com)"
+    rb"(?:cursoragent@cursor\.com|noreply@anthropic\.com|noreply@openai\.com|"
+    rb"(?:[0-9]+\+)?(?:cursoragent|claude|codex)@users\.noreply\.github\.com)"
 )
 AGENT_IDENTITY = re.compile(AGENT_EMAIL, re.IGNORECASE)
 AGENT_TRAILER = re.compile(
-    rb"^co-authored-by:[ \t]*[^\r\n]*<" + AGENT_EMAIL + rb">[ \t]*\r?$",
+    rb"^(?:co-authored-by|authored-by|signed-off-by|assisted-by):[ \t]*[^\r\n]*<"
+    + AGENT_EMAIL
+    + rb">[ \t]*\r?$",
     re.IGNORECASE | re.MULTILINE,
 )
+AGENT_FOOTER = re.compile(
+    rb"^[ \t]*(?:\xf0\x9f\xa4\x96[ \t]*)?(?:Generated|Created|Written) (?:with|by)[ \t]+"
+    rb"(?:\[?(?:Claude Code|Codex|Cursor(?: Agent)?|ChatGPT|GitHub Copilot))"
+    rb"(?:\]\([^\r\n)]*\))?[.!]?[ \t]*\r?$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def has_agent_credit(message):
+    """Recognize contributor trailers and conventional coding-agent footers."""
+    return bool(AGENT_TRAILER.search(message) or AGENT_FOOTER.search(message))
 
 
 def check(refs, event=None):
@@ -45,10 +58,12 @@ def check(refs, event=None):
                 violations.append({"commit": sha, "field": role})
         if AGENT_TRAILER.search(fields[i + 3]):
             violations.append({"commit": sha, "field": "coauthor"})
+        if AGENT_FOOTER.search(fields[i + 3]):
+            violations.append({"commit": sha, "field": "footer"})
     if event is not None and "pull_request" in event:
         pr = event["pull_request"]
         for field in ("title", "body"):
-            if AGENT_TRAILER.search((pr.get(field) or "").encode("utf-8")):
+            if has_agent_credit((pr.get(field) or "").encode("utf-8")):
                 violations.append({"field": "pull_request." + field})
     return {
         "heads": resolved,
@@ -58,7 +73,7 @@ def check(refs, event=None):
 
 
 def audit(ref):
-    """Count direct matches and descendants whose IDs a message rewrite changes."""
+    """Count direct matches and descendants whose IDs a credit rewrite changes."""
     resolved = subprocess.check_output(
         ["git", "rev-parse", "--verify", "--end-of-options", ref + "^{commit}"],
         text=True,
@@ -69,22 +84,36 @@ def audit(ref):
             "log",
             "--reverse",
             "--topo-order",
-            "--format=%H%x00%P%x00%B%x00",
+            "--format=%H%x00%P%x00%ae%x00%ce%x00%B%x00",
             resolved,
         ]
     ).split(b"\0")
     changed = set()
     affected = []
+    affected_identities = []
     trailers = 0
+    footers = 0
     count = 0
-    for i in range(0, len(fields) - 1, 3):
+    for i in range(0, len(fields) - 1, 5):
         sha = fields[i].strip().decode("ascii")
         parents = fields[i + 1].decode("ascii").split()
-        matches = AGENT_TRAILER.findall(fields[i + 2])
-        if matches:
+        matches = AGENT_TRAILER.findall(fields[i + 4])
+        footer_matches = AGENT_FOOTER.findall(fields[i + 4])
+        identity = any(
+            AGENT_IDENTITY.fullmatch(email) for email in fields[i + 2 : i + 4]
+        )
+        if matches or footer_matches:
             affected.append(sha)
             trailers += len(matches)
-        if matches or any(parent in changed for parent in parents):
+            footers += len(footer_matches)
+        if identity:
+            affected_identities.append(sha)
+        if (
+            matches
+            or footer_matches
+            or identity
+            or any(parent in changed for parent in parents)
+        ):
             changed.add(sha)
         count += 1
     return {
@@ -93,6 +122,8 @@ def audit(ref):
         "commits": count,
         "affected_messages": len(affected),
         "matching_trailers": trailers,
+        "matching_footers": footers,
+        "affected_identities": affected_identities,
         "rewrite_commit_count": len(changed),
         "affected_commits": affected,
     }
@@ -114,10 +145,17 @@ def main():
     gate.add_argument("--event", type=Path, help="GitHub event JSON for PR title/body")
     args = parser.parse_args()
     if args.command == "message":
-        if AGENT_TRAILER.search(args.path.read_bytes()):
+        if has_agent_credit(args.path.read_bytes()):
             parser.exit(
-                1, "Remove Cursor/Claude coauthor trailers from this commit message.\n"
+                1, "Remove coding-agent attribution from this commit message.\n"
             )
+        for role in ("AUTHOR", "COMMITTER"):
+            ident = subprocess.check_output(["git", "var", f"GIT_{role}_IDENT"])
+            email = ident.rsplit(b"<", 1)[-1].split(b">", 1)[0]
+            if AGENT_IDENTITY.fullmatch(email):
+                parser.exit(
+                    1, f"Use an authorized human Git {role.lower()} identity.\n"
+                )
     elif args.command == "audit":
         print(json.dumps([audit(ref) for ref in args.refs], indent=2))
     else:

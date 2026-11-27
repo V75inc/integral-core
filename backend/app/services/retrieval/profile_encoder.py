@@ -6,10 +6,12 @@ import asyncio
 import json
 import math
 import os
+import re
 
 import httpx
 
 from app.services.credential_crypto import decrypt_secret_from_storage
+from app.services.model_provider_endpoints import GEMINI_API_BASE
 
 from .embedding_store import EmbeddingStoreUnavailable
 
@@ -53,6 +55,7 @@ async def encode_profile(texts: list[str], profile, *, require_active: bool = Tr
             raise ValueError("Invalid embedding batch")
         endpoints = {
             "openai": "https://api.openai.com/v1",
+            "gemini": GEMINI_API_BASE,
             "openrouter": "https://openrouter.ai/api/v1",
             "ollama": "https://ollama.com",
             "ollama_local": os.getenv("OLLAMA_API_BASE", "http://localhost:11434"),
@@ -67,14 +70,32 @@ async def encode_profile(texts: list[str], profile, *, require_active: bool = Tr
 
             base = normalize_custom_base_url(base)
         ollama = connection.provider in {"ollama", "ollama_local"}
+        gemini = connection.provider == "gemini"
+        path = "/api/embed" if ollama else "/embeddings"
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
         body = {"model": profile.model, "input": texts}
-        if ollama:
+        if gemini:
+            if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}", profile.model):
+                raise ValueError("Invalid Gemini model ID")
+            name = f"models/{profile.model}"
+            path = f"/{name}:batchEmbedContents"
+            headers = {"x-goog-api-key": key}
+            body = {
+                "requests": [
+                    {
+                        "model": name,
+                        "content": {"parts": [{"text": text}]},
+                        "outputDimensionality": profile.dimensions,
+                    }
+                    for text in texts
+                ]
+            }
+        elif ollama:
             body.update(truncate=False, dimensions=profile.dimensions)
         else:
             body["encoding_format"] = "float"
             if profile.model.split("/")[-1].startswith("text-embedding-3-"):
                 body["dimensions"] = profile.dimensions
-        headers = {"Authorization": f"Bearer {key}"} if key else {}
         headers["Accept-Encoding"] = "identity"
         timeout = httpx.Timeout(30, connect=5)
         client: httpx.AsyncClient
@@ -100,7 +121,7 @@ async def encode_profile(texts: list[str], profile, *, require_active: bool = Tr
         async with asyncio.timeout(deadline), client:
             async with client.stream(
                 "POST",
-                base.rstrip("/") + ("/api/embed" if ollama else "/embeddings"),
+                base.rstrip("/") + path,
                 json=body,
                 headers=headers,
             ) as response:
@@ -117,7 +138,9 @@ async def encode_profile(texts: list[str], profile, *, require_active: bool = Tr
                         raise ValueError("Embedding response exceeds its byte budget")
                     chunks.append(chunk)
                 data = json.loads(b"".join(chunks))
-        if ollama:
+        if gemini:
+            vectors = [entry["values"] for entry in data["embeddings"]]
+        elif ollama:
             vectors = data["embeddings"]
         else:
             items = sorted(data["data"], key=lambda item: item["index"])

@@ -331,6 +331,8 @@ async def transition_staged_decision(
         updates = {"state": target, "resolved_at": now.isoformat()}
         if decision_source is not None:
             updates["decision_source"] = decision_source
+            if target == "blessed" and decision_source == "resident_permission":
+                updates["autonomy_grant_used"] = True
         if target == "blessed":
             updates.update(
                 blessed_at=now.isoformat(),
@@ -388,6 +390,7 @@ async def _write_locked_decision(database, *, row, data, updates, expires):
                     "user_id": user_id,
                     "state": target,
                     "kind": data["kind"],
+                    **staging_store.decision_conversation_fields(data),
                     "superseded_by": updates.get("superseded_by"),
                     "intent_fingerprint": staging_store.decision_intent_fingerprint(
                         data

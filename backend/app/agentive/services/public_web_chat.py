@@ -1,0 +1,193 @@
+"""Private route lifecycle for the first hosted public text channel.
+
+The future hosted adapter must establish an opaque visitor identity before it
+opens a scope. This service never runs a model.
+"""
+
+from dataclasses import dataclass
+
+from pydantic import ValidationError
+
+from app.agentive.services import profile_management
+from app.agentive.services.connection_profiles import ProfileDenied
+from app.agentive.services.profile_host import profile_host
+from app.api.errors import BadRequestError
+from app.schemas.agentive.connection_profiles import PublicWebChatRoute
+
+
+def eligible_publication(profiles, key):
+    """Return only an eligible tool-free public publication for this exact key."""
+    published = profiles.get(key, {}).get("published")
+    if not profile_management.eligible_public_web_chat_profile(published):
+        return None
+    version = published.get("version")
+    if published.get("key") != key or type(version) is not int or version < 1:
+        return None
+    return published
+
+
+async def transport_ready(workspace: str) -> bool:
+    """Readiness is supplied by the trusted host, never by the request body."""
+    try:
+        check = profile_host().public_web_chat_ready
+        return check is not None and await check(workspace) is True
+    except ProfileDenied:
+        return False
+
+
+async def describe(actor: str, workspace: str) -> dict:
+    """Return guarded workspace settings for this surface."""
+    await profile_management.require_profile_manager(actor, workspace)
+    found = await profile_management.record(workspace)
+    route = PublicWebChatRoute.model_validate(found.public_web_chat if found else {})
+    profiles = found.profiles if found else {}
+    available = []
+    for key in profiles:
+        published = eligible_publication(profiles, key)
+        if published is not None:
+            available.append({"key": key, "name": published["name"]})
+    ready = await transport_ready(workspace)
+    return {
+        "revision": found.revision if found else 0,
+        "profile_key": route.profile_key,
+        "enabled": route.enabled,
+        "transport_ready": ready,
+        "active": (
+            route.enabled
+            and ready
+            and eligible_publication(profiles, route.profile_key) is not None
+        ),
+        "eligible_profiles": sorted(
+            available, key=lambda item: (item["name"].casefold(), item["key"])
+        ),
+    }
+
+
+async def assign_profile(
+    actor: str, workspace: str, revision: int, profile_key: str | None
+) -> None:
+    """Change the assignment of a disabled route without enabling it."""
+
+    async def assign(profiles, _bindings, _native, route):
+        if route.provision_id is not None:
+            raise BadRequestError("Configure installed Web Chat through its connector")
+        if route.enabled:
+            raise BadRequestError("Disable Public Web Chat before changing its profile")
+        if profile_key is not None:
+            if eligible_publication(profiles, profile_key) is None:
+                raise BadRequestError(
+                    "Select a published public profile without tool capabilities"
+                )
+        if route.profile_key != profile_key:
+            route.profile_key = profile_key
+            route.generation += 1
+
+    await profile_management.mutate_config(actor, workspace, revision, assign)
+
+
+async def set_enabled(
+    actor: str,
+    workspace: str,
+    revision: int,
+    enabled: bool,
+    *,
+    transport_ready: bool,
+) -> None:
+    """Change availability independently. Readiness belongs to the trusted host."""
+
+    async def change(profiles, _bindings, _native, route):
+        if route.provision_id is not None:
+            raise BadRequestError("Configure installed Web Chat through its connector")
+        if enabled:
+            if (
+                not transport_ready
+                or eligible_publication(profiles, route.profile_key) is None
+            ):
+                raise BadRequestError(
+                    "Public Web Chat needs a ready transport and an eligible published profile"
+                )
+        if route.enabled != enabled:
+            route.enabled = enabled
+            route.generation += 1
+
+    await profile_management.mutate_config(actor, workspace, revision, change)
+
+
+@dataclass(frozen=True)
+class PublicWebChatScope:
+    """Server-owned conversation association, scoped to the hosted visitor."""
+
+    workspace_id: str
+    visitor_id: str
+    profile_key: str
+    published_version: int
+    route_generation: int
+
+
+async def admit(
+    workspace: str,
+    visitor: str,
+    *,
+    transport_ready: bool,
+    existing: PublicWebChatScope | None = None,
+    expected_provision_id: str | None = None,
+) -> PublicWebChatScope:
+    """Check admission before loading history or starting a model turn."""
+
+    if not workspace or not visitor or not transport_ready:
+        raise ProfileDenied("Public Web Chat unavailable")
+    try:
+        found = await profile_management.record(workspace)
+        route = PublicWebChatRoute.model_validate(
+            found.public_web_chat if found else {}
+        )
+    except (BadRequestError, ValidationError):
+        raise ProfileDenied("Public Web Chat unavailable") from None
+    if (
+        not route.enabled
+        or not route.profile_key
+        or found is None
+        or route.provision_id != expected_provision_id
+    ):
+        raise ProfileDenied("Public Web Chat unavailable")
+    published = eligible_publication(found.profiles, route.profile_key)
+    if published is None or not await profile_management.live_public_service_identity(
+        found, route.profile_key, published["version"]
+    ):
+        raise ProfileDenied("Public Web Chat unavailable")
+    scope = PublicWebChatScope(
+        workspace, visitor, route.profile_key, published["version"], route.generation
+    )
+    if existing is not None and existing != scope:
+        raise ProfileDenied("Conversation unavailable")
+    return scope
+
+
+async def set_appearance(actor, workspace, change):
+    """Save a presentation preference without rotating the public route."""
+
+    async def update(_profiles, _bindings, _native, route):
+        if (route.provision_id, str(route.generation)) != (
+            change.provision_id,
+            change.route_epoch,
+        ):
+            raise BadRequestError(
+                "Web Chat installation changed. Reload and try again."
+            )
+        route.theme = change.theme
+
+    await profile_management.mutate_config(
+        actor, workspace, change.expected_profile_revision, update
+    )
+
+
+async def visitor_theme(provision, epoch):
+    """Read the theme only for the current public provision generation."""
+    found = await profile_management.record(provision.workspace_id)
+    route = PublicWebChatRoute.model_validate(found.public_web_chat if found else {})
+    if route.enabled and (route.provision_id, str(route.generation)) == (
+        provision.provision_id,
+        epoch,
+    ):
+        return route.theme
+    return "system"

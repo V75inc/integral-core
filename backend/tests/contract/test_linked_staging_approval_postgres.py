@@ -147,6 +147,8 @@ async def test_racing_approval_insert_rechecks_existing_intent(
         ("chat_turn", "rejected"),
         ("chat_turn", "expired"),
         ("chat_turn", "worker_park"),
+        ("chat_turn", "resident_grant"),
+        ("chat_turn", "resident_broker"),
         ("chat_turn", "worker_reject"),
     ],
 )
@@ -183,6 +185,14 @@ async def test_native_deferred_frontier_with_real_broker_approval(
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         auth, workspace, track, unrelated = await proposal()
         await staging.revoke_token(user_id=auth.id, token=unrelated.token)
+        if intervention in {"resident_grant", "resident_broker"}:
+            from app.services.resident_permissions import set_permission
+
+            track.owner_id = auth.id
+            track.visibility = "private"
+            await track.save()
+            await set_permission(auth.id, workspace.id, track.id, "")
+
         if work_kind == "chat_turn":
             from app.services.chat_threads import create_thread
 
@@ -259,6 +269,39 @@ async def test_native_deferred_frontier_with_real_broker_approval(
             await ensure_harness_session(
                 scope=scope, binding_id="pydantic_ai_v1", work_execution_context=context
             )
+        if intervention == "resident_broker":
+            from unittest.mock import AsyncMock
+
+            notify = AsyncMock()
+            monkeypatch.setattr(staging, "_push_created_event", notify)
+            tool_context = _tool_work_context(
+                context, "create-once", "integral_create_entry"
+            )
+            invocation = dict(
+                principal_id=auth.id,
+                workspace_id=workspace.id,
+                capability_key="integral_create_entry",
+                origin="chat",
+                source="core",
+                op_class="propose",
+                arguments={"track_id": track.id, "title": "Authorized record"},
+                run_id=context.run_id,
+                session_id=thread,
+                work_execution_context=tool_context,
+                idempotency_key="permission-probe",
+            )
+            for replay in (False, True):
+                result = await capability_broker.invoke_declared_capability(
+                    **invocation
+                )
+                assert result.ok and result.replayed is replay, result
+                assert (
+                    result.data["state"] == "consumed"
+                    and result.data["decision_source"] == "resident_permission"
+                )
+            notify.assert_not_awaited()
+            assert len(await Entry.find({"track_id": track.id})) == 1
+            return
         store = ScopedStepStore(
             store=JvSpatialStepStore(scope=scope),
             scope=scope,
@@ -267,7 +310,7 @@ async def test_native_deferred_frontier_with_real_broker_approval(
         broker_results = []
 
         async def integral_create_entry(ctx: RunContext, track_id: str, title: str):
-            if intervention in {"worker_park", "worker_reject"}:
+            if intervention in {"worker_park", "worker_reject", "resident_grant"}:
                 from app.agentive.harness.broker_tools import _make_handler
 
                 handler = _make_handler(
@@ -324,7 +367,7 @@ async def test_native_deferred_frontier_with_real_broker_approval(
                 StepPersistence(store=store, run_id=scope.run_id, capture_frontier=True)
             ],
         )
-        if intervention in {"worker_park", "worker_reject"}:
+        if intervention in {"worker_park", "worker_reject", "resident_grant"}:
             import tempfile
 
             from pydantic_ai import Tool
@@ -422,6 +465,18 @@ async def test_native_deferred_frontier_with_real_broker_approval(
             parked = await execute_claimed_work(
                 claimed, worker_id="deferred-probe", lease_seconds=60
             )
+            if intervention == "resident_grant":
+                assert parked.status == "queued"
+                assert (
+                    await work_approvals.get_pending_by_work_item(item.work_item_id)
+                    is None
+                ), parked.failure
+                assert len(await Entry.find({"track_id": track.id})) == 1
+                assert not published
+                assert (await postgres_raw_db.get("object", item.id))["context"][
+                    "status"
+                ] == "queued"
+                return
             assert parked.status == "waiting_for_human", parked.failure
             approval = await work_approvals.get_pending_by_work_item(item.work_item_id)
             assert (

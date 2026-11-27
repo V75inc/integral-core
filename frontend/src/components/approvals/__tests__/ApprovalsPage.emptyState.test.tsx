@@ -8,6 +8,7 @@
  * page's own logic, which the component-level test cannot reach.
  */
 
+import { StrictMode } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -56,12 +57,12 @@ const stagedChange = {
   expires_at: new Date(0).toISOString(),
 };
 
-function renderPage() {
+function renderPage(strict = false) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <ConfirmProvider><MemoryRouter>
-        <ApprovalsPage />
+        {strict ? <StrictMode><ApprovalsPage /></StrictMode> : <ApprovalsPage />}
       </MemoryRouter></ConfirmProvider>
     </QueryClientProvider>,
   );
@@ -79,15 +80,25 @@ afterEach(() => {
 });
 
 describe('ApprovalsPage empty state', () => {
+  it('publishes the initial proposal read when StrictMode replays mount effects', async () => {
+    renderPage(true);
+    expect(await screen.findByText('No pending approvals')).toBeVisible();
+    expect(screen.getByText('All clear')).toBeVisible();
+    expect(agentiveApi.listPendingStagedChanges).toHaveBeenCalledTimes(1);
+  });
+
   it('does not announce all clear while the proposal read is still loading', async () => {
     let release!: (rows: never[]) => void;
     vi.mocked(agentiveApi.listPendingStagedChanges).mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
     renderPage();
     expect(await screen.findByText('Checking approvals…')).toBeInTheDocument();
+    await waitFor(() => expect(approvalsApi.listApprovals).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('status', { name: 'Loading approvals' })).toBeVisible();
     expect(screen.queryByText('All clear')).not.toBeInTheDocument();
     expect(screen.queryByText('No pending approvals')).not.toBeInTheDocument();
     await act(async () => release([]));
     expect(await screen.findByText('All clear')).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading approvals' })).not.toBeInTheDocument();
   });
 
   it('does not declare an unreadable proposal queue empty', async () => {

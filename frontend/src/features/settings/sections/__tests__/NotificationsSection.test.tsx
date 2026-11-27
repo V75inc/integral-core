@@ -40,8 +40,6 @@ import {
   useUpdateNotificationPreferences,
 } from '../../../../api/notificationPreferences';
 import type { NotificationPreferences } from '../../../../api/notificationPreferences';
-vi.mock('../../../../components/settings/WhatsAppSettings', () => ({ WhatsAppSettings: () => <button>Link WhatsApp number</button> }));
-
 import { NotificationsSection } from '../NotificationsSection';
 
 const mockedFetch = fetchNotificationPreferences as unknown as ReturnType<
@@ -175,8 +173,16 @@ describe('<NotificationsSection />', () => {
       expect(cell).toBeDisabled();
     }
     // A "verify phone" link must be present.
-    expect(
-      screen.getByRole('link', { name: /verify phone/i }),
-    ).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: /verify phone/i });
+    expect(link).toHaveAttribute('href', '#whatsapp');
+    const navigateToSection = vi.fn();
+    cleanup();
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <NotificationsSection navigateToSection={navigateToSection} />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole('link', { name: /verify phone/i }));
+    expect(navigateToSection).toHaveBeenCalledWith('whatsapp');
   });
 });
