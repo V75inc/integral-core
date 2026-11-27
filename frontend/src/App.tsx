@@ -1,9 +1,10 @@
+import { VoiceRouteGuard } from "./features/ai-chat/VoiceRouteGuard";
 import { useHostSessionNotification } from './components/system/useHostSessionNotification';
 import { useDeployment } from './hooks/useDeployment';
 import { AppCatalogRedirect } from './components/apps/AppCatalogRedirect';
 import { HostAccessPage } from './host/access';
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { createRoutesFromElements, useRoutes, Route, Navigate, useLocation, type RouteObject } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import { AgentiveProvider } from './context/AgentiveContext';
 import { Layout } from './components/layout';
@@ -250,31 +251,16 @@ function SystemConnectivityWatchers() {
   return null;
 }
 
-export default function App() {
+function RoutedPages({ routes }: { routes: RouteObject[] }) { return useRoutes(routes); }
+
+export default function App({ guardVoiceNavigation = false }: { guardVoiceNavigation?: boolean } = {}) {
   // Pathname doubles as the error boundary's reset key: navigating away from a
   // route that threw clears the panel instead of leaving it pinned across the
   // whole app. Found in smoke testing — see AppErrorBoundary.componentDidUpdate.
   const { pathname } = useLocation();
   const { singleUser } = useDeployment();
-  return (
-    <AgentiveProvider>
-    <SystemNotificationsProvider>
-    <SystemConnectivityWatchers />
-    <SystemNotificationBar />
-    {/* Single global squeeze wrapper — pushes every route (public auth
-        pages AND in-app Layout) down when the system bar mounts, so
-        the squeeze animation is consistent app-wide. */}
-    <div
-      className="system-bar-layout"
-      style={{ paddingTop: 'var(--system-bar-h, 0px)' }}
-    >
-    {/* Inside Suspense so a failed lazy() chunk lands here rather than
-        unmounting the app, and inside the provider so the boundary can
-        report through the system bar. Nested under the bar + squeeze
-        wrapper so the chrome survives a route-level crash. */}
-    <AppErrorBoundary scope="routes" resetKey={pathname}>
-    <Suspense fallback={<PageFallback />}>
-    <Routes>
+  const routes = createRoutesFromElements(
+    <>
       <Route path="/login" element={singleUser ? <HostAccessPage /> : <LoginPage />} />
       <Route path="/signup" element={singleUser ? <HostAccessPage /> : <SignupPage />} />
       <Route path="/forgot-password" element={singleUser ? <HostAccessPage /> : <ForgotPasswordPage />} />
@@ -333,7 +319,7 @@ export default function App() {
           </RequireAuth>
         }
       />
-      <Route path="/" element={
+      <Route id="workspace-shell" path="/" element={
         <RequireAuth><Layout /></RequireAuth>
       }>
         <Route
@@ -397,7 +383,28 @@ export default function App() {
         <Route path="background-tasks" element={<BackgroundTasksPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    </>
+  );
+  return (
+    <AgentiveProvider>
+    <SystemNotificationsProvider>
+    {guardVoiceNavigation && <VoiceRouteGuard routes={routes} />}
+    <SystemConnectivityWatchers />
+    <SystemNotificationBar />
+    {/* Single global squeeze wrapper — pushes every route (public auth
+        pages AND in-app Layout) down when the system bar mounts, so
+        the squeeze animation is consistent app-wide. */}
+    <div
+      className="system-bar-layout"
+      style={{ paddingTop: 'var(--system-bar-h, 0px)' }}
+    >
+    {/* Inside Suspense so a failed lazy() chunk lands here rather than
+        unmounting the app, and inside the provider so the boundary can
+        report through the system bar. Nested under the bar + squeeze
+        wrapper so the chrome survives a route-level crash. */}
+    <AppErrorBoundary scope="routes" resetKey={pathname}>
+    <Suspense fallback={<PageFallback />}>
+    <RoutedPages routes={routes} />
     </Suspense>
     </AppErrorBoundary>
     </div>

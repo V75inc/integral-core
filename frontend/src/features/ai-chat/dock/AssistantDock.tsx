@@ -36,10 +36,10 @@ export function AssistantDock() {
     if (!fullPage) returnPage.current = pathname + search + hash;
   }, [fullPage, pathname, search, hash]);
   const isMdUp = useIsMdUp();
-  const { open, width, openDock, closeDock, setWidth, setResizing } = useAssistantDock();
+  const { open, width, openDock, closeDock, suppressDock, setWidth, setResizing } = useAssistantDock();
   useEffect(() => {
-    if (fullPage) closeDock();
-  }, [fullPage, closeDock]);
+    if (fullPage) suppressDock();
+  }, [fullPage, suppressDock]);
 
   // Only the mobile sheet blocks the viewport; the desktop dock is a
   // companion column and must not make toasts flee to the other corner.

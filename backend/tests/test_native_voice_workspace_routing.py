@@ -103,6 +103,7 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
         )
         assert [tool["name"] for tool in config["tools"]] == [
             native_voice.DELEGATE,
+            native_voice.DELEGATE_ACTION,
             native_voice.CHECK_CHAT,
             *(
                 [
@@ -131,6 +132,7 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
                 if not profile
                 else []
             ),
+            native_voice.END_CALL,
         ]
         await provider.inbox.put({"type": "session.updated"})
         assert (await event(browser.outbox))["thread_id"] == scope.thread

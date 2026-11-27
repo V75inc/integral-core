@@ -1,3 +1,4 @@
+import { useVoiceSession } from "../nativeVoiceSession";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Maximize2, Menu, Minimize2, X } from "lucide-react";
@@ -61,6 +62,7 @@ export default function AssistantDockBody({ onClose, fullPage, onCollapse }: Ass
   const isMdUp = useIsMdUp();
   const rail = fullPage && isMdUp;
   const workspace = scope?.workspaceId;
+  const voice = useVoiceSession();
   const deepLink = fullPage ? new URLSearchParams(location.search).get("thread") : null;
   // Keep the boundary key across layout changes. A new explicit thread link
   // still selects a new runtime, including while this surface is already open.
@@ -72,7 +74,7 @@ export default function AssistantDockBody({ onClose, fullPage, onCollapse }: Ass
     const scopeChanged = (target.current.workspace && target.current.workspace !== workspace)
       || (target.current.principal && target.current.principal !== principal);
     target.current = { workspace, principal, linkKey: location.key, threadId: scopeChanged ? null : deepLink };
-  } else if (deepLink && location.key !== target.current.linkKey) {
+  } else if (deepLink && location.key !== target.current.linkKey && !(voice?.surface === "dock" && voice.threadId === deepLink)) {
     target.current = { workspace, principal, linkKey: location.key, threadId: deepLink };
   }
   const { onboarding, view, setView } = useAssistantDock();

@@ -38,6 +38,12 @@ Use jvspatial Object for log-shaped/scalar-keyed records that have no meaningful
 
 ### I-RUNTIME-01 — Bounded repeated work
 
+Managed PostgreSQL serving processes use a pre-provisioned reviewed index
+catalog and a restricted DML role. Automatic index creation can be disabled
+without weakening mandatory startup catalog verification. Index builds and
+retirements belong to the reviewed maintenance lifecycle, never ordinary
+request or worker execution. See [governed storage](backend/governed-indexes.md).
+
 Async request/worker paths offload pure synchronous source parsing, manifest
 compilation, document rendering and image processing. Graph operations,
 transactions and authorization remain on the originating asyncio Task. Do not

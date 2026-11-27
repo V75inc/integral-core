@@ -65,6 +65,13 @@ For a local container stack:
 docker compose up --build -d
 ```
 
+The local Compose configuration provisions the
+[reviewed storage catalog](docs/backend/governed-indexes.md#fresh-installs-and-recovery)
+in a separate maintenance container and launches the API with a restricted
+serving role and automatic index creation disabled. An existing database
+without a catalog needs a reviewed migration before the API starts. See the
+deployment runbook for preserving its volume.
+
 The bootstrap generates private keys including `JVSPATIAL_JWT_SECRET_KEY`. Keep `.env` private and retain those keys across upgrades. Review configuration before exposing the installation; the [deployment runbook](docs/ops/DEPLOY.md) covers containers and hosted environments.
 
 ## How it fits together

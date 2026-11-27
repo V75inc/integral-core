@@ -78,3 +78,31 @@ it("keeps the live composer when a voice handoff is consumed between router rend
   fireEvent.click(screen.getByRole("button", { name: "Render app" }));
   expect(screen.getByRole("complementary", { name: "AI chat" })).toContainElement(composer);
 });
+
+it.each([true, false])("pins a live full-page call on ordinary Home and app navigation (desktop %s)", async desktop => {
+  const { claimVoiceSession, releaseVoiceSession } = await import("../../nativeVoiceSession");
+  const { act } = await import("@testing-library/react");
+  const owner = Symbol();
+  const close = vi.fn(() => releaseVoiceSession(owner));
+  screenSize.desktop = desktop;
+  function Navigation() {
+    const navigate = useNavigate();
+    return <><button onClick={() => navigate("/")}>Home</button>
+      <button onClick={() => navigate("/apps/test")}>App</button>
+      <button onClick={() => navigate("/agent?thread=voice-thread")}>Same chat</button></>;
+  }
+  render(<MemoryRouter initialEntries={["/agent"]}>
+    <AssistantDockProvider><Navigation /><AssistantDock /></AssistantDockProvider>
+  </MemoryRouter>);
+  try {
+    const composer = screen.getByRole("textbox");
+    act(() => { claimVoiceSession({ owner, surface: "dock", workspaceId: "workspace", threadId: "voice-thread", close }); });
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    expect(screen.getByRole("complementary", { name: "AI chat" })).toContainElement(composer);
+    fireEvent.click(screen.getByRole("button", { name: "App" }));
+    expect(screen.getByRole("textbox")).toBe(composer);
+    fireEvent.click(screen.getByRole("button", { name: "Same chat" }));
+    expect(screen.getByRole("region", { name: "AI chat" })).toContainElement(composer);
+    expect(close).not.toHaveBeenCalled();
+  } finally { act(() => releaseVoiceSession(owner)); }
+});

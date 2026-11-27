@@ -205,6 +205,10 @@ async def test_check_chat_reads_current_receipt_even_while_heavy_pending(monkeyp
         assert (await event(provider.outbox))["item"]["call_id"] == "first"
         assert not relay.pending.done()
         current.return_value = ("waiting_for_human", None)
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        assert (await event(provider.outbox))["type"] == "session.update"
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
         await _send_tool(provider, "check", "check", operation="check_chat")
         assert (await event(provider.outbox))["item"]["call_id"] == "check"
         read = (await event(provider.outbox))["response"]
@@ -574,3 +578,635 @@ async def test_completed_spoken_review_retains_only_question(
     finally:
         reader.cancel()
         await asyncio.gather(reader, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_slow_task_progress_is_quiet_verified_bounded_and_final_once(monkeypatch):
+    browser, provider = Browser(), Provider()
+    scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
+    current = ["running", None]
+    check = AsyncMock(return_value=SimpleNamespace(id=scope.thread))
+    submit = AsyncMock(
+        return_value=SimpleNamespace(work_item_id="slow", message_id="accepted")
+    )
+    monkeypatch.setattr(native_voice, "authorize", check)
+    monkeypatch.setattr(chat_turn_submissions, "submit_chat_turn", submit)
+    monkeypatch.setattr(
+        native_voice,
+        "_delegated_status",
+        AsyncMock(side_effect=lambda *a: tuple(current)),
+    )
+    monkeypatch.setattr(native_voice, "RESULT_IDLE_SECONDS", 0.001)
+    monkeypatch.setattr(native_voice, "RESULT_POLL_SECONDS", 0.005)
+    monkeypatch.setattr(native_voice, "WORK_PROGRESS_INTERVALS", (0.04, 0.08, 0.16))
+    relay = native_voice.VoiceRelay(browser, provider, scope, check=check)
+    call = asyncio.create_task(relay.run())
+
+    async def speech(frame, response_id):
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": response_id,
+                    "metadata": frame["response"]["metadata"],
+                },
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": response_id,
+                "delta": "AAE=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x01"
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": response_id, "status": "completed"},
+            }
+        )
+
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        await event(browser.outbox)
+        await _send_tool(provider, "initial", "initial")
+        assert "accepted" in (await event(provider.outbox))["item"]["output"]
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        assert (await event(provider.outbox))["type"] == "session.update"
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(provider.outbox.get(), 0.08)
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "aside"}}
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "aside", "status": "completed"},
+            }
+        )
+        first = await event(provider.outbox)
+        assert native_voice.WORK_PROGRESS_LINES[0] in first["response"]["instructions"]
+        await speech(first, "progress1")
+        second = await event(provider.outbox)
+        assert native_voice.WORK_PROGRESS_LINES[1] in second["response"]["instructions"]
+        await speech(second, "progress2")
+        current[:] = ["succeeded", "The requested report is ready."]
+        result = await completed_readout(provider, "The requested report is ready.")
+        await speech(result, "result")
+        await asyncio.sleep(0.02)
+        assert relay.protocol_counts["readout_sent"] == 1
+        assert not call.done()
+        submit.assert_awaited_once()
+        # A fresh voice turn is not blocked after the completion.
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "next"}}
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "next",
+                "delta": "AAE=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x01"
+        assert not call.done()
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await call
+
+
+@pytest.mark.asyncio
+async def test_call_duration_limit_has_distinct_explanation(monkeypatch):
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    monkeypatch.setattr(native_voice, "MAX_CALL_SECONDS", 0.03)
+    call = asyncio.create_task(relay.run())
+    await event(provider.outbox)
+    explanation = await event(browser.outbox)
+    assert explanation["type"] == "error"
+    assert "connection time limit" in explanation["message"]
+    await call
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("synthesis_done", [False, True])
+async def test_completed_results_preempt_smalltalk_and_preserve_each_other(
+    monkeypatch, synthesis_done
+):
+    """Test the actual relay loop with overlapping audio, two receipts, and a following turn."""
+    browser, provider = Browser(), Provider()
+    scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
+    thread = SimpleNamespace(id=scope.thread)
+    check = AsyncMock(return_value=thread)
+    submit = AsyncMock(
+        return_value=SimpleNamespace(work_item_id="first", message_id="accepted")
+    )
+    outcomes = {"first": ("running", None), "second": ("running", None)}
+    monkeypatch.setattr(native_voice, "authorize", check)
+    monkeypatch.setattr(chat_turn_submissions, "submit_chat_turn", submit)
+    monkeypatch.setattr(
+        native_voice,
+        "_delegated_status",
+        AsyncMock(
+            side_effect=lambda _scope, _thread, receipt: outcomes[receipt.work_item_id]
+        ),
+    )
+    monkeypatch.setattr(native_voice, "RESULT_IDLE_SECONDS", 0.01)
+    monkeypatch.setattr(native_voice, "RESULT_POLL_SECONDS", 0.01)
+    relay = native_voice.VoiceRelay(browser, provider, scope, check=check)
+    call = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        await event(browser.outbox)
+        await _send_tool(provider, "initial", "first")
+        assert "accepted" in (await event(provider.outbox))["item"]["output"]
+        # Another independently admitted receipt (as from the FIFO promotion path).
+        relay.result_receipts["second"] = native_voice._AcceptedVoiceTurn(
+            "second", "accepted-two", "Second task", queued_follow_up=True
+        )
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        assert (await event(provider.outbox))["type"] == "session.update"
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "smalltalk"}}
+        )
+        stale_audio = {
+            "type": "response.output_audio.delta",
+            "response_id": "smalltalk",
+            "item_id": "smalltalk-item",
+            "content_index": 0,
+            "delta": "AAE=",
+        }
+        await provider.inbox.put(stale_audio)
+        marker = await event(browser.outbox)
+        assert marker["type"] == "playback_item"
+        assert await event(browser.outbox) == b"\x00\x01"
+        if synthesis_done:
+            await provider.inbox.put(
+                {
+                    "type": "response.done",
+                    "response": {"id": "smalltalk", "status": "completed"},
+                }
+            )
+        # A running job and ordinary silence/speech are not a priority signal.
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(browser.outbox.get(), 0.03)
+        outcomes["first"] = ("succeeded", "The first report is ready.")
+        start = asyncio.get_running_loop().time()
+        relay.result_wake.set()
+        flush = await event(browser.outbox)
+        assert flush["type"] == "flush_ordinary"
+        if not synthesis_done:
+            assert flush["report_handles"] == [marker["handle"]]
+        elapsed = asyncio.get_running_loop().time() - start
+        assert elapsed < 0.5
+        print(
+            f"priority flush ({'buffered' if synthesis_done else 'active'}): {elapsed * 1000:.1f} ms"
+        )
+        context = await event(provider.outbox)
+        assert context["type"] == "conversation.item.create"
+        if not synthesis_done:
+            # Ordinary playback stops promptly, but the provider must finish
+            # its semantic turn before any completed result can speak.
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(provider.outbox.get(), 0.03)
+            await provider.inbox.put(
+                {
+                    "type": "response.done",
+                    "response": {"id": "smalltalk", "status": "completed"},
+                }
+            )
+        result = await event(provider.outbox)
+        assert "The first report is ready." in result["response"]["instructions"]
+        if not synthesis_done:
+            assert "Transition naturally" in result["response"]["instructions"]
+        await provider.inbox.put(stale_audio)
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "first-result",
+                    "metadata": result["response"]["metadata"],
+                },
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "first-result",
+                "delta": "AgM=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x02\x03"
+        outcomes["second"] = ("succeeded", "The second report is ready.")
+        relay.result_wake.set()
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(provider.outbox.get(), 0.03)
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "first-result",
+                "delta": "BAU=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x04\x05"
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "first-result", "status": "completed"},
+            }
+        )
+        second = await completed_readout(provider, "The second report is ready.")
+        assert "The second report is ready." in second["response"]["instructions"]
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "second-result",
+                    "metadata": second["response"]["metadata"],
+                },
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "second-result",
+                "delta": "Bgc=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x06\x07"
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "second-result", "status": "completed"},
+            }
+        )
+        await asyncio.sleep(0.03)
+        assert relay.protocol_counts["readout_sent"] == 2
+        assert relay.protocol_counts["priority_result_interrupt"] == 1
+        assert not relay.result_receipts
+        assert not call.done()
+        submit.assert_awaited_once()
+        # A caller can immediately continue with an ordinary fresh turn.
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "next"}}
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "next",
+                "delta": "CAk=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x08\x09"
+        assert not call.done()
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await call
+
+
+@pytest.mark.asyncio
+async def test_priority_delivery_excludes_user_speech_review_and_tool_response():
+    """Only already-audible ordinary speech is eligible for cancellation."""
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay.ready = True
+    relay.response_generation = "ordinary"
+    relay.last_spoken_response = "ordinary"
+    for attr, value in (
+        ("speaking", True),
+        ("waiting_for_response", True),
+        ("review_confirmation", object()),
+        ("ordinary_tool_response", "ordinary"),
+        ("speech_only_response_id", "ordinary"),
+    ):
+        previous = getattr(relay, attr)
+        setattr(relay, attr, value)
+        assert await relay._prepare_priority_delivery(relay.generation) == (
+            False,
+            False,
+        )
+        setattr(relay, attr, previous)
+    assert browser.outbox.empty()
+    assert provider.outbox.empty()
+    assert relay.response_generation == "ordinary"
+
+
+@pytest.mark.asyncio
+async def test_completed_tool_racing_priority_cut_is_processed_before_result(
+    monkeypatch,
+):
+    """A late complete tool must survive immediate ordinary audio preemption."""
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay.ready = True
+    relay.workspace_label = "QA workspace"
+    monkeypatch.setattr(native_voice, "RESULT_IDLE_SECONDS", 0.01)
+    monkeypatch.setattr(native_voice, "RESULT_POLL_SECONDS", 0.01)
+    reader = asyncio.create_task(relay._read_provider())
+    watcher = asyncio.create_task(relay._watch_results())
+    try:
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "ordinary"}}
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "ordinary",
+                "item_id": "ordinary-item",
+                "content_index": 0,
+                "delta": "AAE=",
+            }
+        )
+        marker = await event(browser.outbox)
+        assert await event(browser.outbox) == b"\x00\x01"
+        relay.peer_readouts[("saved-answer", "message")] = "Your report is ready."
+        relay.result_wake.set()
+        assert (await event(browser.outbox))["type"] == "flush_ordinary"
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(provider.outbox.get(), 0.03)
+        await relay._truncate_interrupted_playback(
+            native_voice.VoicePlaybackInterrupted(
+                type="playback_interrupted", items=[(marker["handle"], 0)]
+            )
+        )
+        assert (await event(provider.outbox))["type"] == "conversation.item.truncate"
+        await provider.inbox.put(
+            request(
+                "identity-call",
+                "ordinary",
+                "",
+                name=native_voice.CALL_CONTEXT,
+                args={"detail": "workspace"},
+            )
+        )
+        assert (await event(provider.outbox))["item"]["call_id"] == "identity-call"
+        identity = await event(provider.outbox)
+        assert "QA workspace" in identity["response"]["instructions"]
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "identity",
+                    "metadata": identity["response"]["metadata"],
+                },
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "identity",
+                "delta": "AgM=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x02\x03"
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "identity", "status": "completed"},
+            }
+        )
+        report = await event(provider.outbox)
+        assert "Your report is ready." in report["response"]["instructions"]
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "report",
+                    "metadata": report["response"]["metadata"],
+                },
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "report",
+                "delta": "BAU=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x04\x05"
+        assert relay.protocol_counts["peer_readout_sent"] == 1
+        assert not reader.done()
+    finally:
+        reader.cancel()
+        watcher.cancel()
+        await asyncio.gather(reader, watcher, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_user_barge_in_after_priority_cut_preserves_unsent_result(monkeypatch):
+    """A caller speaking during the priority transition wins and gets the result later."""
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay.ready = True
+    monkeypatch.setattr(native_voice, "RESULT_IDLE_SECONDS", 0.01)
+    monkeypatch.setattr(native_voice, "RESULT_POLL_SECONDS", 0.01)
+    reader = asyncio.create_task(relay._read_provider())
+    watcher = asyncio.create_task(relay._watch_results())
+    try:
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "ordinary"}}
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "ordinary",
+                "item_id": "ordinary-item",
+                "content_index": 0,
+                "delta": "AAE=",
+            }
+        )
+        await event(browser.outbox)
+        assert await event(browser.outbox) == b"\x00\x01"
+        key = ("answer", "message")
+        relay.peer_readouts[key] = "Your lookup is ready."
+        relay.result_wake.set()
+        assert (await event(browser.outbox))["type"] == "flush_ordinary"
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "ordinary",
+                "delta": "AAE=",
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "ordinary", "status": "cancelled"},
+            }
+        )
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(browser.outbox.get(), 0.03)
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(provider.outbox.get(), 0.03)
+        assert key in relay.peer_readouts
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "user-request"}}
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "user-request", "status": "completed"},
+            }
+        )
+        retry = await event(provider.outbox)
+        assert "Your lookup is ready." in retry["response"]["instructions"]
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {"id": "retry", "metadata": retry["response"]["metadata"]},
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "retry",
+                "delta": "AgM=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x02\x03"
+        assert not relay.peer_readouts
+        assert relay.protocol_counts["peer_readout_sent"] == 1
+        assert not reader.done()
+    finally:
+        reader.cancel()
+        watcher.cancel()
+        await asyncio.gather(reader, watcher, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_build_plan_recaps_after_reconciling_still_running_observer(monkeypatch):
+    """A saved plan can be terminal while its original relay observer is alive."""
+    browser, provider = Browser(), Provider(manual_intent=True)
+    scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
+    work = AsyncMock(return_value="The app is ready.")
+    relay = native_voice.VoiceRelay(
+        browser, provider, scope, check=AsyncMock(), work=work
+    )
+    relay.ready = True
+    relay.accepted = native_voice._AcceptedVoiceTurn("plan", "message", "Plan an app")
+    relay.pending = asyncio.create_task(asyncio.Event().wait())
+    old_observer = relay.pending
+    monkeypatch.setattr(
+        native_voice,
+        "_delegated_status",
+        AsyncMock(return_value=("succeeded", "The plan is ready.")),
+    )
+    reader = asyncio.create_task(relay._read_provider())
+    try:
+        relay.response_generation = "follow-up"
+        await relay._completed_response(
+            request(
+                "build-once",
+                "follow-up",
+                "",
+                args={
+                    "request": "Go ahead and build the app plan.",
+                    "intent_summary": "I’ll build the app from the plan.",
+                },
+            )
+        )
+        assert old_observer.cancelled()
+        summary = (await event(provider.outbox))["response"]
+        assert "build the app from the plan" in summary["instructions"]
+        work.assert_not_awaited()
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {"id": "recap", "metadata": summary["metadata"]},
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "recap",
+                "delta": "AAE=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x01"
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "recap", "status": "completed"},
+            }
+        )
+        await relay.pending
+        work.assert_awaited_once_with(
+            scope, "build-once", "Go ahead and build the app plan."
+        )
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("admitted", [True, False])
+async def test_plan_followthrough_supersedes_only_exact_old_audio_after_durable_admission(
+    monkeypatch, admitted
+):
+    scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
+    browser, provider = Browser(), Provider()
+
+    async def delegate(scope, call_id, request, **kwargs):
+        if not admitted:
+            raise RuntimeError("admission unavailable")
+        receipt = SimpleNamespace(work_item_id="build-work", message_id="build-msg")
+        kwargs["on_persisted"](receipt)
+        await kwargs["on_accepted"](receipt, "running", None)
+        return None
+
+    monkeypatch.setattr(native_voice, "delegate", delegate)
+    relay = native_voice.VoiceRelay(
+        browser, provider, scope, check=AsyncMock(), work=delegate
+    )
+    relay.ready = True
+    old = native_voice._AcceptedVoiceTurn("old-plan", "old-msg", "Plan a new app")
+    unrelated = native_voice._AcceptedVoiceTurn(
+        "other", "other-msg", "Summarize invoices"
+    )
+    relay.accepted = old
+    relay.contextualized_results.add(old.work_item_id)
+    relay.result_receipts[old.work_item_id] = old
+    relay.result_receipts[unrelated.work_item_id] = unrelated
+    await relay._start_requested_work(
+        "build", "Go ahead and build the app plan.", "request"
+    )
+    await relay.pending
+    assert ("old-plan" not in relay.result_receipts) is admitted
+    assert relay.result_receipts["other"] is unrelated
+    assert relay.protocol_counts["prior_plan_readout_superseded"] == int(admitted)

@@ -616,7 +616,7 @@ def _environment(
         "JVSPATIAL_DB_TYPE": "postgres",
         "JVSPATIAL_POSTGRES_DSN": dsn,
         "JVSPATIAL_POSTGRES_INDEX_CREATION": "managed",
-        "JVSPATIAL_AUTO_CREATE_INDEXES": "true",
+        "JVSPATIAL_AUTO_CREATE_INDEXES": "false",
         "JVSPATIAL_DB_LOGGING_ENABLED": (
             "true"
             if config.get("deployment_profile") == "desktop_single_user"

@@ -1,3 +1,4 @@
+import { claimVoiceSession, peekVoiceSession, releaseVoiceSession, updateVoiceSessionThread, useVoiceSession } from "../nativeVoiceSession";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { clearCallReview, presentCallReview } from "../voiceReviewPresentation";
@@ -19,6 +20,56 @@ import { useChatPageContextSnapshot } from "../useChatPageContextSnapshot";
 import captureModuleUrl from "./nativeVoiceCapture.js?url&no-inline";
 
 const SAMPLE_RATE = 24000;
+const CONNECT_TIMEOUT_MS = 20_000;
+
+/** Quiet, local-only ringback. Two soft pulses with silence between pairs. */
+export function createVoiceRingback(audio: AudioContext): (() => void) | undefined {
+  if (audio.state !== "running") return;
+  let gain: GainNode | undefined;
+  const tones: OscillatorNode[] = [];
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    if (gain) {
+      try { gain.gain.cancelScheduledValues(audio.currentTime); gain.gain.setValueAtTime(0, audio.currentTime); } catch { /* Context already closed. */ }
+    }
+    for (const tone of tones) {
+      try { tone.stop(); } catch { /* Already stopped. */ }
+      try { tone.disconnect(); } catch { /* Graph already released. */ }
+    }
+    try { gain?.disconnect(); } catch { /* Graph already released. */ }
+  };
+  try {
+    gain = audio.createGain();
+    const start = audio.currentTime + 0.015;
+    const end = start + CONNECT_TIMEOUT_MS / 1000;
+    gain.gain.setValueAtTime(0, audio.currentTime);
+    gain.connect(audio.destination); // Never connected to the capture graph.
+    for (let pair = start; pair + 0.55 < end; pair += 2.4) {
+      for (const at of [pair, pair + 0.29]) {
+        gain.gain.setValueAtTime(0, at);
+        gain.gain.linearRampToValueAtTime(0.018, at + 0.025);
+        gain.gain.setValueAtTime(0.018, at + 0.135);
+        gain.gain.linearRampToValueAtTime(0, at + 0.19);
+      }
+    }
+    for (const frequency of [440, 480]) {
+      const tone = audio.createOscillator();
+      tones.push(tone);
+      tone.type = "sine";
+      tone.frequency.value = frequency;
+      tone.connect(gain);
+      tone.start(start);
+      tone.stop(end);
+    }
+    return stop;
+  } catch {
+    stop(); // Ringback is optional; an audio-policy failure is not a call failure.
+    return undefined;
+  }
+}
+
 export type NativeVoiceState = "idle" | "connecting" | "live";
 
 export function createVoicePlayback(audio: AudioContext) {
@@ -46,10 +97,12 @@ export function createVoicePlayback(audio: AudioContext) {
       enqueueBuffer(buffer, handle);
     },
     enqueueBuffer,
-    flush() {
+    remainingMs: () => Math.max(0, (nextTime - audio.currentTime) * 1000),
+    flush(ordinaryOnly = false) {
       const unplayed = new Map<number, number>();
       const now = audio.currentTime;
       for (const [source, { at, samples, handle }] of sources) {
+        if (ordinaryOnly && handle === undefined) continue;
         const played = Math.max(0, Math.min(samples, Math.floor((now - at) * SAMPLE_RATE)));
         if (handle !== undefined && played < samples) {
           unplayed.set(handle, (unplayed.get(handle) ?? 0) + samples - played);
@@ -57,9 +110,11 @@ export function createVoicePlayback(audio: AudioContext) {
         source.onended = null;
         source.stop();
         source.disconnect();
+        sources.delete(source);
       }
-      sources.clear();
-      nextTime = 0;
+      // A prior committed result is not low-priority speech. Keep its audio
+      // and schedule the next result after it, rather than overlapping it.
+      nextTime = Math.max(0, ...Array.from(sources.values(), item => item.at + item.samples / SAMPLE_RATE));
       return [...unplayed];
     },
   };
@@ -71,7 +126,8 @@ interface VoiceOpening {
   thread_id: string;
 }
 
-export function NativeVoiceControls({ eligible, opening, playingDictation, dictationActive = false, acquireVoiceInput, onThreadReady, onThreadRefresh, pageRoute, onNavigate, destinationRendered }: {
+export function NativeVoiceControls({ surface = "dock", eligible, opening, playingDictation, dictationActive = false, acquireVoiceInput, onThreadReady, onThreadRefresh, pageRoute, onNavigate, destinationRendered }: {
+  surface?: "dock" | "home";
   eligible: boolean;
   pageRoute?: string;
   onNavigate?: (path: string, threadId: string) => boolean | void;
@@ -83,9 +139,13 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
   onThreadReady?: (threadId: string, opening: VoiceOpening) => Promise<void>;
   onThreadRefresh?: (threadId: string, workspace: string) => void;
 }) {
+  const owner = useRef(Symbol("voice call"));
+  const activeVoice = useVoiceSession();
   const [state, setState] = useState<NativeVoiceState>("idle");
   const [error, setError] = useState("");
   const [muted, setMuted] = useState(false);
+  const [audioInterrupted, setAudioInterrupted] = useState(false);
+  const [endingCall, setEndingCall] = useState(false);
   const startButton = useRef<HTMLButtonElement>(null);
   const endButton = useRef<HTMLButtonElement>(null);
   const focusNext = useRef<"idle" | "live" | null>(null);
@@ -130,20 +190,8 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     }
   }, [dictationActive]);
 
-  useEffect(() => {
-    // A document refresh or BFCache navigation may not unmount React.
-    function closeOnPageHide() {
-      if (!call.current) return;
-      call.current.close(false);
-      setState("idle");
-      setError("");
-    }
-    window.addEventListener("pagehide", closeOnPageHide);
-    return () => window.removeEventListener("pagehide", closeOnPageHide);
-  }, []);
-
   async function start() {
-    if (call.current || !eligible) return;
+    if (call.current || peekVoiceSession() || !eligible) return;
     if (playingDictation()) {
       setError("Stop dictation before starting a voice call.");
       return;
@@ -153,17 +201,29 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       setError("Finish the other microphone session before starting voice.");
       return;
     }
+    const callOwner = Symbol("voice call");
+    owner.current = callOwner;
     setError("");
     setMuted(false);
+    setAudioInterrupted(false);
+    setEndingCall(false);
     setState("connecting");
     let media: MediaStream | undefined;
     let socket: WebSocket | undefined;
     let audio: AudioContext | undefined;
     let capture: AudioWorkletNode | undefined;
+    let stopRing: (() => void) | undefined;
+    let captureEnableTimer: number | undefined;
+    let captureEnabled = false;
+    const stopRingback = () => { stopRing?.(); stopRing = undefined; };
     let input: MediaStreamAudioSourceNode | undefined;
     let playback: ReturnType<typeof createVoicePlayback> | undefined;
     let ready = false;
     let microphoneMuted = false;
+    let deviceMuted = false;
+    let captureInterrupted = false;
+    let lastCapture = performance.now();
+    let captureWatch: number | undefined;
     let playbackHandle: number | undefined;
     let reviewId: string | undefined;
     let reviewAudioSource: AudioBufferSourceNode | undefined;
@@ -176,13 +236,23 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     let pageRevision = 0;
     let refreshTimer: number | undefined;
     let ended = false;
+    let endingRequested = false;
+    let endTimer: number | undefined;
     const close = (refreshThread = true) => {
       if (ended) return;
       ended = true;
       clearCallReview(reviewOwner);
       if (call.current?.close === close) call.current = null;
+      releaseVoiceSession(callOwner);
       window.clearTimeout(deadline);
+      window.clearTimeout(endTimer);
+      window.clearTimeout(captureEnableTimer);
+      stopRingback();
+      setEndingCall(false);
       window.clearInterval(refreshTimer);
+      window.clearInterval(captureWatch);
+      audio?.removeEventListener?.("statechange", updateCaptureState);
+      setAudioInterrupted(false);
       const dispose = (operation: () => void) => {
         try { operation(); } catch { /* Continue releasing independent resources. */ }
       };
@@ -194,6 +264,8 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
         dispose(() => input?.disconnect());
         media?.getTracks().forEach(track => {
           track.removeEventListener("ended", microphoneLost);
+          track.removeEventListener("mute", deviceInterrupted);
+          track.removeEventListener("unmute", deviceRestored);
           dispose(() => track.stop());
         });
         dispose(() => playback?.flush());
@@ -218,7 +290,32 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
         catch { /* Media and transport have already been released. */ }
       }
     };
-    const microphoneLost = () => fail("The microphone was disconnected. Reconnect it and start a new call.");
+    // OS audio-route interruption is distinct from the user's mute choice.
+    // Keep the call and its resident task alive; fence partial capture through
+    // the same relay control used for deliberate mute. Resume only when actual
+    // capture returns and the user has not deliberately muted the microphone.
+    const syncCapture = () => {
+      if (ended || endingRequested || !ready || !capture) return;
+      const blocked = deviceMuted || captureInterrupted;
+      setAudioInterrupted(blocked);
+      if (socket?.readyState !== WebSocket.OPEN) return;
+      captureGeneration += 1;
+      try {
+        socket.send(JSON.stringify({ type: "microphone", muted: blocked || microphoneMuted }));
+        capture.port.postMessage({ muted: deviceMuted || microphoneMuted, generation: captureGeneration });
+      } catch { fail("The voice call ended."); }
+    };
+    const updateCaptureState = () => {
+      const interrupted = !!audio && audio.state !== undefined && audio.state !== "running";
+      if (interrupted) stopRingback();
+      if (captureInterrupted === interrupted) return;
+      captureInterrupted = interrupted;
+      lastCapture = performance.now();
+      syncCapture();
+    };
+    const deviceInterrupted = () => { deviceMuted = true; stopRingback(); syncCapture(); };
+    const deviceRestored = () => { deviceMuted = false; lastCapture = performance.now(); syncCapture(); };
+    const microphoneLost = () => endingRequested ? finishRequestedEnd() : fail("The microphone was disconnected. Reconnect it and start a new call.");
     const fail = (message: string) => {
       if (ended) return;
       if (document.activeElement === endButton.current) focusNext.current = "idle";
@@ -226,7 +323,14 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       setState("idle");
       setError(message);
     };
-    const deadline = window.setTimeout(() => fail("The voice call did not connect."), 20000);
+    const finishRequestedEnd = () => {
+      if (ended) return;
+      if (document.activeElement === endButton.current) focusNext.current = "idle";
+      close();
+      setState("idle");
+      setError("");
+    };
+    const deadline = window.setTimeout(() => fail("The voice call did not connect."), CONNECT_TIMEOUT_MS);
     const updatePage = () => {
       const route = pageRouteRef.current;
       if (!route || !ready || socket?.readyState !== WebSocket.OPEN) return;
@@ -240,7 +344,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       updatePage,
       matchesThread: id => id === (acceptedThreadId || thread_id),
       toggleMicrophone: () => {
-        if (ended || !ready || !capture || !media) return;
+        if (ended || endingRequested || !ready || !capture || !media) return;
         microphoneMuted = !microphoneMuted;
         captureGeneration += 1;
         // Gate frames synchronously, even if already queued on the worklet port.
@@ -249,33 +353,55 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
         if (microphoneMuted) for (const track of tracks) track.enabled = false;
         try {
           if (socket?.readyState !== WebSocket.OPEN) throw new Error("Voice transport is not open");
-          socket.send(JSON.stringify({ type: "microphone", muted: microphoneMuted }));
-          capture.port.postMessage({ muted: microphoneMuted, generation: captureGeneration });
+          socket.send(JSON.stringify({ type: "microphone", muted: microphoneMuted || deviceMuted || captureInterrupted }));
+          capture.port.postMessage({ muted: microphoneMuted || deviceMuted, generation: captureGeneration });
         } catch {
           fail("The voice call ended.");
           return;
         }
-        if (!microphoneMuted) for (const track of tracks) track.enabled = true;
+        if (!microphoneMuted && captureEnabled) for (const track of tracks) track.enabled = true;
+        lastCapture = performance.now();
         setMuted(microphoneMuted);
       },
     };
+    if (!claimVoiceSession({
+      owner: callOwner, surface, workspaceId: workspace_id, threadId: thread_id,
+      close: refresh => { close(refresh); setState("idle"); setError(""); },
+    })) { close(); setState("idle"); return; }
     try {
       audio = new AudioContext({ sampleRate: SAMPLE_RATE });
       await audio.resume();
       if (ended) return;
+      // The user gesture that started this call owns this AudioContext.
+      audio.addEventListener?.("statechange", updateCaptureState);
+      stopRing = createVoiceRingback(audio);
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
       });
       if (ended) { stream.getTracks().forEach(track => track.stop()); return; }
       media = stream;
-      for (const track of stream.getAudioTracks()) track.addEventListener("ended", microphoneLost);
+      for (const track of stream.getAudioTracks()) {
+        track.enabled = false; // No capture of locally generated ringback before readiness.
+        track.addEventListener("ended", microphoneLost);
+        track.addEventListener("mute", deviceInterrupted);
+        track.addEventListener("unmute", deviceRestored);
+        deviceMuted ||= track.muted === true;
+      }
+      if (deviceMuted) stopRingback();
       await audio.audioWorklet.addModule(captureModuleUrl);
       if (ended) return;
       playback = createVoicePlayback(audio);
       input = audio.createMediaStreamSource(stream);
-      capture = new AudioWorkletNode(audio, "integral-native-voice", { numberOfOutputs: 0 });
+      capture = new AudioWorkletNode(audio, "integral-native-voice", { numberOfOutputs: 0, processorOptions: { muted: true } });
       capture.port.onmessage = ({ data }: MessageEvent<{ generation: number; pcm: ArrayBuffer }>) => {
-        if (ended || microphoneMuted || data.generation !== captureGeneration) return;
+        if (ended || !captureEnabled || endingRequested || microphoneMuted || deviceMuted || data.generation !== captureGeneration) return;
+        lastCapture = performance.now();
+        if (captureInterrupted) {
+          if (audio?.state && audio.state !== "running") return;
+          captureInterrupted = false;
+          syncCapture();
+          return;
+        }
         if (reviewId || reviewAudioActive) {
           // Do not send microphone audio to either provider while the verified
           // readback speaks. Sustained input interrupts the challenge.
@@ -302,7 +428,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
           if (ready) playback?.enqueue(data, playbackHandle);
           return;
         }
-        const event = JSON.parse(String(data)) as { type: string; message?: string; thread_id?: string; handle?: number | null; id?: string; proposal_id?: string; audio?: string; origin_revision?: number; navigation?: unknown };
+        const event = JSON.parse(String(data)) as { type: string; message?: string; thread_id?: string; handle?: number | null; report_handles?: number[]; id?: string; proposal_id?: string; audio?: string; origin_revision?: number; navigation?: unknown };
         if (event.type === "navigation" && ready && acceptedThreadId && event.id) {
           const path = agentNavigationPath({ ok: true, navigation: event.navigation }, acceptedThreadId, workspace_id);
           const report = (status: string) => {
@@ -401,8 +527,13 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
           reviewId = undefined;
         }
         if (event.type === "playback_item") playbackHandle = event.handle ?? undefined;
-        if (event.type === "flush") {
-          const items = playback?.flush();
+        if (event.type === "flush" || event.type === "flush_ordinary") {
+          const items = playback?.flush(event.type === "flush_ordinary") ?? [];
+          if (event.type === "flush_ordinary") {
+            for (const handle of event.report_handles ?? []) {
+              if (!items.some(([reported]) => reported === handle)) items.push([handle, 0]);
+            }
+          }
           playbackHandle = undefined;
           if (items?.length && socket?.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type: "playback_interrupted", items }));
@@ -417,6 +548,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
             return;
           }
           acceptedThreadId = event.thread_id || thread_id;
+          updateVoiceSessionThread(callOwner, acceptedThreadId);
           if (acceptedThreadId) {
             if (!opening.profile_key) presentCallReview(reviewOwner, acceptedThreadId);
             void onThreadReady?.(acceptedThreadId, opening);
@@ -426,7 +558,32 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
               }, 2500);
             }
           }
+          const wasRinging = Boolean(stopRing);
+          stopRingback();
           ready = true;
+          lastCapture = performance.now();
+          const enableCapture = () => {
+            if (ended || endingRequested || !capture || !media) return;
+            captureEnabled = true;
+            lastCapture = performance.now();
+            if (deviceMuted || captureInterrupted) syncCapture();
+            else capture.port.postMessage({ muted: microphoneMuted, generation: captureGeneration });
+            if (!microphoneMuted) for (const track of media.getAudioTracks()) track.enabled = true;
+          };
+          // The local oscillator is already stopped. Allow the device's last
+          // small output buffer to drain before enabling microphone capture.
+          const outputTail = wasRinging && audio ? Math.min(150, Math.ceil(((audio.baseLatency || 0) + (audio.outputLatency || 0)) * 1000)) : 0;
+          if (outputTail > 0) captureEnableTimer = window.setTimeout(enableCapture, outputTail);
+          else enableCapture();
+          // A silent worklet can be the only observable signal when an OS
+          // audio route pauses. Do not pause the worklet itself in that case:
+          // its first fresh frame is how we discover recovery.
+          captureWatch = window.setInterval(() => {
+            if (!ended && captureEnabled && !endingRequested && !microphoneMuted && !deviceMuted && !captureInterrupted && performance.now() - lastCapture > 5000) {
+              captureInterrupted = true;
+              syncCapture();
+            }
+          }, 1000);
           updatePage();
           window.clearTimeout(deadline);
           if (document.activeElement === startButton.current) focusNext.current = "live";
@@ -436,16 +593,36 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
             catch { fail("The voice call ended."); }
           }
         }
+        if (event.type === "call_ending" && ready && !endingRequested) {
+          endingRequested = true;
+          stopRingback();
+          setEndingCall(true);
+          // Even if the final relay frame is lost, a confirmed hang-up cannot leave the UI live.
+          window.clearTimeout(endTimer);
+          endTimer = window.setTimeout(finishRequestedEnd, 9000);
+          // Stop transmitting/capturing immediately. Keep only the short
+          // farewell playing until the final relay event or socket close.
+          for (const track of media?.getAudioTracks() ?? []) track.enabled = false;
+          captureGeneration += 1;
+          capture?.port.postMessage({ muted: true, generation: captureGeneration });
+        }
+        if (event.type === "call_ended" && ready) {
+          endingRequested = true;
+          stopRingback();
+          setEndingCall(true);
+          window.clearTimeout(endTimer);
+          endTimer = window.setTimeout(finishRequestedEnd, Math.min(3000, playback?.remainingMs() ?? 0));
+        }
         if (event.type === "error") fail(event.message || "The voice call ended.");
       };
-      socket.onerror = () => fail("The voice call could not connect.");
-      socket.onclose = () => fail("The voice call ended.");
+      socket.onerror = () => endingRequested ? finishRequestedEnd() : fail("The voice call could not connect.");
+      socket.onclose = () => endingRequested ? finishRequestedEnd() : fail("The voice call ended.");
     } catch {
       fail("Could not start live voice. Check your microphone permission and model settings.");
     }
   }
 
-  if (!eligible && state === "idle") return null;
+  if (state === "idle" && (!eligible || (activeVoice && activeVoice.owner !== owner.current))) return null;
   const idle = state === "idle";
   const live = state === "live";
   const action = idle ? "Start voice call" : live ? "End call" : "Cancel voice call";
@@ -457,12 +634,12 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
         border="default" padding="none" className="inline-flex max-w-full shrink-0 items-center gap-0.5 p-0.5">
         <div role="status" className="composer-call-status inline-flex items-center gap-1 pl-2 pr-0.5">
           <AudioLines size={14} aria-hidden />
-          <span className="sr-only">{muted ? "Voice call live · Mic muted" : "Voice call live"}</span>
-          <Text as="span" variant="body-sm" aria-hidden="true" className="composer-action-label">Live</Text>
+          <span className="sr-only">{endingCall ? "Ending voice call" : muted ? "Voice call live · Mic muted" : "Voice call live"}</span>
+          <Text as="span" variant="body-sm" aria-hidden="true" className="composer-action-label">{endingCall ? "Ending" : "Live"}</Text>
         </div>
         <HoverTooltip label={microphoneAction} placement="top" dismissOnPress>
-          <Button type="button" variant={muted ? "secondary" : "ghost"} size="xs"
-            className="h-9 w-9 rounded-full !p-0" aria-label={microphoneAction}
+          <Button type="button" variant={muted ? "secondary" : "ghost"} size="xs" radius="pill"
+            className="voice-call-control h-9 w-9 !p-0" disabled={endingCall} aria-label={microphoneAction}
             icon={muted
               ? <MicOff size={17} aria-hidden className="text-[var(--danger-fg)]" />
               : <Mic size={17} aria-hidden />}
@@ -470,8 +647,8 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
         </HoverTooltip>
         <span className="composer-end-call inline-flex">
           <HoverTooltip label="End call" placement="top">
-            <Button ref={endButton} type="button" variant="danger" size="xs" aria-label="End call"
-              className="h-9 whitespace-nowrap rounded-full px-2"
+            <Button ref={endButton} type="button" variant="danger" size="xs" radius="pill" aria-label="End call"
+              className="voice-call-control h-9 min-w-9 whitespace-nowrap px-2"
               icon={<Square size={12} aria-hidden />}
               onClick={() => {
                 if (document.activeElement === endButton.current) focusNext.current = "idle";
@@ -491,8 +668,8 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
           <Text as="span" variant="body-sm">Connecting voice…</Text>
         </Surface>}
         <HoverTooltip label={action} placement="top">
-          <Button ref={startButton} type="button" variant={idle ? "ghost" : "danger"} size="xs"
-            className="h-10 w-10 rounded-full !p-0"
+          <Button ref={startButton} type="button" variant={idle ? "ghost" : "danger"} size="xs" radius="pill"
+            className="voice-call-control h-10 w-10 !p-0"
             aria-label={action}
             icon={idle ? <AudioLines size={17} aria-hidden /> : <Square size={12} aria-hidden />}
             onClick={() => {
@@ -502,12 +679,14 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
         </HoverTooltip>
       </>
     )}
+    {live && audioInterrupted && !muted && <Surface role="status" radius="input" elevation="sm" padding="sm"
+      className={`absolute bottom-full right-0 z-10 mb-2 w-56 ${liftAboveTooltip}`}><Text as="p" variant="body-sm">Audio interrupted. Check your microphone or audio connection. The call is still open.</Text></Surface>}
     {error && <Surface role="status" radius="input" elevation="sm" padding="sm"
       className={`absolute bottom-full right-0 z-10 mb-2 w-56 ${liftAboveTooltip}`}><Text as="p" variant="body-sm">{error}</Text></Surface>}
   </div>;
 }
 
-export function NativeVoiceCall() {
+export function NativeVoiceCall({ home = false }: { home?: boolean }) {
   const activity = useChatActivity();
   const location = useLocation();
   const navigate = useNavigate();
@@ -528,7 +707,7 @@ export function NativeVoiceCall() {
   const eligible = native && Boolean(configuration.data?.effective_model) &&
     Boolean(navigator.mediaDevices?.getUserMedia) && profile !== ALL_WORKSPACE_ASSISTANTS &&
     (!activity.activeThreadId || Boolean(thread)) && !activity.needsDraftAgent;
-  return <NativeVoiceControls eligible={eligible}
+  return <NativeVoiceControls surface={home ? "home" : "dock"} eligible={eligible}
     pageRoute={location.pathname + location.search}
     destinationRendered={path => {
       const page = snapshot();

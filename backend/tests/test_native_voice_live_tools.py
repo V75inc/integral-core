@@ -57,12 +57,16 @@ async def test_call_identity_uses_admitted_labels_and_never_submits_work(
     relay.ready = True
     relay.response_generation = "identity"
     relay._speak_result = AsyncMock()
+    relay._start_handoff = (
+        AsyncMock()
+    )  # isolate operation from external audio in this unit test
     await relay._completed_response(
         request(
             "identity-call", "identity", "", name=native_voice.CALL_CONTEXT, args=args
         )
     )
-    check.assert_awaited_once_with(scope)
+    await relay.live_read
+    assert check.await_count == 2
     relay._speak_result.assert_awaited_once_with(
         relay.generation,
         result=expected,
@@ -197,11 +201,13 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
         registered = (await event(provider.outbox))["session"]["tools"]
         assert {tool["name"] for tool in registered} == {
             native_voice.DELEGATE,
+            native_voice.DELEGATE_ACTION,
             native_voice.CHECK_CHAT,
             native_voice.WRITE_CHAT_NOTE,
             native_voice.REVISE_REVIEW,
             native_voice.REQUEST_REVIEW,
             native_voice.CANCEL_WORK,
+            native_voice.END_CALL,
             native_voice.FIND_CAPABILITY,
             native_voice.FIND_RECORDS,
             native_voice.OPEN_PAGE,
@@ -216,6 +222,9 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
         assert "accepted" in (await event(provider.outbox))["item"]["output"]
         assert not relay.pending.done()
 
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+        assert (await event(provider.outbox))["type"] == "session.update"
         await _tool(
             provider,
             "status",
@@ -230,7 +239,6 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
         # The next spoken question interrupts the still-pending status readout.
         await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
         await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
-        assert (await event(provider.outbox))["type"] == "session.update"
         speech = await _quick_read(provider, "apps", "show apps", "Visible apps here")
         assert "Visible Projects" in speech and "hidden-app-id" not in speech
         assert "Visible apps here" not in speech
@@ -524,6 +532,9 @@ async def test_fourth_catalogue_enrollment_is_usable_without_new_realtime_tool(
                 )
                 assert "accepted" in (await event(provider.outbox))["item"]["output"]
                 assert not relay.pending.done()
+                await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+                await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+                assert (await event(provider.outbox))["type"] == "session.update"
                 answer = await _quick_read(
                     provider, "stations", "weather observation stations", title
                 )
@@ -724,6 +735,9 @@ async def test_chat_write_tool_accepts_directory_only_in_workspace_voice(profile
     relay.response_generation = "turn"
     relay._post_directory = AsyncMock(return_value="I posted the list in this chat.")
     relay._speak_result = AsyncMock()
+    relay._start_handoff = (
+        AsyncMock()
+    )  # isolate operation from external audio in this unit test
     frame = request(
         "posting",
         "turn",
@@ -736,6 +750,7 @@ async def test_chat_write_tool_accepts_directory_only_in_workspace_voice(profile
         relay._post_directory.assert_not_awaited()
         assert provider.outbox.empty()
     else:
+        await relay.live_read
         relay._post_directory.assert_awaited_once_with("last_list", relay.generation)
         assert (await event(provider.outbox))["item"][
             "output"
@@ -764,6 +779,9 @@ async def test_audio_only_call_uses_spoken_focus_and_explains_unavailable_action
     )
     relay.ready = True
     relay._speak_result = AsyncMock()
+    relay._start_handoff = (
+        AsyncMock()
+    )  # isolate operation from external audio in this unit test
     session = native_voice.session_update("", actions=actions)["session"]
     offered = {tool["name"] for tool in session["tools"]}
     assert {
@@ -776,6 +794,7 @@ async def test_audio_only_call_uses_spoken_focus_and_explains_unavailable_action
         native_voice.WRITE_CHAT_NOTE,
         native_voice.REQUEST_REVIEW,
         native_voice.REVISE_REVIEW,
+        native_voice.END_CALL,
     }
     assert not unavailable & offered
     assert "This call cannot open a screen" in session["instructions"]
@@ -822,71 +841,32 @@ async def test_audio_only_call_uses_spoken_focus_and_explains_unavailable_action
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("intent", ["", "On it."])
-async def test_only_a_requested_acknowledgment_is_spoken_before_work(intent):
-    scope = native_voice.VoiceScope("user", "workspace", "", "thread")
-    relay = native_voice.VoiceRelay(Browser(), Provider(), scope, check=AsyncMock())
-    relay.conversational_review = True
-    relay.ready = True
-    relay.response_generation = "turn"
-
-    async def admit(*args):
-        relay.pending = asyncio.get_running_loop().create_future()
-
-    relay._start_requested_work = admit
-    relay._speak_handoff = AsyncMock()
-    await relay._completed_response(
-        request(
-            "call", "turn", "", args={"request": "Friday", "intent_summary": intent}
-        )
-    )
-    assert relay.pending is not None
-    if intent:
-        await relay.handoff_task
-        relay._speak_handoff.assert_awaited_once_with(
-            intent, relay.pending, relay.generation
-        )
-    else:
-        assert relay.handoff_task is None
-    relay.pending.cancel()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("caller_text", "cue"),
     [
         (
             "Could you add ‘Check quote 007’ to my list for Friday?",
-            "Sure, I’ll add that to your Friday list.",
+            "Sure, I’ll add Check quote 007 to your Friday list.",
         ),
         (
-            "Move my planning session to tomorrow at eight.",
-            "Okay, I’ll move your planning session.",
+            "Review the progress report and draft a reply about the hardware tranche.",
+            "I’ll review the progress report and draft a reply explaining the hardware tranche.",
         ),
     ],
 )
-async def test_pending_handoff_separates_chat_wording_from_spoken_intent(
-    caller_text, cue
-):
-    provider = Provider()
-    work = AsyncMock()
-    finish = asyncio.Event()
-
-    async def wait_for_worker(*args):
-        await finish.wait()
-        return "Finished."
-
-    work.side_effect = wait_for_worker
+async def test_pending_handoff_speaks_plan_before_starting_work(caller_text, cue):
+    provider, browser = Provider(manual_intent=True), Browser()
+    work = AsyncMock(return_value="Finished.")
     relay = native_voice.VoiceRelay(
-        Browser(),
+        browser,
         provider,
         native_voice.VoiceScope("user", "workspace", "", "thread"),
         check=AsyncMock(),
         work=work,
     )
-    relay.conversational_review = True
     relay.ready = True
     relay.response_generation = "turn"
+    reader = asyncio.create_task(relay._read_provider())
     try:
         await relay._completed_response(
             request(
@@ -894,25 +874,44 @@ async def test_pending_handoff_separates_chat_wording_from_spoken_intent(
             )
         )
         speech = (await event(provider.outbox))["response"]
-        work.assert_awaited_once_with(relay.scope, "call", caller_text)
         assert speech["conversation"] == "none" and speech["tool_choice"] == "none"
         assert speech["input"] == []
-        assert "already underway" in speech["instructions"]
         assert "never a new user request" in speech["instructions"]
         assert cue in speech["instructions"]
-        assert caller_text not in speech["instructions"]
-    finally:
-        finish.set()
+        work.assert_not_awaited()
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {"id": "ack", "metadata": speech["metadata"]},
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "ack",
+                "delta": "AAE=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x01"
+        work.assert_not_awaited()
+        await provider.inbox.put(
+            {"type": "response.done", "response": {"id": "ack", "status": "completed"}}
+        )
         await relay.pending
-        await relay.handoff_task
+        work.assert_awaited_once_with(relay.scope, "call", caller_text)
+        assert (await event(provider.outbox))["item"]["output"] == "Finished."
+        assert "Finished." in (await event(provider.outbox))["response"]["instructions"]
+    finally:
+        reader.cancel()
+        if relay.pending and not relay.pending.done():
+            relay.pending.cancel()
+        await asyncio.gather(reader, relay.pending, return_exceptions=True)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("already_spoken", [False, True])
-async def test_fast_task_or_spoken_acknowledgment_does_not_prompt_a_second_ack(
-    already_spoken,
-):
-    provider = Provider()
+async def test_fast_lookup_or_spoken_acknowledgment_does_not_repeat_ack(already_spoken):
+    provider = Provider(manual_intent=True)
     work = AsyncMock(return_value="The Friday list is ready.")
     relay = native_voice.VoiceRelay(
         Browser(),
@@ -921,25 +920,62 @@ async def test_fast_task_or_spoken_acknowledgment_does_not_prompt_a_second_ack(
         check=AsyncMock(),
         work=work,
     )
-    relay.conversational_review = True
     relay.ready = True
     relay.response_generation = "turn"
     if already_spoken:
         relay.last_spoken_response = "turn"
-    await relay._completed_response(
-        request(
-            "call",
-            "turn",
-            "",
-            args={
-                "request": "Can you prepare my Friday list?",
-                "intent_summary": "Prepare Friday list.",
+    turn = request(
+        "call",
+        "turn",
+        "",
+        args={
+            "request": "What is on my Friday list?",
+            "intent_summary": (
+                "I’ll prepare your Friday list." if already_spoken else ""
+            ),
+        },
+    )
+    if already_spoken:
+        turn["response"]["output"].insert(
+            0,
+            {
+                "type": "message",
+                "content": [
+                    {"type": "audio", "transcript": "I’ll prepare your Friday list."}
+                ],
             },
         )
-    )
-    await relay.pending
-    if relay.handoff_task:
-        await relay.handoff_task
+    reader = asyncio.create_task(relay._read_provider())
+    try:
+        await relay._completed_response(turn)
+        if not already_spoken:
+            cue = (await event(provider.outbox))["response"]
+            assert "Friday list" in cue["instructions"]
+            work.assert_not_awaited()
+            await provider.inbox.put(
+                {
+                    "type": "response.created",
+                    "response": {"id": "cue", "metadata": cue["metadata"]},
+                }
+            )
+            await provider.inbox.put(
+                {
+                    "type": "response.output_audio.delta",
+                    "response_id": "cue",
+                    "delta": "AAE=",
+                }
+            )
+            await provider.inbox.put(
+                {
+                    "type": "response.done",
+                    "response": {"id": "cue", "status": "completed"},
+                }
+            )
+        await relay.pending
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+    assert relay.handoff_gate is None
     assert (await event(provider.outbox))["item"][
         "output"
     ] == "The Friday list is ready."
@@ -948,3 +984,267 @@ async def test_fast_task_or_spoken_acknowledgment_does_not_prompt_a_second_ack(
         in (await event(provider.outbox))["response"]["instructions"]
     )
     assert provider.outbox.empty()
+
+
+@pytest.mark.asyncio
+async def test_interruption_releases_handoff_without_resubmitting():
+    browser, provider = Browser(), Provider(manual_intent=True)
+    finish = asyncio.Event()
+
+    async def work(*args):
+        await finish.wait()
+        return "Finished."
+
+    worker = AsyncMock(side_effect=work)
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope("user", "workspace", "", "thread"),
+        check=AsyncMock(),
+        work=worker,
+    )
+    relay.ready = True
+    relay.response_generation = "turn"
+    await relay._completed_response(
+        request(
+            "call",
+            "turn",
+            "",
+            args={
+                "request": "Prepare the report",
+                "intent_summary": "I’ll prepare your report.",
+            },
+        )
+    )
+    cue = (await event(provider.outbox))["response"]
+    reader = asyncio.create_task(relay._read_provider())
+    await provider.inbox.put(
+        {
+            "type": "response.created",
+            "response": {"id": "cue", "metadata": cue["metadata"]},
+        }
+    )
+    await provider.inbox.put(
+        {"type": "response.output_audio.delta", "response_id": "cue", "delta": "AAE="}
+    )
+    assert await event(browser.outbox) == b"\x00\x01"
+    worker.assert_not_awaited()
+    await relay._interrupt()
+    assert await event(browser.outbox) == {"type": "flush"}
+    finish.set()
+    await relay.pending
+    worker.assert_awaited_once_with(relay.scope, "call", "Prepare the report")
+    assert (await event(provider.outbox))["item"]["call_id"] == "call"
+    assert provider.outbox.empty()
+    reader.cancel()
+    await asyncio.gather(reader, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_workspace_identity_lookup_identity_sequence_has_one_answer_per_turn():
+    browser, provider = Browser(), Provider()
+    work = AsyncMock(return_value="Calendar, Tasks, and Documents.")
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+        work=work,
+    )
+    relay.workspace_label = "Administrator"
+    relay.ready = True
+    reader = asyncio.create_task(relay._read_provider())
+    try:
+        for index, name, arguments, expected in (
+            (1, native_voice.CALL_CONTEXT, {"detail": "workspace"}, "Administrator"),
+            (
+                2,
+                native_voice.DELEGATE,
+                {"request": "List my apps", "intent_summary": ""},
+                "Calendar, Tasks, and Documents.",
+            ),
+            (3, native_voice.CALL_CONTEXT, {"detail": "workspace"}, "Administrator"),
+        ):
+            if index > 1:
+                await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+                assert await event(browser.outbox) == {"type": "flush"}
+                await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+            await _tool(provider, f"turn-{index}", name, arguments)
+            await event(provider.outbox)
+            answer = (await event(provider.outbox))["response"]
+            assert expected in answer["instructions"]
+            await provider.inbox.put(
+                {
+                    "type": "response.created",
+                    "response": {
+                        "id": f"answer-{index}",
+                        "metadata": answer["metadata"],
+                    },
+                }
+            )
+            await provider.inbox.put(
+                {
+                    "type": "response.output_audio.delta",
+                    "response_id": f"answer-{index}",
+                    "delta": "AAE=",
+                }
+            )
+            assert await event(browser.outbox) == b"\x00\x01"
+            await provider.inbox.put(
+                {
+                    "type": "response.done",
+                    "response": {"id": f"answer-{index}", "status": "completed"},
+                }
+            )
+            await provider.inbox.put(
+                {"type": "response.created", "response": {"id": f"extra-{index}"}}
+            )
+            await provider.inbox.put(
+                {
+                    "type": "response.output_audio.delta",
+                    "response_id": f"extra-{index}",
+                    "delta": "AAE=",
+                }
+            )
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(browser.outbox.get(), 0.02)
+            assert not reader.done()
+        work.assert_awaited_once_with(relay.scope, "turn-2", "List my apps")
+        assert relay.protocol_counts["suppressed_post_delegate_response"] == 3
+        assert provider.outbox.empty()
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_generic_prelude_is_not_a_task_specific_recap():
+    """Provider speaks filler before the tool; work still waits for the actual recap."""
+    browser, provider = Browser(), Provider(manual_intent=True)
+    work = AsyncMock(return_value="The plan is ready for review.")
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+        work=work,
+    )
+    relay.ready = True
+    relay.response_generation = "build"
+    relay.last_spoken_response = "build"
+    reader = asyncio.create_task(relay._read_provider())
+    try:
+        turn = request(
+            "build-id",
+            "build",
+            "",
+            args={
+                "request": "Go ahead and build the app plan in our chat.",
+                "intent_summary": "I’ll build the app from the plan we agreed on.",
+            },
+        )
+        turn["response"]["output"].insert(
+            0,
+            {
+                "type": "message",
+                "content": [{"type": "audio", "transcript": "Okay, sure."}],
+            },
+        )
+        await relay._completed_response(turn)
+        cue = (await event(provider.outbox))["response"]
+        assert "build the app from the plan" in cue["instructions"]
+        work.assert_not_awaited()
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "recap",
+                    "metadata": cue["metadata"],
+                },
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "recap",
+                "delta": "AAE=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x01"
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "recap", "status": "completed"},
+            }
+        )
+        await relay.pending
+        work.assert_awaited_once_with(
+            relay.scope, "build-id", "Go ahead and build the app plan in our chat."
+        )
+        assert relay.protocol_counts["handoff_requested"] == 1
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tool_name", [native_voice.DELEGATE_ACTION, native_voice.DELEGATE]
+)
+async def test_substantive_task_never_silently_skips_recap_when_model_omits_it(
+    tool_name,
+):
+    browser, provider = Browser(), Provider(manual_intent=True)
+    work = AsyncMock(return_value="The plan is ready.")
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+        work=work,
+    )
+    relay.ready = True
+    relay.response_generation = "plan"
+    text = "Plan a new Integral app to track garden watering."
+    reader = asyncio.create_task(relay._read_provider())
+    try:
+        await relay._completed_response(
+            request(
+                "plan",
+                "plan",
+                "",
+                name=tool_name,
+                args={"request": text, "intent_summary": ""},
+            )
+        )
+        summary = (await event(provider.outbox))["response"]
+        assert summary["tool_choice"] == "none"
+        assert "Paraphrase the actual goal" in summary["instructions"]
+        assert text in summary["instructions"]
+        work.assert_not_awaited()
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {"id": "recap", "metadata": summary["metadata"]},
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "recap",
+                "delta": "AAE=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x01"
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "recap", "status": "completed"},
+            }
+        )
+        await relay.pending
+        work.assert_awaited_once_with(relay.scope, "plan", text)
+        assert relay.protocol_counts["handoff_synthesized_from_request"] == 1
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)

@@ -1,3 +1,4 @@
+import { peekVoiceSession } from "../features/ai-chat/nativeVoiceSession";
 /**
  * Deploy / stale-tab recovery helpers.
  *
@@ -41,7 +42,7 @@ export function hasAutoReloadedForStaleBuild(): boolean {
 
 /** Mark + reload once per client asset version. Returns false if already tried. */
 export function autoReloadOnceForStaleBuild(): boolean {
-  if (hasAutoReloadedForStaleBuild()) return false;
+  if (peekVoiceSession() || hasAutoReloadedForStaleBuild()) return false;
   try {
     sessionStorage.setItem(STALE_BUILD_RELOAD_KEY, CLIENT_WEB_ASSET_VERSION);
   } catch {

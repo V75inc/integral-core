@@ -26,6 +26,10 @@ export type ConfirmOptions = {
 type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>;
 
 const ConfirmContext = createContext<ConfirmFn | null>(null);
+// System notifications and class error boundaries use the same mounted
+// Integral dialog without creating a second modal implementation.
+let mountedConfirm: ConfirmFn | null = null;
+export function getMountedConfirm(): ConfirmFn | null { return mountedConfirm; }
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -63,6 +67,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       setOpen(true);
     });
   }, []);
+
+  useLayoutEffect(() => {
+    mountedConfirm = confirm;
+    return () => { if (mountedConfirm === confirm) mountedConfirm = null; };
+  }, [confirm]);
 
   return (
     <ConfirmContext.Provider value={confirm}>
@@ -123,4 +132,9 @@ export function useConfirm(): ConfirmFn {
     throw new Error('useConfirm must be used within ConfirmProvider');
   }
   return ctx;
+}
+
+/** Non-throwing access for surfaces mounted outside the application shell. */
+export function useConfirmOptional(): ConfirmFn | null {
+  return useContext(ConfirmContext);
 }

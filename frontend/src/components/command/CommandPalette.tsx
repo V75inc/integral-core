@@ -1,3 +1,4 @@
+import { useVoiceDepartureGuard } from "../../features/ai-chat/useVoiceDepartureGuard";
 /**
  * CommandPalette — ⌘K / Ctrl+K global launcher.
  *
@@ -119,6 +120,7 @@ export function CommandPalette({ open, onClose }: Props) {
     staleTime: 15_000,
   });
 
+  const { guardDeparture } = useVoiceDepartureGuard();
   const allEntries = useMemo<Entry[]>(() => {
     const list: Entry[] = [];
 
@@ -135,8 +137,7 @@ export function CommandPalette({ open, onClose }: Props) {
           <Building2 size={14} strokeWidth={LINE_ICON_STROKE} />
         ) : undefined,
         onSelect: () => {
-          setScope({ workspaceId: ws.id });
-          onClose();
+          guardDeparture(() => { setScope({ workspaceId: ws.id }); onClose(); }, voice => voice.workspaceId !== ws.id);
         },
       });
     }
@@ -299,7 +300,7 @@ export function CommandPalette({ open, onClose }: Props) {
     });
 
     return list;
-  }, [
+  }, [guardDeparture,
     workspaces,
     activeWorkspace?.accent_color,
     scope,

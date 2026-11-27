@@ -29,6 +29,7 @@ from tests.test_native_voice_live_tools import _tool
         "muted",
         "interrupted",
         "playback_failed",
+        "hangup",
     ],
 )
 async def test_review_requires_independent_fresh_spoken_confirmation(
@@ -80,6 +81,8 @@ async def test_review_requires_independent_fresh_spoken_confirmation(
             current.return_value = None
         if outcome == "decline":
             return "No."
+        if outcome == "hangup":
+            return "Please end this call."
         if outcome == "wrong":
             return "Yes, but make it tomorrow."
         return "Yes, go ahead."
@@ -171,6 +174,12 @@ async def test_review_requires_independent_fresh_spoken_confirmation(
                 }
             )
         assert (await event(browser.outbox))["type"] == "review_confirmation_ended"
+        if outcome == "hangup":
+            decision.assert_not_awaited()
+            assert (await event(browser.outbox))["type"] == "call_ending"
+            assert relay.end_requested.is_set()
+            assert relay.review_confirmation is None
+            return
         if outcome in {"match", "unfocused_match", "decline"}:
             decision.assert_awaited_once_with(
                 principal_id=scope.principal,

@@ -129,6 +129,9 @@ async def test_open_voice_page_uses_bound_browser_and_last_spoken_choices(
     relay.ready = True
     relay.response_generation = "response"
     relay._speak_result = AsyncMock()
+    relay._start_handoff = (
+        AsyncMock()
+    )  # isolate navigation routing; actual voice gate tested separately
     relay._work = AsyncMock()
     frame = provider_request("call", "response", "unused")
     destination = {

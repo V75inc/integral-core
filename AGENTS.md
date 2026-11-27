@@ -19,6 +19,41 @@ Backend uses jvspatial graph-based data model — all entities are Nodes with ex
 
 **Current jvspatial security compatibility:** package metadata pins `jvspatial==0.2.10` and `pydantic-ai-harness[skills]==0.59.0`. Runtime dependencies resolve from PyPI; no alternate resident or Git source override remains. Use `uv sync --frozen --extra dev --extra test` and the clean wheel and full release gates before release. Integral's `RATE_LIMIT_DISABLED=1` bypasses jvspatial's auth-entrypoint cap only under pytest or `DEBUG`; production keeps that cap. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret manager. See [backend/README.md](backend/README.md#jvspatial-security-compatibility) and [docs/ops/DEPLOY.md](docs/ops/DEPLOY.md#jvspatial-compatibility-release-gate).
 
+### Physical PostgreSQL indexing (MANDATORY)
+
+**I-RUNTIME-01 — Governed indexes.** Uncontrolled automatic index creation has
+caused database bloat and severe write-performance degradation in Integral.
+Keep the physical index inventory deliberate, bounded and shared across Apps.
+The canonical contract is [governed PostgreSQL storage](docs/backend/governed-indexes.md).
+
+- Managed PostgreSQL serving uses `JVSPATIAL_POSTGRES_INDEX_CREATION=managed`
+  and `JVSPATIAL_AUTO_CREATE_INDEXES=false`. Keep automatic creation disabled
+  in API, worker and launcher configurations. Required catalog verification
+  must still run before serving, with a restricted DML-only role. A missing
+  integrity constraint or unready catalog blocks startup.
+- Provision fresh storage using the release-reviewed catalog in a separate
+  maintenance process before starting the API. Existing databases require a
+  reviewed `integral indexes plan` / `status` / `apply` lifecycle with explicit
+  budgets, backup and an approved plan hash. Keep migration credentials out of
+  serving processes. Never enable automatic creation or switch to transitional
+  constraints mode as a workaround for missing catalog entries.
+- Treat model index annotations and App `storage_index_requests` as
+  requirements or proposals, subject to catalog review. Agents must not issue
+  ad hoc CREATE, DROP or REINDEX operations from startup hooks, requests,
+  worker loops, App tools, or data-volume thresholds. Reuse approved shared
+  access paths; avoid new indexes per record, workspace, or App instance.
+- Before proposing an additional index, identify the actual query and existing
+  access paths. Measure query latency, plans, index count and size, and write
+  overhead on a representative populated PostgreSQL fixture. Qualify the
+  reviewed fingerprint and resource budget. Preserve existing required
+  uniqueness and authorization semantics. Retirement of an existing index
+  needs separate reviewed evidence; a zero scan count alone is insufficient.
+- Verify that startup, ordinary reads/writes, worker execution, and repeated
+  restarts do not grow the physical index inventory or change its definitions.
+  Test missing-catalog failure and migration recovery against disposable
+  PostgreSQL. Semantic indexing of content follows the separate retrieval
+  contract below; it does not authorize opportunistic physical index creation.
+
 When repairing legacy `UserModelCredential` duplicates, read through `GraphContext.find` so the unique index is not created before deduplication. Validate the migration against a PostgreSQL schema containing actual duplicate rows, then verify the index rejects a new duplicate.
 
 **Note:** Historical docs mentioned `AGENTIVE_ENABLED` as a substrate-only kill-switch. That flag is **not** in `app/config.py` and does **not** gate boot today — do not reintroduce conditional-load language without restoring a real gate.

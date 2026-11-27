@@ -130,6 +130,44 @@ second approval, changed schema, revoked access, failed apply, replay and
 interruption. Confirm no duplicate turns, approvals or announcements.
 Measure time to acknowledgment versus useful audio and verify spoken
 content from captured synthetic playback alongside the saved transcript.
+For a substantial action, verify a concise task-specific spoken plan precedes
+resident admission; a quick lookup must not add a filler response. While an
+exact work receipt is queued or running, verify bounded, non-repeating status
+updates at quiet pauses; the result or review takes precedence. Interrupt
+speech without cancelling or duplicating the resident task. While ordinary
+small talk is synthesizing or queued in the browser, deliver a verified
+completed result promptly by cutting only that ordinary speech. Verify two
+rapid results with both readouts intact, a concurrently completed tool call,
+and a caller interruption before the result begins. Verify that an explicit
+hang-up closes the bound browser and provider, including missing farewell
+synthesis and a broken browser; ambiguous goodbye, work cancellation, an
+unsolicited provider response and task completion must not end the call.
+Pending review remains undecided and admitted tasks retain their durable
+receipts after hang-up. For record detail speech, verify that the presentation
+instruction preserves the supplied values (including numbers and dates) across
+arbitrary record schemas, while exact saved-text and review readbacks remain
+literal. Test audible phrasing with a real microphone before release. Repeat workspace
+identity → list apps → workspace identity and require one answer per user
+turn. After a terminal answer, continue with another question on the same
+connection. Simulate temporary microphone mute, audio-context suspension and
+missing capture frames; recover on restored input without overriding a
+user's intentional mute. A permanent input loss and the existing connection
+limit must be reported distinctly. Physical laptop/phone audio-route testing
+remains necessary before closing device-specific reports.
+A full-page call must survive Home and other same-workspace routes, keeping
+one mounted conversation, muted state, provider connection and durable
+receipts; confirm actual conversation departure rather than warning on
+ordinary internal navigation. Verify cancel and confirm, native document
+departure, repeated teardown and setup cancellation. Ringback is local
+only, stops at provider readiness and must not enter capture.
+Every work-causing voice directive, including quick lookup and direct tool
+use, must deliver one short intended-action cue before execution; no cue
+audio means no silent admission. Pure conversation needs no cue.
+Also distinguish actual task-specific recap from generic prior audio, and
+test a completed result arriving before a caller's tool decision is known:
+flush old playback without cancelling its provider response. Verify an
+explicit plan continuation reaches the resident and a late correlated
+hang-up still releases the call. App-owned reload uses the same dialog.
 Full release needs physical microphone testing and a complete relevant gate.
 
 The [conversation contract](../voice-chat-conversation-contract.md) specifies
