@@ -126,16 +126,54 @@ async def start_phone_relay(
     return True
 
 
-def phone_relay_url() -> str:
-    """Websocket URL for the phone peer. This does not open the socket."""
+def _public_api_ws_base() -> str:
+    """Websocket origin for this API. An empty public URL stays empty."""
     from app.config import settings
 
     base = (settings.PUBLIC_API_BASE_URL or "").rstrip("/")
     if base.startswith("https://"):
-        base = "wss://" + base[len("https://") :]
-    elif base.startswith("http://"):
-        base = "ws://" + base[len("http://") :]
-    return f"{base}/ws/phone-voice"
+        return "wss://" + base[len("https://") :]
+    if base.startswith("http://"):
+        return "ws://" + base[len("http://") :]
+    return base
+
+
+def phone_relay_url() -> str:
+    """Websocket URL for the member phone peer. This does not open the socket."""
+    return f"{_public_api_ws_base()}/ws/phone-voice"
+
+
+def public_phone_relay_url() -> str:
+    """Websocket URL for a public-profile call. This does not open the socket."""
+    return f"{_public_api_ws_base()}/ws/public-phone-voice"
+
+
+def mint_public_relay_bearer(
+    *,
+    call_id: str,
+    workspace_id: str,
+    binding_id: str,
+    grant_id: str,
+    revision: int,
+    profile_key: str,
+    published_version: int,
+) -> str:
+    """Mint one public-profile bearer. It has no member principal or thread."""
+    token = secrets.token_urlsafe(32)
+    _relay_bearers[token] = {
+        "mode": "public",
+        "call_id": call_id,
+        "principal_id": "",
+        "workspace_id": workspace_id,
+        "thread_id": "",
+        "channel_session": "",
+        "binding_id": binding_id,
+        "grant_id": grant_id,
+        "revision": str(revision),
+        "profile_key": profile_key,
+        "published_version": str(published_version),
+    }
+    return token
 
 
 def mint_relay_bearer(
@@ -203,6 +241,37 @@ def discard_relay_bearer(call_id: str) -> None:
     ]
     for token in doomed:
         _relay_bearers.pop(token, None)
+
+
+async def confirm_public_call(record: dict):
+    """Return the live public grant for this bearer, or None.
+
+    A member bearer is not a public call. The returned grant is not a
+    signed-in voice principal.
+    """
+    if (record.get("mode") or "") != "public":
+        return None
+    binding_id = (record.get("binding_id") or "").strip()
+    workspace_id = (record.get("workspace_id") or "").strip()
+    if not binding_id or not workspace_id:
+        return None
+    from app.agentive.nodes import WhatsAppChannelBinding
+    from app.agentive.services.whatsapp_public_profile import public_call_grant
+
+    binding = await WhatsAppChannelBinding.get(binding_id)
+    if binding is None:
+        return None
+    grant = await public_call_grant(binding, workspace_id)
+    if grant is None:
+        return None
+    if (
+        grant.grant_id != (record.get("grant_id") or "")
+        or str(grant.revision) != (record.get("revision") or "")
+        or grant.profile_key != (record.get("profile_key") or "")
+        or str(grant.published_version) != (record.get("published_version") or "")
+    ):
+        return None
+    return grant
 
 
 async def confirm_phone_line(record: dict) -> bool:

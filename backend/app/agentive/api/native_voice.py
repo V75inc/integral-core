@@ -5,7 +5,7 @@ import logging
 from contextlib import suppress
 from hmac import compare_digest
 
-from fastapi import (  # deviation: jvspatial @endpoint has no WebSocket primitive; only /ws/native-voice and /ws/phone-voice are registered here.
+from fastapi import (  # deviation: jvspatial @endpoint has no WebSocket primitive; only /ws/native-voice, /ws/phone-voice, and /ws/public-phone-voice are registered here.
     APIRouter,
     WebSocket,
     WebSocketDisconnect,
@@ -263,7 +263,11 @@ async def phone_voice(socket: WebSocket):
 
     presented = socket.headers.get("x-integral-phone-bearer") or ""
     record = relay_bearer_record(presented)
-    if record is None:
+    if (
+        record is None
+        or record.get("mode") == "public"
+        or not (record.get("principal_id") or "").strip()
+    ):
         await socket.close(code=4403)
         return
     await socket.accept()
@@ -326,6 +330,77 @@ async def phone_voice(socket: WebSocket):
         finally:
             if claimed:
                 _active_calls.discard(principal)
+            if (
+                socket.client_state
+                == socket.application_state
+                == WebSocketState.CONNECTED
+            ):
+                with suppress(RuntimeError, WebSocketDisconnect):
+                    await socket.close()
+
+
+# deviation: jvspatial @endpoint has no WebSocket primitive.
+@router.websocket("/ws/public-phone-voice")
+async def public_phone_voice(socket: WebSocket):
+    """Relay one public-profile call. This is not the member phone relay.
+
+    The socket admits only a public bearer. It does not claim a member's
+    live call, open a chat thread, or offer workspace tools.
+    """
+    from app.agentive.services.whatsapp_public_voice import PublicPhoneRelay
+    from app.agentive.services.whatsapp_voice_bridge import (
+        attach_phone_relay,
+        confirm_public_call,
+        discard_relay_bearer,
+        relay_bearer_record,
+    )
+
+    presented = socket.headers.get("x-integral-phone-bearer") or ""
+    record = relay_bearer_record(presented)
+    if record is None or record.get("mode") != "public":
+        await socket.close(code=4403)
+        return
+    await socket.accept()
+    upstream = None
+    try:
+        grant = await confirm_public_call(record)
+        if grant is None:
+            await socket.close(code=4403)
+            return
+        credential = await resolve_realtime_credential(record["workspace_id"])
+        if credential is None:
+            await socket.close(code=4404)
+            return
+        upstream = await open_upstream(credential)
+        if upstream is None:
+            await socket.close(code=4404)
+            return
+        attach_phone_relay(
+            call_id=record["call_id"],
+            upstream=upstream,
+            bearer=presented,
+        )
+
+        async def still_allowed() -> bool:
+            return await confirm_public_call(record) is not None
+
+        relay = PublicPhoneRelay(
+            _PhoneSocket(socket),
+            upstream,
+            grant.persona,
+            still_allowed,
+        )
+        try:
+            await relay.run()
+        except WebSocketDisconnect:
+            pass
+    except WebSocketDisconnect:
+        pass
+    finally:
+        try:
+            await _hang_up_phone_quietly(record["call_id"], upstream)
+            discard_relay_bearer(record["call_id"])
+        finally:
             if (
                 socket.client_state
                 == socket.application_state

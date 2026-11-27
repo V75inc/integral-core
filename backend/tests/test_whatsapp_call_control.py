@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from app.agentive.services.whatsapp_call_control import (
     ParsedWhatsAppCall,
+    _admission_inputs,
     _voice_service,
     accept_jvvoice_call,
     disconnect_jvvoice_call,
@@ -265,6 +266,45 @@ def test_incomplete_line_voice_service_does_not_use_deployment_defaults(
     assert _voice_service(url_only) == ("", "")
     assert _voice_service(broken) == ("", "")
     assert _voice_service(None) == (_JVVOICE, _JVVOICE_KEY)
+
+
+@pytest.mark.unit
+def test_caller_selects_one_verified_number_when_several_exist():
+    """A second verified handset does not block the one that is calling."""
+    identities = [
+        SimpleNamespace(
+            user_id="user-1", channel_user_id="+15551110000", verified=True
+        ),
+        SimpleNamespace(
+            user_id="user-1", channel_user_id="+15551212000", verified=True
+        ),
+    ]
+
+    selected = _admission_inputs(
+        _call_binding(),
+        identities,
+        [_enabled_grant()],
+        caller="15551212000",
+    )
+    other = _admission_inputs(
+        _call_binding(),
+        identities,
+        [_enabled_grant()],
+        caller="+15550001111",
+    )
+    duplicate = _admission_inputs(
+        _call_binding(),
+        identities[:1] + identities[:1],
+        [_enabled_grant()],
+        caller="+15551110000",
+    )
+
+    assert selected["ambiguous_verified_number"] is False
+    assert selected["verified_e164"] == "+15551212000"
+    assert selected["principal_id"] == "user-1"
+    assert other["ambiguous_verified_number"] is False
+    assert other["verified_e164"] == ""
+    assert duplicate["ambiguous_verified_number"] is True
 
 
 @pytest.mark.unit
@@ -805,12 +845,38 @@ async def test_signed_text_still_uses_the_text_dispatcher(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_visitor_call_does_not_enter_native_voice(monkeypatch, jvvoice_settings):
-    """A ready public profile refuses the call instead of opening native voice."""
+async def test_visitor_call_accepts_on_the_public_socket(monkeypatch, jvvoice_settings):
+    """An unknown caller with one live profile accepts without member voice."""
+    from app.agentive.services import whatsapp_voice_bridge as bridge
+    from app.agentive.services.whatsapp_public_profile import PublicLineGrant
 
     def boom(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("visitor call entered native voice")
 
+    grant = PublicLineGrant(
+        "ws-1",
+        "grant-1",
+        4,
+        "desk",
+        2,
+        "Be brief.",
+        "svc-user",
+    )
+
+    async def live(_binding):
+        return [grant]
+
+    async def edge(_workspace_id, _binding_id):
+        return SimpleNamespace(id="grant-1", enabled=True, calling_enabled=True)
+
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_public_profile.live_public_profile_grants",
+        live,
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_channel_binding.workspace_line_grant",
+        edge,
+    )
     monkeypatch.setattr(
         "app.agentive.services.whatsapp_voice_bridge.start_phone_relay", boom
     )
@@ -820,20 +886,40 @@ async def test_visitor_call_does_not_enter_native_voice(monkeypatch, jvvoice_set
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
-        raise AssertionError(f"visitor call contacted {request.url}")
+        if str(request.url).endswith("/calling/credentials"):
+            return httpx.Response(200, json={"access_token": _META_TOKEN})
+        body = json.loads(request.content)
+        assert body["bridge"] == "integral_native"
+        assert body["relay_url"] == "wss://api.example.test/ws/public-phone-voice"
+        assert "user_id" not in body
+        assert "session_id" not in body
+        record = bridge.relay_bearer_record(body["relay_bearer"])
+        assert record is not None
+        assert record["mode"] == "public"
+        assert record["principal_id"] == ""
+        assert record["thread_id"] == ""
+        assert record["grant_id"] == "grant-1"
+        assert record["profile_key"] == "desk"
+        return httpx.Response(200, json={"status": "connected"})
 
-    _result, seen, receipts, _binding, dispatched = await _receive(
-        monkeypatch,
-        _calls_payload(_offer_call(**{"from": "19995550000"})),
-        identities=[_owner_identity()],
-        grants=[_enabled_grant(public_profile_ready=True)],
-        handler=handler,
-    )
+    try:
+        _result, seen, receipts, _binding, dispatched = await _receive(
+            monkeypatch,
+            _calls_payload(_offer_call(**{"from": "19995550000"})),
+            identities=[_owner_identity()],
+            grants=[_enabled_grant(public_profile_ready=True)],
+            handler=handler,
+        )
+    finally:
+        bridge.discard_relay_bearer("wacid.1")
 
-    assert seen == []
     assert dispatched["called"] is False
-    assert receipts.rows[0].status == "refused"
-    assert receipts.rows[0].last_error == "visitor_voice_unavailable"
+    assert _paths(seen) == [
+        "https://connect.example.test/api/v1/meta/whatsapp/calling/credentials",
+        f"{_JVVOICE}/api/calls/accept",
+    ]
+    assert receipts.rows[0].status == "accepted"
+    assert receipts.rows[0].last_error == ""
     assert "ws-" not in receipts.rows[0].last_error
 
 

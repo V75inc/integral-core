@@ -266,6 +266,32 @@ async def _store_exchange(
     )
 
 
+async def public_call_grant(binding, workspace_id: str) -> PublicLineGrant | None:
+    """The only live public profile when this line can still take a call.
+
+    The profile is re-read before the result is returned. A member principal
+    is not selected here.
+    """
+    workspace = (workspace_id or "").strip()
+    if not workspace or not getattr(binding, "enabled", False):
+        return None
+    chosen = choose_public_grant(await live_public_profile_grants(binding))
+    if chosen is None or chosen.workspace_id != workspace:
+        return None
+    if not await _grant_still_only(binding, chosen):
+        return None
+    from app.agentive.services.whatsapp_channel_binding import workspace_line_grant
+
+    edge = await workspace_line_grant(workspace, getattr(binding, "id", ""))
+    if (
+        edge is None
+        or not getattr(edge, "enabled", False)
+        or not getattr(edge, "calling_enabled", False)
+    ):
+        return None
+    return chosen
+
+
 async def _grant_still_only(binding, grant: PublicLineGrant) -> bool:
     """True when this grant is still the only live public profile on the line."""
     current = await live_public_profile_grants(binding)

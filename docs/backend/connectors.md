@@ -114,8 +114,10 @@ on that line are answered with the tool-free public persona when exactly one
 enabled grant has a live profile. A verified member keeps the native thread
 and the owner's call. A pairing code still links the number. Several matching
 grants, or a caller who is not a member, do not fall through to the public
-profile. Visitor calls are refused rather than joined to signed-in voice. The
-phone number is not a user, and the line does not publish a website embed or
+profile. An unknown caller is answered on `/ws/public-phone-voice` when calling
+is on and exactly one live public profile remains. That socket speaks the
+published persona with no tools and does not join the signed-in voice relay.
+The phone number is not a user, and the line does not publish a website embed or
 full-page link.
 
 The workspace line is a singleton. Add and Configure use the existing binding
