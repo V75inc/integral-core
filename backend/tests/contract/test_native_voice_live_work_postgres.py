@@ -1504,6 +1504,19 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     relay.review_confirmation = confirmation
     await relay._capture_review_confirmation(confirmation)
     assert (await event(browser.outbox))["type"] == "review_confirmation_ended"
+    if edit in {"title", "date", "reject", "create"}:
+        # A verified review outcome must update the realtime conversation
+        # before the separate spoken readout, without exposing proposal data.
+        context = await event(provider.outbox)
+        assert context["type"] == "conversation.item.create"
+        assert context["item"]["role"] == "system"
+        assert context["item"]["content"][0]["type"] == "input_text"
+        note = context["item"]["content"][0]["text"]
+        assert (
+            "independently rejected" if edit == "reject" else "independently applied"
+        ) in note
+        assert "own authorization" in note
+        assert staged.token not in note
     if edit in {"body_manual", "body_manual_reject"}:
         from app.models.nodes import Entry
 
