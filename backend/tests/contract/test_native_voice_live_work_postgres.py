@@ -16,6 +16,17 @@ from tests.test_native_voice_completion import completed_readout
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
 
+async def _completed_caller_turn(relay, browser, provider):
+    """Real caller VAD start/stop fences the prior private response."""
+    previous = relay.steering_offered
+    await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+    assert await event(browser.outbox) == {"type": "flush"}
+    if relay.steering_offered != previous:
+        update = await event(provider.outbox)
+        assert update["type"] == "session.update"
+    await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+
+
 @pytest.mark.parametrize("dispatch", [False, True], ids=["queued", "running"])
 async def test_live_voice_and_explicit_stop_rerun(
     authenticated_client, test_user, monkeypatch, dispatch
@@ -49,6 +60,9 @@ async def test_live_voice_and_explicit_stop_rerun(
                 native_voice.STEER_ACTIVE
                 in {t["name"] for t in update["session"]["tools"]}
             ) == relay.steering_offered
+        # A completed spoken directive follows a real VAD stop. Leaving VAD
+        # open intentionally prevents the intent gate from starting work.
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
 
     async def tool(turn, *, operation=None):
         await provider.inbox.put({"type": "response.created", "response": {"id": turn}})
@@ -421,6 +435,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         assert "accepted" in (await event(provider.outbox))["item"]["output"]
         first = relay.accepted
         assert first is not None
+        await _completed_caller_turn(relay, browser, provider)
         await _tool(
             provider,
             "add-queued",
@@ -432,6 +447,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         )
         await finished_audio("ack", (await event(provider.outbox))["response"])
 
+        await _completed_caller_turn(relay, browser, provider)
         await _send_tool(provider, "check", "check", "check_chat")
         assert "Checked" in (await event(provider.outbox))["item"]["output"]
         check = (await event(provider.outbox))["response"]
@@ -447,6 +463,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         assert promoted is not None and promoted.work_item_id != first.work_item_id
 
         # Saved chat text and the status of the latest admitted job are distinct.
+        await _completed_caller_turn(relay, browser, provider)
         await _tool(
             provider, "check-visible", native_voice.CHECK_CHAT, {"view": "latest_reply"}
         )
@@ -457,6 +474,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         await finished_audio("check-visible-result", visible)
 
         # Status should not fall back to that earlier result.
+        await _completed_caller_turn(relay, browser, provider)
         await _tool(
             provider,
             "check-next",
@@ -677,6 +695,7 @@ async def test_spoken_navigation_context_and_cancellation(
         assert capsule.execution_context.focused_track_id == track_id
         assert dest.id in capsule.execution_context.system_context
         assert capsule.execution_context.extra_data["voice_delegate"] is True
+        await _completed_caller_turn(relay, browser, provider)
         await _tool(provider, "cancel", native_voice.CANCEL_WORK, {})
         assert (await event(provider.outbox))["item"]["call_id"] == "cancel"
         result = (await event(provider.outbox))["response"]["instructions"]
@@ -989,11 +1008,17 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         payload["title"] = "Acme Georgetown"
     if edit == "full_edit":
         payload["body"] = "Updated notes for the whole project."
+    long_body = (
+        "At noon local time, review the requirements with the team and confirm the delivery plan.\n\n"
+        "- Verify the work completed against the previous report and identify the outstanding items.\n"
+        "- Confirm the final date with the team and note any unresolved questions for the next meeting.\n"
+        "- Prepare the summary for review before closing the task."
+    )
     if creating:
         payload = {
             "track_id": track_id,
             "title": "Water the plants",
-            "body": "At noon local time",
+            "body": long_body if edit == "create" else "At noon local time",
             "entry_type": entry["type_id"],
             "fields": {
                 date_key: "2026-11-27",
@@ -1106,6 +1131,9 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         )  # A body replacement is outside the simple spoken projection.
     else:
         assert review is not None
+    if edit == "create":
+        assert "Verify the work completed" in review.text
+        assert "Prepare the summary" in review.text
     if edit == "date":
         assert "2026-11-26" in review.text and "2026-11-27" in review.text
         from types import SimpleNamespace
@@ -1327,7 +1355,7 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         )
         assert len(created) == 1
         assert created[0].custom_fields[date_key] == "2026-11-30"
-        assert created[0].body == "At noon local time"
+        assert created[0].body == long_body
         spoken = (await event(provider.outbox))["response"]["instructions"]
         assert "Water the plants" in spoken and "Current saved values" in spoken
         assert "Count: 0" in spoken and "Expedite: False" in spoken

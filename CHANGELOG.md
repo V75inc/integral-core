@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Restore voice confirmation for bounded multi-paragraph and bullet-list task descriptions, independent of unrelated UI focus; speak directly to the signed-in person.
+
 - Add bounded encrypted, source-linked native conversation working memory.
   Voice can recall verified dated caller statements without a resident turn;
   ambiguous or stale recall falls back to the resident’s scoped memory tool

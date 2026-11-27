@@ -243,8 +243,7 @@ staged payload. The same projection must still match when playback begins.
 Simple creation also uses the existing proposal form and canonical field
 validator to present the Track, type, title and effective scalar values.
 The writer checks the same schema and values inside its effect transaction.
-A Markdown field can be empty or contain a short, single line of literal text. Its full value is included in the independent spoken review. Formatted or linked content,
-hooks, relation/file/computed fields, long body content and tags require their existing card.
+A Markdown field can be empty or contain a short, single line of literal text. Its full value is included in the independent spoken review. A description of up to 800 characters may contain plain paragraphs or a flat bullet list; the complete readable content is spoken, and the original body remains in the exact approval fingerprint and writer fence. Rich or linked content, hooks, relation/file/computed fields, descriptions over the bound and tags retain their existing review gate.
 A single proposal containing one supported record creation and one one-time
 reminder in this chat can use spoken review. Both operations must be literal
 and independently reviewable. Approval binds the ordered pair; the record and
@@ -252,7 +251,7 @@ the reminder have separate execution receipts. Other compound effects retain
 their existing review.  Published-profile review remains a
 separate qualification item.
 
-After reconnect, the caller can return to one eligible pending proposal in the same chat. The server checks its work attempt and proposal identity again. At a speech turn boundary the relay offers steering only while its foreground work is known to be queued or running. A reply to a finished clarification can enter the same chat as the next turn.
+A conversational call can confirm the exact eligible pending proposal in the same chat regardless of which App or Track is on screen. The call, work origin, current proposal and authority—not browser focus—bind the decision. After reconnect, the caller can return to one eligible pending proposal in the same chat. The server checks its work attempt and proposal identity again. At a speech turn boundary the relay offers steering only while its foreground work is known to be queued or running. A reply to a finished clarification can enter the same chat as the next turn.
 
 The configured realtime model renders the exact eligible proposal and a short
 question in the call’s voice in a separate tool-free session. Core checks the
@@ -457,3 +456,5 @@ Only a verified, dated caller quotation is eligible for the direct voice
 path; stale, missing or competing sources delegate the original question to
 the resident. Current workspace facts always use current authorized reads.
 See [ADR 020](adr/020-source-linked-working-memory.md).
+
+Spoken intent and result responses address the authenticated person directly as you or your. An available display name is quoted context for occasional direct address, never a third-person possessive or authority. The message passed to the resident retains the person’s original perspective.

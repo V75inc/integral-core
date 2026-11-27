@@ -378,6 +378,12 @@ def test_voice_prompt_and_tool_contract_distinguish_perspectives():
         "session"
     ]["instructions"]
     assert voice._ACKNOWLEDGMENT_PERSPECTIVE in instructions
+    assert "never guess their name" in instructions
+    named = voice.session_update("", caller_name="Casey Example")["session"][
+        "instructions"
+    ]
+    assert '"Casey Example"' in named and "only in direct address" in named
+    assert "never as a third-person possessive" in named
     for tool in (voice.TOOL, voice._ACTION_TOOL):
         properties = tool["parameters"]["properties"]
         assert (

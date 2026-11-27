@@ -156,3 +156,24 @@ def test_spoken_review_names_each_field_but_reads_identical_text_once():
     assert _spoken_fields(
         [("Description", "Blue"), ("Notes", "Blue"), ("Count", 1), ("Priority", True)]
     ) == ["Description and Notes set to Blue", "Count set to 1", "Priority set to True"]
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("A short note", "A short note."),
+        (
+            "Plan follows.\n\n- Check the estimate.\n- Confirm delivery on Thursday.",
+            "Plan follows. Check the estimate. Confirm delivery on Thursday.",
+        ),
+        ("**formatted**", None),
+        ("- item\n  - nested", None),
+        ("Look at [this](https://example.org)", None),
+        ("<script>bad</script>", None),
+        ("x" * 801, None),
+    ],
+)
+def test_bounded_spoken_description_preserves_every_plain_clause(body, expected):
+    from app.services.native_voice_creation import spoken_description
+
+    assert spoken_description(body) == expected

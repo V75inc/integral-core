@@ -167,6 +167,7 @@ async def native_voice(browser: WebSocket):
             continuity=continuity,
             workspace_label=workspace_label,
             greeting_period=greeting_period(getattr(caller, "timezone", None)),
+            caller_name=getattr(caller, "display_name", "") or "",
         )
     except WebSocketDisconnect:
         pass
