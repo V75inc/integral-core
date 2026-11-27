@@ -36,7 +36,7 @@ from app.services.change_event_logger import (
     ChangeEventEnvelope,
     is_change_event_enabled,
 )
-from app.services.event_access import prepare_event_payload
+from app.services.event_access import prepare_event_payload, prepare_track_invalidation
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.utils.time import utc_now_iso
 
@@ -92,6 +92,23 @@ async def _send_queue(user_id: str, ws: WebSocket, queue: asyncio.Queue) -> None
                     ),
                     timeout=2,
                 )
+            if payload is None and event.action == "entry.delete":
+                scope = await asyncio.wait_for(
+                    prepare_track_invalidation(
+                        user_id,
+                        event,
+                        action="event_feed.subscribe",
+                        evaluate=policy_evaluate,
+                    ),
+                    timeout=2,
+                )
+                if scope:
+                    await asyncio.wait_for(
+                        ws.send_text(
+                            json.dumps({"type": "scope_invalidated", "scope": scope})
+                        ),
+                        timeout=2,
+                    )
             if payload is not None:
                 await asyncio.wait_for(
                     ws.send_text(
@@ -224,6 +241,24 @@ async def broadcast_change_event(event: ChangeEventEnvelope) -> None:
                     )
                     continue
                 if payload is None:
+                    if event.action == "entry.delete":
+                        try:
+                            scope = await prepare_track_invalidation(
+                                user_id,
+                                event,
+                                action="event_feed.subscribe",
+                                evaluate=policy_evaluate,
+                            )
+                            if scope:
+                                await ws.send_text(
+                                    json.dumps(
+                                        {"type": "scope_invalidated", "scope": scope}
+                                    )
+                                )
+                        except Exception:
+                            logger.debug(
+                                "Scope invalidation unavailable", exc_info=False
+                            )
                     continue
                 try:
                     message = json.dumps(

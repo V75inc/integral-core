@@ -132,7 +132,7 @@ export function PermissionPicker({ workspace, user }: { workspace: string; user:
               <IconButton ref={back} label="Back to permissions" size="sm" onClick={() => setChooseList(false)}><ArrowLeft size={15} /></IconButton>
               <Text variant="heading-sm">Custom approvals</Text>
             </div>
-            <Text as="p" variant="meta" tone="muted" className="px-2 pb-2">Choose private lists and App Home or dashboard layouts. Unselected changes still ask.</Text>
+            <Text as="p" variant="meta" tone="muted" className="px-2 pb-2">Choose eligible record edits and App layouts. Deletions and other high-impact changes still require deliberate confirmation.</Text>
             {current?.some(id => !choices.some(row => row.id === id)) &&
               <Text as="p" variant="meta" tone="muted" className="px-2 pb-1">Saving removes lists that are no longer eligible.</Text>}
             {lists.isSuccess && apps.isSuccess && !choices.length && !appChoices.length && <Text variant="meta" className="px-2 pb-1">No eligible private Apps or lists.</Text>}

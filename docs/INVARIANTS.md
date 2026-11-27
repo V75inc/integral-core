@@ -339,7 +339,7 @@ Use `type: member` to refer to an account. Materialize HAS_MEMBER_REF and valida
 
 ## Events, audit, and review
 
-All change emission uses `emit_change_event`; no direct competing logger writes. Transactional resource writes may capture durable `OperationEventOutbox` intent through their canonical command instead; audit persistence and consumers run in the independent event worker after commit. A successful save never waits for delivery. Refusal audit evidence remains independent of rejected writes. See [event worker](backend/event-worker.md). Internal actor recursion bypass stays in process and must not leak into stored audit or observability. High-fan-out denial/cascade actions can suppress websocket push while retaining audit. Introspection extends additively without changing existing key types.
+All change emission uses `emit_change_event`; no direct competing logger writes. Transactional resource writes may capture durable `OperationEventOutbox` intent through their canonical command instead; audit persistence and consumers run in the independent event worker after commit. A successful save never waits for delivery. Refusal audit evidence remains independent of rejected writes. See [event worker](backend/event-worker.md). Internal actor recursion bypass stays in process and must not leak into stored audit or observability. High-fan-out denial/cascade actions can suppress websocket push while retaining audit. Introspection extends additively without changing existing key types. A committed Entry deletion whose event fails current resource admission may release only a scope-only Track invalidation hint, subject to fresh Track read and event-feed authority. Never disclose the deleted Entry identity, snapshots, actor, or event as part of that hint.
 
 ### I-APPROVAL-01 — Reviewed re-entry is narrowly guarded
 
@@ -969,7 +969,7 @@ proposal and the relevant Home or dashboard revision are rechecked at the
 canonical writer. This grant does not authorize visibility, schema, deletion,
 sharing or security changes. Complex presentation effects without an explicit
 standing grant retain their review requirements; literal bounded presentation
-label/layout edits can be described and independently confirmed in voice.
+label/layout edits can be described and independently confirmed in voice. A single unambiguous leaf Entry deletion may use an independent, deliberate spoken confirmation of the exact permanent removal, with current authority, record revision, and absence of anchored Tracks rechecked at the canonical effect. This is explicit strong review, not a standing grant; ambiguous speech, changed proposals, batch, App or Track deletion and other high-impact effects retain their existing gates.
 
 For legacy staged workspace tools, an explicit dictionary result `ok: false`
 is a refused outcome, even when dispatch returned normally. The approval must

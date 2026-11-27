@@ -510,3 +510,28 @@ it('reconciles a committed deletion receipt whose track is reported at the top l
   expect(qc.getQueryState(key)?.isInvalidated).toBe(true);
   qc.clear();
 });
+
+
+it('reconciles active filtered pages and totals when a consumed deletion has no track in its compact receipt', async () => {
+  const qc = new QueryClient({ defaultOptions: {queries: {retry:false, staleTime:Infinity}} });
+  const key = ['track','affected','entries','filter|sort'];
+  const count = ['track','affected','entries-total','filter'];
+  const other = ['track','inactive','entries','filter|sort'];
+  let rows = ['One','Two'];
+  const readPage = vi.fn(async () => rows);
+  const readCount = vi.fn(async () => rows.length);
+  const readInactive = vi.fn(async () => ['Untouched']);
+  await qc.fetchQuery({queryKey:key, queryFn:readPage});
+  await qc.fetchQuery({queryKey:count,queryFn:readCount});
+  await qc.fetchQuery({queryKey:other,queryFn:readInactive});
+  const unsubPage = new QueryObserver(qc,{queryKey:key,queryFn:readPage}).subscribe(()=>{});
+  const unsubCount = new QueryObserver(qc,{queryKey:count,queryFn:readCount}).subscribe(()=>{});
+  try {
+    rows = ['One'];
+    await invalidateAfterAgentWrite(qc,{staged:staged({kind:'delete_entry',diff_machine:{entry_id:'record'}}),executeResult:{deleted_entry_id:'record'}});
+    expect(qc.getQueryData(key)).toEqual(['One']);
+    expect(qc.getQueryData(count)).toBe(1);
+    expect(readInactive).toHaveBeenCalledTimes(1);
+    expect(qc.getQueryState(other)?.isInvalidated).toBe(true);
+  } finally {unsubPage();unsubCount();qc.clear();}
+});

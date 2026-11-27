@@ -361,3 +361,38 @@ async def test_oldest_first_workspace_stream_uses_plain_equality(monkeypatch):
     assert db.find.await_args_list[1].args[1]["$and"][1] == {
         "context.log_data.workspace_id": {"$exists": False}
     }
+
+
+async def test_forward_refresh_cursor_returns_scope_without_deleted_event(monkeypatch):
+    row = log_row(1)
+    row.event_code = "entry.delete"
+    monkeypatch.setattr(
+        event_history,
+        "_missing_primary_events",
+        AsyncMock(return_value={("entry", "entry")}),
+    )
+    monkeypatch.setattr(event_history, "_in_workspace", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        event_history,
+        "prepare_track_invalidation",
+        AsyncMock(return_value="track:track"),
+    )
+    monkeypatch.setattr(
+        event_history, "prepare_event_payload", AsyncMock(return_value=None)
+    )
+    logger = SimpleNamespace(find_page=AsyncMock(side_effect=[[row], []]))
+    args = dict(
+        logger=logger,
+        user_id="user",
+        workspace_id="workspace",
+        action="event_feed.subscribe",
+        cursor=None,
+        limit=50,
+        descending=False,
+    )
+    result = await event_history.read_event_history(**args, include_invalidations=True)
+    assert result["events"] == [] and result["scope_invalidations"] == ["track:track"]
+    assert result["resume_cursor"]
+    logger.find_page = AsyncMock(side_effect=[[row], []])
+    result = await event_history.read_event_history(**args)
+    assert result["events"] == [] and "scope_invalidations" not in result

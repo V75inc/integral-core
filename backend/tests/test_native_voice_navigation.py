@@ -292,3 +292,79 @@ def test_directory_search_only_needed_for_additional_installed_reads(monkeypatch
         "session"
     ]
     assert FIND_CAPABILITY in {tool["name"] for tool in session["tools"]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    ["track", "app", "view", "denied", "missing-view", "no-focus", "changed", "spoken"],
+)
+async def test_live_record_directory_uses_current_verified_page_without_widening(
+    monkeypatch, case
+):
+    from app.services import chat_page_context
+    from app.services import native_voice as voice
+    from tests.test_native_voice import Browser, Provider
+
+    kind = case if case in {"track", "app", "view"} else "track"
+    pointer = {
+        "url": "/tracks/target",
+        "focused_track_id": "target",
+        "metadata": {"track_title": "Current list"},
+    }
+    if kind == "app":
+        pointer = {
+            "url": "/apps/target",
+            "focused_app_id": "target",
+            "metadata": {"app_name": "Current App"},
+        }
+    if kind == "view" or case == "missing-view":
+        pointer.update(
+            focused_view_id="selected-view",
+            metadata={"track_title": "Current list", "view_name": "Current view"},
+        )
+    if case == "no-focus":
+        pointer = {"url": "/agent"}
+    scope = voice.VoiceScope("human", "workspace", "", "thread", page_context=pointer)
+    relay = voice.VoiceRelay(Browser(), Provider(), scope, check=AsyncMock())
+    relay._function_output = AsyncMock()
+    relay._speak_result = AsyncMock()
+    verified = None if case == "denied" else dict(pointer)
+    if case == "missing-view":
+        verified.pop("focused_view_id")
+    monkeypatch.setattr(
+        chat_page_context, "verify_page_snapshot", AsyncMock(return_value=verified)
+    )
+    monkeypatch.setattr(nav, "verified_destination", AsyncMock(return_value=True))
+    if case == "spoken":
+        relay.navigation.focus = nav.VoiceDestination(
+            "track", "other", "Explicit choice"
+        )
+
+    async def listing(**kwargs):
+        anchor = kwargs["anchor"]
+        if case == "changed":
+            scope.page_revision += 1
+        return nav.VoicePage(None, (), ("only scoped record",), anchor=anchor)
+
+    read = AsyncMock(side_effect=listing)
+    monkeypatch.setattr(nav, "read_records", read)
+    await relay._navigate("tool", {"action": "records", "query": ""}, relay.generation)
+    if case in {"denied", "missing-view"}:
+        read.assert_not_awaited()
+        assert relay.navigation.page is None
+        return
+    read.assert_awaited_once()
+    anchor = read.await_args.kwargs["anchor"]
+    if case == "no-focus":
+        assert anchor is None
+    elif case == "spoken":
+        assert anchor.id == "other" and relay.navigation.focus == anchor
+    else:
+        assert anchor.kind == kind
+        assert anchor.id == ("selected-view" if kind == "view" else "target")
+        assert relay.navigation.focus is None
+    if case == "changed":
+        assert relay.navigation.page is None
+    else:
+        assert relay.navigation.page.anchor == anchor

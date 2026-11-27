@@ -133,6 +133,53 @@ async def read_page(spec, *, principal, workspace, cursor=None) -> VoicePage | N
     )
 
 
+async def browser_record_anchor(snapshot, *, principal, workspace):
+    """Resolve a current browser location without interpreting screen data as authority.
+
+    The boolean distinguishes an absent directory context from an invalid or
+    denied one, so a failed scoped read never falls back to the workspace.
+    """
+    from app.services.chat_page_context import verify_page_snapshot
+
+    if not isinstance(snapshot, dict):
+        return False, None
+    kinds = ("view", "track", "app")
+    if not any(snapshot.get(f"focused_{kind}_id") for kind in (*kinds, "entry")):
+        return False, None
+    # Drop rendered rows; only the focus pointer is relevant to this read.
+    pointer = {
+        key: value
+        for key, value in snapshot.items()
+        if key not in {"visible_data", "metadata"}
+    }
+    pointer["metadata"] = {}
+    verified = await verify_page_snapshot(
+        pointer, user_id=principal, workspace_id=workspace
+    )
+    if not verified:
+        return True, None
+    # Do not silently widen an unavailable selected View to its parent Track.
+    kind = next((k for k in kinds if snapshot.get(f"focused_{k}_id")), None)
+    if kind is None or not verified.get(f"focused_{kind}_id"):
+        return True, None
+    label = (verified.get("metadata") or {}).get(
+        {"view": "view_name", "track": "track_title", "app": "app_name"}[kind]
+    )
+    if not isinstance(label, str) or not label.strip():
+        return True, None
+    target = VoiceDestination(
+        kind,
+        verified[f"focused_{kind}_id"],
+        " ".join(label.split())[:100],
+        verified.get("focused_track_id", "") if kind == "view" else "",
+    )
+    return True, (
+        target
+        if await verified_destination(target, principal=principal, workspace=workspace)
+        else None
+    )
+
+
 async def read_records(*, principal, workspace, anchor=None, cursor=None, query=""):
     """Read only titles and scoped identities through canonical Entry listing."""
     from app.middleware.permissions_cache import isolated_permissions_cache

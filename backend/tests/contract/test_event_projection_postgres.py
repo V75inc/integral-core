@@ -207,3 +207,70 @@ async def test_connector_workspace_scalar_cannot_override_current_edge(postgres_
             await prepare_event_payload(
                 reader.user_id, event, action="audit_log.read", evaluate=evaluate
             )
+
+
+async def test_deleted_entry_releases_only_current_track_refresh_signal(
+    postgres_raw_db,
+):
+    """A deleted record is never a readable event snapshot or identifier."""
+    from app.services import event_subscription_registry as registry
+    from app.services.event_access import prepare_track_invalidation
+
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        owner, reader, _, _, event = await event_fixture()
+        track_id = event.scope.split(":", 1)[1]
+        entry = await Entry.get(event.resource_id)
+        event.action = "entry.delete"
+        event.before = {
+            "id": entry.id,
+            "track_id": track_id,
+            "title": "Confidential deleted record",
+        }
+        event.after = None
+        await entry.delete(cascade=False)
+        assert (
+            await prepare_event_payload(
+                reader.user_id, event, action="event_feed.subscribe", evaluate=evaluate
+            )
+            is None
+        )
+        assert (
+            await prepare_track_invalidation(
+                reader.user_id, event, action="event_feed.subscribe", evaluate=evaluate
+            )
+            == event.scope
+        )
+        socket = AsyncMock()
+        registry._subscriptions.clear()
+        try:
+            await registry.register_subscription(reader.user_id, socket)
+            await registry.broadcast_change_event(event)
+            signal = json.loads(socket.send_text.await_args.args[0])
+            assert signal == {"type": "scope_invalidated", "scope": event.scope}
+            track = await Track.get(track_id)
+            await reader.connect(track, edge=EXCLUDED_FROM)
+            assert (
+                await prepare_track_invalidation(
+                    reader.user_id,
+                    event,
+                    action="event_feed.subscribe",
+                    evaluate=evaluate,
+                )
+                is None
+            )
+            socket.send_text.reset_mock()
+            await registry.broadcast_change_event(event)
+            socket.send_text.assert_not_awaited()
+            event.before["track_id"] = "n.Track.unrelated"
+            assert (
+                await prepare_track_invalidation(
+                    owner.user_id,
+                    event,
+                    action="event_feed.subscribe",
+                    evaluate=evaluate,
+                )
+                is None
+            )
+        finally:
+            await registry.unregister_subscription(reader.user_id, socket)
+            registry._subscriptions.clear()

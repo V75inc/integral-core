@@ -638,3 +638,144 @@ async def test_directory_uses_its_already_delivered_natural_acknowledgment():
     relay._navigate.assert_awaited_once()
     assert not provider.intent_responses
     assert relay.protocol_counts["handoff_already_spoken"] == 1
+
+
+@pytest.mark.asyncio
+async def test_speculative_ordinary_prefix_never_reaches_browser_when_tool_follows(
+    monkeypatch,
+):
+    monkeypatch.setattr(voice, "ORDINARY_AUDIO_PREROLL_SECONDS", 0.1)
+    browser, provider = Browser(), Provider(manual_intent=True)
+    relay = voice.VoiceRelay(
+        browser,
+        provider,
+        voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay.ready = True
+    relay._open_page = AsyncMock()
+    reader = asyncio.create_task(relay._read_provider())
+    try:
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "turn"}}
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "turn",
+                "item_id": "prefix",
+                "content_index": 0,
+                "delta": "AAE=",
+            }
+        )
+        await asyncio.sleep(0.01)
+        assert browser.outbox.empty()
+        await provider.inbox.put(
+            {
+                "type": "response.output_item.added",
+                "response_id": "turn",
+                "item": {
+                    "type": "function_call",
+                    "name": voice.OPEN_PAGE,
+                    "call_id": "open",
+                },
+            }
+        )
+        await provider.inbox.put(
+            request(
+                "open",
+                "turn",
+                "",
+                name=voice.OPEN_PAGE,
+                args={"destination": "Specimen room"},
+            )
+        )
+        cue = (await event(provider.outbox))["response"]
+        assert "Specimen room" in cue["instructions"]
+        assert browser.outbox.empty()
+        relay._open_page.assert_not_awaited()
+        await asyncio.sleep(0.12)
+        assert browser.outbox.empty()
+    finally:
+        reader.cancel()
+        if relay.live_read:
+            relay.live_read.cancel()
+        await asyncio.gather(
+            reader,
+            *([relay.live_read] if relay.live_read else []),
+            return_exceptions=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_ordinary_preroll_releases_pure_conversation_and_drops_on_barge_in(
+    monkeypatch,
+):
+    monkeypatch.setattr(voice, "ORDINARY_AUDIO_PREROLL_SECONDS", 0.03)
+    browser, provider = Browser(), Provider(manual_intent=True)
+    relay = voice.VoiceRelay(
+        browser,
+        provider,
+        voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay.ready = True
+    reader = asyncio.create_task(relay._read_provider())
+    try:
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "first"}}
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "first",
+                "delta": "AAE=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x01"
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "first", "status": "completed", "output": []},
+            }
+        )
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "second"}}
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "second",
+                "delta": "AAE=",
+            }
+        )
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        await asyncio.sleep(0.06)
+        assert browser.outbox.empty()
+    finally:
+        reader.cancel()
+        relay._drop_ordinary_preroll()
+        await asyncio.gather(reader, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_verified_review_outcome_supersedes_stale_provider_context():
+    browser, provider = Browser(), Provider(manual_intent=True)
+    relay = voice.VoiceRelay(
+        browser,
+        provider,
+        voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    await relay._retain_review_outcome("rejected")
+    update = await event(provider.outbox)
+    assert update["type"] == "conversation.item.create"
+    assert update["item"]["role"] == "system"
+    text = update["item"]["content"][0]["text"]
+    assert "independently rejected" in text
+    assert "delegate a new request" in text
+    assert "own authorization" in text
+    assert browser.outbox.empty()
+    await relay._retain_review_outcome("unverified")
+    assert provider.outbox.empty()

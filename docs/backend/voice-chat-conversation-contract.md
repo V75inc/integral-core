@@ -85,7 +85,7 @@ Open **Permissions** in the workspace assistant’s composer. The setting applie
 
 Choose **Custom** to view or edit your saved selection. Switching to **Ask for approval**, **Approve for me** or **Full access** keeps those selections. Returning to Custom shows the previous choices. A list or App that loses eligibility cannot authorize an edit. Existing list-only selections remain list-only until the new App layout selection is explicitly saved.
 
-Mode changes take effect on new turns. Previously pending proposals retain their review. Deletion, sharing, connector actions, batches and other effects outside record creation, update, and explicitly selected private App presentation changes keep their existing review requirements. Without a standing grant, independently confirmed bounded Home label edits and dashboard rename/layout/default edits can be approved by voice. Complex queries, native content, widget replacement and actions retain visual review unless the explicit App presentation grant covers the canonical change. The previous single-list and multi-list settings read back as Custom when nonempty and Ask for approval when empty.
+Mode changes take effect on new turns. Previously pending proposals retain their review. Deletion, sharing, connector actions, batches and other effects outside record creation, update, and explicitly selected private App presentation changes keep their existing review requirements. Without a standing grant, independently confirmed bounded Home label edits and dashboard rename/layout/default edits can be approved by voice. Complex queries, native content, widget replacement and actions retain visual review unless the explicit App presentation grant covers the canonical change. An eligible single leaf record deletion can be confirmed independently by voice after a readback of the exact record and permanent consequence; say “yes, delete it” or “no”. Standing grants never authorize deletion. Independently verified review outcomes enter the realtime model’s dialogue as a quiet status update without proposal data or new authority; explicitly renewed requests start a fresh proposal rather than replaying the old decision. Ambiguous or changed targets and anchored, batch, App and Track deletion retain their stronger review. The previous single-list and multi-list settings read back as Custom when nonempty and Ask for approval when empty.
 
 ### Turn detection
 
@@ -94,7 +94,7 @@ balanced (`auto`) eagerness. It waits for a more complete spoken thought rather
 than treating every short pause as a finished request. The provider still
 supports interruption, and the relay retains generation fences and current
 authority checks. Independent confirmation capture is unchanged. This affects
-turn detection only, not the member's selected model or resident model routing.
+turn detection only, not the member's selected model or resident model routing. Speculative ordinary audio has a bounded 350 ms initial hold to avoid playing a syllable before a tool handoff takes ownership. Verified acknowledgments and results are not held. Genuine barge-in still fences playback.
 
 ### When the caller cannot see chat
 
@@ -105,7 +105,7 @@ asks to put a list in chat, post it once and give a brief spoken receipt.
 If they only want a written answer, honor that request. These choices apply
 to that request. They do not switch the rest of the call to text.
 
-The browser is the only live call adapter today. Use the capabilities of the
+For a quick record directory, the current verified browser App, Track or saved View is the implicit scope when no spoken location has been explicitly selected. A denied, invalid or changed resource never widens silently to the workspace. Explicitly different or workspace-wide questions follow the resident path. The browser is the only live call adapter today. Use the capabilities of the
 authenticated adapter for individual actions. Opening an App on screen
 requires a bound browser and its render acknowledgment. Selecting an App
 as the subject of the next question requires authorized resource resolution.

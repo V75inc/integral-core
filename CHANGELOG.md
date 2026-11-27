@@ -6,6 +6,9 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Preserve deliberate review for permanent deletion, with a voice confirmation path for a single eligible leaf Entry. Prefer direct scoped record resolution over unrelated dashboard lookups; suppress speculative audio prefixes before a tool handoff.
+- Reconcile active filtered Track views on committed Entry changes; use authorized scope-only deletion refresh hints (live and catch-up), without exposing deleted record data. Start the independent event worker with the default local Docker stack.
+
 - Give Custom permissions an explicit Home and dashboard selection for eligible owned private Apps, with exact proposal and revision checks. Existing list-only grants do not silently expand. Independently confirm bounded record descriptions, Home labels and dashboard metadata edits in voice; retain review for complex effects without an App grant.
 - Reuse a completed, task-specific navigation acknowledgment rather than voicing it twice; speak the verified route outcome without recap. Use semantic turn detection in the native OpenAI realtime session to reduce interruptions on natural pauses while retaining barge-in.
 

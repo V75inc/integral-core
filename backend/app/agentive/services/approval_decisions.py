@@ -134,6 +134,7 @@ async def decide_staged_write(
     from app.services.native_voice_creation import (
         permits_creation,
     )
+    from app.services.native_voice_deletion import permits_deletion
     from app.services.native_voice_presentation import permits_presentation
     from app.services.native_voice_reminder import permits_reminder
 
@@ -149,6 +150,7 @@ async def decide_staged_write(
         and not permits_reminder(staged)
         and not permits_batch(staged)
         and not permits_presentation(staged)
+        and not permits_deletion(staged)
         and (
             proposal.effect_class != ApprovalEffectClass.PRIVATE_REVERSIBLE
             or (
@@ -165,7 +167,11 @@ async def decide_staged_write(
         )
     if decision == "approve":
         if proposal.effect_class is ApprovalEffectClass.DESTRUCTIVE_SECURITY and (
-            source != "card" or not strong_confirmation
+            not strong_confirmation
+            or (
+                source != "card"
+                and not (source == "voice" and permits_deletion(staged))
+            )
         ):
             raise StagingError(
                 "strong_confirmation_required",

@@ -20,6 +20,7 @@ from app.services.resource_location import DATA_APP_STATES, locate_resource
 
 _VOICE_CAPABILITIES = {
     "create_entry": "integral_create_entry",
+    "delete_entry": "integral_delete_entry",
     "update_entry": "integral_update_entry",
     "batch": "integral_commit_batch",
     "routine_task_create": "integral_schedule_task",
@@ -88,6 +89,7 @@ class VoiceReviewReadout:
     creation_date_keys: tuple[str, ...] = field(default=(), repr=False)
     reminder: dict | None = field(default=None, repr=False)
     presentation: dict | None = field(default=None, repr=False)
+    deletion: dict | None = field(default=None, repr=False)
     creation_text_keys: tuple[str, ...] = field(default=(), repr=False)
 
     destination_label: str = field(default="", repr=False)
@@ -96,6 +98,8 @@ class VoiceReviewReadout:
 
     @property
     def text(self) -> str:
+        if self.deletion:
+            return f"Would you like me to {self.action}? This also removes its comments and sharing links. Attached files will no longer be accessible through this record. This cannot be undone. Say yes, delete it, or no to keep it."
         return f"Would you like me to {self.action}?"
 
     def matches_focus(self, focus):
@@ -208,6 +212,7 @@ async def read_entry_review(
     run_id,
     replacement=None,
     allow_description_update=False,
+    allow_deletion=False,
 ):
     """Read one exact pending record change or one-time reminder for this work attempt."""
     with isolated_permissions_cache():
@@ -221,6 +226,10 @@ async def read_entry_review(
         )
         if item is None:
             return None
+        if item.kind == "delete_entry" and allow_deletion and replacement is None:
+            from app.services.native_voice_deletion import deletion_review
+
+            return await deletion_review(item, work_id, run_id)
         if (
             item.kind in {"update_app", "create_dashboard", "update_dashboard"}
             and replacement is None
@@ -446,6 +455,10 @@ class VoiceAppliedReadout:
 
 async def read_applied_values(review, *, principal, workspace, expected_creation=None):
     """Read the actual saved fields following a consumed canonical decision."""
+    if review.deletion:
+        from app.services.native_voice_deletion import read_saved_deletion
+
+        return await read_saved_deletion(review, principal, workspace)
     if review.presentation:
         from app.services.native_voice_presentation import read_saved_presentation
 

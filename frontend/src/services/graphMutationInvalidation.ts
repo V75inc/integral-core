@@ -182,7 +182,7 @@ async function invalidateTrackEntryLists(
 export async function refreshCommittedTrackEntries(qc: QueryClient, trackId?: string): Promise<void> {
   await reconcileActiveQueries(qc, [
     { queryKey: ['feed'] },
-    ...(trackId ? trackEntryViewFilters(trackId) : []),
+    ...trackEntryViewFilters(trackId),
   ]);
 }
 
@@ -396,8 +396,9 @@ export async function invalidateAfterAgentWrite(
   }
 
   if (ENTRY_WRITE_KINDS.has(kind)) {
+    const trackId = trackIdFromStaged(staged, executeResult);
     await Promise.all([
-      invalidateTrackEntryLists(qc, trackIdFromStaged(staged, executeResult)),
+      trackId ? invalidateTrackEntryLists(qc, trackId) : refreshCommittedTrackEntries(qc),
       // Chart/metric widgets read aggregates — refresh without waiting for poll.
       invalidateDashboardData(qc, appIdFromStaged(staged)),
     ]);
