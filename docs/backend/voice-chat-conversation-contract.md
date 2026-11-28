@@ -18,7 +18,7 @@ Synthetic sessions exercise the original browser framing, native resident
 admission, independent exact-review audio preparation and post-playback caller
 capture. The real Live provider does not furnish an ordinary audio-completion
 or response-cancel event. A commentary ACK accompanied by transcript and PCM
-is evidence of offered speech, not proof of complete playback. Live permits
+is evidence of offered speech, not proof of complete playback. Continuous silent PCM does not satisfy this fence or defer result scheduling. Live permits
 only up to 800 ms of automatic acknowledgment delay; a timely silent status
 append suppresses pending automatic acknowledgments but cannot retract earlier
 speech. Result updates carry the original delegation ID. A voice approval
@@ -26,6 +26,11 @@ still requires the exact verified review and fresh, independently captured
 caller answer, never a delegation or transcript event. The existing capture
 size budget is unchanged; rendered review audio has a separate bounded
 verification path using the same authorized Speech to Text credential.
+The isolated Live renderer seeds a developer startup message and supplies only
+paced synthetic silence, per the provider's startup audio contract. It closes
+the synthesis session before independent transcription of the buffered WAV;
+only a verified recording can proceed to the existing playback and fresh
+caller-capture step. A missing or different readback leaves review pending.
 
 The shared media factory preserves each transport's admitted action scope; the tool-free public adapter separately checks a current public grant before PCM input and output and has no resident dispatch. The pending telephone connector can call these factories without changing its bearer or grant contract; it still needs its own integration review. Its current transport does not offer browser playback-confirmation or navigation capabilities.
 

@@ -290,7 +290,27 @@ async def test_live_close_waits_for_finalization_and_is_idempotent():
 @pytest.mark.parametrize("verified", [True, False])
 async def test_live_review_requires_actual_audio_verification(verified):
     """An exact provider transcript is not a completed or heard review."""
-    socket = FakeSocket()
+
+    class ClockedSocket(FakeSocket):
+        def __init__(self):
+            super().__init__()
+            self.input_running = asyncio.Event()
+            self.started = False
+
+        async def send(self, message):
+            await super().send(message)
+            frame = self.sent[-1]
+            if frame["type"] == "session.input_audio.append":
+                assert not any(base64.b64decode(frame["audio"]))
+                self.input_running.set()
+
+        async def recv(self):
+            if self.started:
+                await self.input_running.wait()
+            self.started = True
+            return await super().recv()
+
+    socket = ClockedSocket()
     socket.enqueue(started())
     script = "Add the meeting on Thursday. Would you like me to do that?"
     socket.enqueue(
@@ -337,6 +357,11 @@ async def test_live_review_requires_actual_audio_verification(verified):
     assert verifier.await_count == 1
     assert verifier.call_args.args[0] is confirmation
     assert socket.closed == 1
+    assert socket.input_running.is_set()
+    initial = socket.sent[0]["session"]["input"][0]
+    assert initial["role"] == "developer"
+    assert initial["content"][0]["type"] == "input_text"
+    assert not any(f["type"] == "session.commentary.append" for f in socket.sent)
 
 
 @pytest.mark.asyncio
@@ -627,6 +652,16 @@ async def test_live_browser_relay_media_admission_requires_more_than_append_ack(
         )
         await asyncio.sleep(0.1)
         work.assert_not_awaited()
+        prior_voice = relay._last_audio
+        socket.enqueue(
+            {
+                "type": "session.output_audio.delta",
+                "delta": base64.b64encode(bytes(4800)).decode(),
+            }
+        )
+        await asyncio.sleep(0.1)
+        work.assert_not_awaited()
+        assert relay._last_audio == prior_voice
         pcm = b"\xff\x7f" * 2400
         socket.enqueue(
             {

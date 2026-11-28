@@ -14,6 +14,7 @@ import secrets
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
+from app.services.live_caller_turns import voiced_sample_count
 from app.services.native_live_voice_host import NativeLiveVoiceHost
 from app.services.native_voice import (
     MAX_CALL_SECONDS,
@@ -227,10 +228,14 @@ class NativeLiveVoiceRelay(VoiceRelay):
                     await self.check(self.scope)
                     if not self.speaking and not self.review_confirmation:
                         await self.browser.send_bytes(pcm)
-                        self._last_audio = asyncio.get_running_loop().time()
-                        if item is not None and item.offset is not None:
-                            item.audio = True
-                            item.changed.set()
+                        # Live emits continuous PCM, including silence. Silent
+                        # frames cannot satisfy spoken-intent admission or keep
+                        # completed results indefinitely behind idle audio.
+                        if voiced_sample_count(pcm):
+                            self._last_audio = asyncio.get_running_loop().time()
+                            if item is not None and item.offset is not None:
+                                item.audio = True
+                                item.changed.set()
 
     async def _notify_ended(self):
         if not self._end_notified:

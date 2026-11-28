@@ -289,7 +289,12 @@ class OpenAILiveSession:
         return event
 
     async def start(
-        self, *, instructions: str, voice: str, timeout: float = 10
+        self,
+        *,
+        instructions: str,
+        voice: str,
+        timeout: float = 10,
+        startup_message: str | None = None,
     ) -> None:
         """Send the documented first message; require the resolved client mode."""
         if self.ready or self.closing or self.closed:
@@ -301,6 +306,24 @@ class OpenAILiveSession:
                     "session": {
                         "model": self.model,
                         "instructions": instructions,
+                        **(
+                            {
+                                "input": [
+                                    {
+                                        "type": "message",
+                                        "role": "developer",
+                                        "content": [
+                                            {
+                                                "type": "input_text",
+                                                "text": startup_message,
+                                            }
+                                        ],
+                                    }
+                                ]
+                            }
+                            if startup_message
+                            else {}
+                        ),
                         "audio": {
                             "format": {"type": "audio/pcm", "rate": PCM_RATE},
                             "output": {"voice": voice},
