@@ -412,6 +412,9 @@ async def test_resource_lookup_survives_reads_with_honest_bounded_preview():
     assert lookups[0].content == compactor.placeholder
     for part in lookups[1:]:
         assert part.content["preview_incomplete"]
+        assert part.content["has_more"]
+        assert "integral_governed_query" in part.content["instruction"]
+        assert "query_invoke_args" in part.content["instruction"]
         assert part.content["results"] == rows[: len(part.content["results"])]
         assert len(json.dumps(part.content).encode()) < 8192
 

@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
@@ -215,6 +216,17 @@ def _read_refusal(data: Any) -> Optional[ToolResult]:
         return None
     refusal = data["refused"]
     declared = bool(refusal.get("declared_query_required"))
+    recovery = data.get("recovery") if declared else None
+    recovery_args = recovery.get("arguments") if isinstance(recovery, dict) else None
+    app_id = recovery_args.get("app_id") if isinstance(recovery_args, dict) else None
+    # The service only offers the parent ID after a fresh App admission. Keep
+    # that scoped hint, never infer a parent from an inaccessible Track ID.
+    app_hint = (
+        f" Current admitted App ID: {app_id}. "
+        if isinstance(app_id, str)
+        and re.fullmatch(r"n\.WorkspaceApp\.[A-Za-z0-9_-]{1,200}", app_id)
+        else ""
+    )
     return ToolResult(
         is_error=True,
         error_code=str(refusal.get("code") or "read_refused"),
@@ -222,13 +234,15 @@ def _read_refusal(data: Any) -> Optional[ToolResult]:
             "The read was refused; no records were queried. Do not report an "
             "empty result or a zero count. "
             + (
-                "Call integral_list_workspace_tools to discover this installed "
-                "App's read tools and their input schemas. Use "
-                "integral_call_workspace_tool with the exact returned tool key "
-                "and matching App scope. If no matching read tool is available, "
-                "inspect integral_describe_capabilities for a declared query "
-                "belonging to this App; integral_governed_query in "
-                "declared_capability mode requires a verified matching key. "
+                "Discover this App's current read contracts with "
+                "integral_find_workspace_resources using the specific source "
+                "and information need. Prefer a matching complete read_queries "
+                "contract; integral_governed_query in declared_capability mode "
+                "requires a verified matching key. Use its App ID, catalogue "
+                "generation and input schema. Use integral_call_workspace_tool "
+                "only for an appropriate declared read tool. "
+                + app_hint
+                + "If the resource page is partial, follow next_offset. "
                 "If neither is exposed, explain briefly that the records "
                 "could not be read. A permitted integral_resolve_entry lookup of a known "
                 "record ID remains available; it cannot enumerate unknown records. "
@@ -239,7 +253,7 @@ def _read_refusal(data: Any) -> Optional[ToolResult]:
                 else "Report the refusal without inferring any record count."
             )
         ),
-        next_tool="integral_list_workspace_tools" if declared else "",
+        next_tool="integral_find_workspace_resources" if declared else "",
     )
 
 

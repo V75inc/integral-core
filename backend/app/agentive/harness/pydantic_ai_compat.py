@@ -994,6 +994,8 @@ class IntegralToolResultCompaction(ClearToolResults):
                 "results": selected,
                 "mode": part.content.get("mode"),
                 "degraded": bool(part.content.get("degraded")),
+                "has_more": len(selected) != len(rows)
+                or bool(part.content.get("has_more")),
                 "next_offset": (
                     part.content.get("next_offset")
                     if len(selected) == len(rows)
@@ -1001,7 +1003,14 @@ class IntegralToolResultCompaction(ClearToolResults):
                 ),
                 "preview_incomplete": len(selected) != len(rows)
                 or bool(part.content.get("has_more")),
-                "instruction": "These are resource suggestions, not record evidence. Search again if additional resources are needed.",
+                "instruction": (
+                    "These are resource suggestions, not record evidence. "
+                    "Use a matching complete read_queries contract via "
+                    "integral_governed_query: combine query_invoke_args, "
+                    "capability_key, and params matching input_schema. "
+                    "Do not load a query key as a skill. If more sources "
+                    "are needed, follow next_offset with the same query and mode."
+                ),
             },
         )
 

@@ -675,7 +675,7 @@ async def test_read_refusal_has_failed_receipt_and_repair_directive(
     assert result.error_code == "app_domain"
     assert result.data is None
     assert result.receipt.status == "failed"
-    assert result.next_tool == "integral_list_workspace_tools"
+    assert result.next_tool == "integral_find_workspace_resources"
 
 
 @pytest.mark.asyncio

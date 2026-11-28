@@ -650,12 +650,34 @@ async def test_service_read_refusal_is_error_without_empty_rows(code, declared):
     assert result.is_error and result.error_code == code
     assert result.data is None
     assert "no records were queried" in result.message
-    assert result.next_tool == ("integral_list_workspace_tools" if declared else "")
+    assert result.next_tool == ("integral_find_workspace_resources" if declared else "")
     if declared:
         assert "verified matching key" in result.message
         assert "integral_call_workspace_tool" in result.message
         assert "integral_governed_query" in result.message
         assert "Do not invent keys" in result.message
+
+
+def test_declared_only_recovery_preserves_admitted_scope():
+    """A declared-query-only App must not send the model into an alias loop."""
+    from app.agentive.tooling.dispatch import _read_refusal
+
+    refusal = {
+        "refused": {"code": "app_domain", "declared_query_required": True},
+        "entries": [],
+        "total": None,
+        "recovery": {
+            "arguments": {"app_id": "n.WorkspaceApp.synthetic"},
+            "read_tools": [],
+        },
+    }
+    result = _read_refusal(refusal)
+    assert result.is_error and result.data is None
+    assert result.next_tool == "integral_find_workspace_resources"
+    assert "n.WorkspaceApp.synthetic" in result.message
+    assert "integral_governed_query" in result.message
+    refusal.pop("recovery")  # Direct Track access does not imply parent access.
+    assert "n.WorkspaceApp.synthetic" not in _read_refusal(refusal).message
 
 
 @pytest.mark.parametrize(
@@ -688,7 +710,7 @@ async def test_route_read_refusal_is_error(
     )
     assert result.is_error and result.error_code == "app_domain"
     assert result.data is None
-    assert result.next_tool == "integral_list_workspace_tools"
+    assert result.next_tool == "integral_find_workspace_resources"
 
 
 @pytest.mark.smoke
