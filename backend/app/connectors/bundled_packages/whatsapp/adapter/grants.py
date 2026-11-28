@@ -21,6 +21,7 @@ def package():
         ChannelInstallation,
         ChannelLifecycle,
         ChannelPackage,
+        ChannelProfileSetup,
         ChannelServing,
         ChannelServingStatus,
     )
@@ -146,6 +147,28 @@ def package():
             "WhatsApp messages require the signed JV Connect ingress"
         )
 
+    async def describe_profile(scope, current):
+        from app.agentive.services.whatsapp_public_profile import (
+            describe_line_profile,
+        )
+
+        if await observe(scope) != current:
+            raise ResourceConflictError("WhatsApp grant changed")
+        return await describe_line_profile(scope.workspace_id, current)
+
+    async def assign_profile(scope, current, expected_profile_revision, profile_key):
+        from app.agentive.services.whatsapp_public_profile import assign_line_profile
+
+        if await observe(scope) != current or current.enabled:
+            raise ResourceConflictError("WhatsApp grant changed or is enabled")
+        await assign_line_profile(
+            scope.actor_id,
+            scope.workspace_id,
+            current,
+            expected_profile_revision,
+            profile_key,
+        )
+
     return ChannelPackage(
         definition=ChannelDefinition(
             "whatsapp",
@@ -156,6 +179,7 @@ def package():
         ),
         lifecycle=ChannelLifecycle(observe, install, set_enabled, remove),
         serving=ChannelServing(probe, receive),
+        profile_setup=ChannelProfileSetup(describe_profile, assign_profile),
         read_credentials=read_credentials,
         configure_credentials=configure,
     )

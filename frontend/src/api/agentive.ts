@@ -353,6 +353,13 @@ export interface WhatsAppChannelBinding {
   last_error?: string;
   api_key_last4?: string;
   webhook_registered?: boolean;
+  calling_enabled?: boolean;
+  calling_grant_id?: string;
+  calling_revision?: number;
+  jvvoice_base_url?: string;
+  jvvoice_api_key_last4?: string;
+  jvconnect_calling_status?: string;
+  jvconnect_calling_error?: string;
 }
 
 export async function getWhatsAppChannelBinding(): Promise<{ binding: WhatsAppChannelBinding | null }> {
@@ -375,6 +382,28 @@ export async function disableWhatsAppChannelBinding(
   const res = await api.delete(
     `/agentive/channels/whatsapp/binding/${encodeURIComponent(id)}`,
   );
+  return res.data;
+}
+
+export async function setWhatsAppCalling(body: {
+  calling_enabled: boolean;
+  expected_grant_id: string;
+  expected_revision: number;
+}): Promise<{ binding: WhatsAppChannelBinding }> {
+  const res = await api.put('/agentive/channels/whatsapp/binding/calling', body);
+  return res.data;
+}
+
+export async function saveWhatsAppVoiceService(body: {
+  jvvoice_base_url: string;
+  api_key: string;
+}): Promise<{ binding: WhatsAppChannelBinding }> {
+  const res = await api.put('/agentive/channels/whatsapp/binding/calling/service', body);
+  return res.data;
+}
+
+export async function reregisterWhatsAppWebhook(): Promise<{ binding: WhatsAppChannelBinding }> {
+  const res = await api.post('/agentive/channels/whatsapp/binding/webhook');
   return res.data;
 }
 

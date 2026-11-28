@@ -365,6 +365,114 @@ async def test_spoken_perspective_is_separate_from_caller_authored_request(
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
+@pytest.mark.asyncio
+async def test_later_tool_call_in_the_same_turn_still_runs():
+    """A function call after a workspace tool is a new request, not spare audio."""
+    browser, provider = Browser(), Provider()
+    execute = AsyncMock(return_value="Finished.")
+    relay = voice.VoiceRelay(
+        browser,
+        provider,
+        voice.VoiceScope(
+            "caller",
+            "workspace",
+            "",
+            "thread",
+            channel_session="wa:workspace:+12025550123",
+        ),
+        check=AsyncMock(),
+        work=execute,
+    )
+    relay.ready = True
+    reader = asyncio.create_task(relay._read_provider())
+    try:
+        for call_id, text in (("first", "Find invoices"), ("second", "Summarize them")):
+            await provider.inbox.put(
+                {"type": "response.created", "response": {"id": call_id}}
+            )
+            await provider.inbox.put(request(call_id, call_id, text))
+            output = await event(provider.outbox)
+            assert output["item"]["output"] == "Finished."
+            speech = await event(provider.outbox)
+            assert speech["type"] == "response.create"
+            readout_id = f"readout-{call_id}"
+            await provider.inbox.put(
+                {
+                    "type": "response.created",
+                    "response": {
+                        "id": readout_id,
+                        "metadata": speech["response"]["metadata"],
+                    },
+                }
+            )
+            await provider.inbox.put(
+                {
+                    "type": "response.output_audio.delta",
+                    "response_id": readout_id,
+                    "delta": "AAE=",
+                }
+            )
+            assert await event(browser.outbox) == b"\x00\x01"
+            await provider.inbox.put(
+                {
+                    "type": "response.done",
+                    "response": {"id": readout_id, "status": "completed"},
+                }
+            )
+        assert execute.await_count == 2
+    finally:
+        reader.cancel()
+        pending = [reader, relay.pending]
+        for task in pending:
+            if task and not task.done():
+                task.cancel()
+        await asyncio.gather(
+            *[task for task in pending if task], return_exceptions=True
+        )
+
+
+@pytest.mark.asyncio
+async def test_tool_call_before_speech_stopped_still_speaks_the_ack():
+    """A completed tool can arrive before speech_stopped and must still be voiced."""
+    browser, provider = Browser(), Provider()
+    execute = AsyncMock(return_value="Finished.")
+    relay = voice.VoiceRelay(
+        browser,
+        provider,
+        voice.VoiceScope(
+            "caller",
+            "workspace",
+            "",
+            "thread",
+            channel_session="wa:workspace:+12025550123",
+        ),
+        check=AsyncMock(),
+        work=execute,
+    )
+    relay.ready = True
+    relay.speaking = True
+    reader = asyncio.create_task(relay._read_provider())
+    try:
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "while-speaking"}}
+        )
+        await provider.inbox.put(
+            request("rerun", "while-speaking", "Please run it again")
+        )
+        output = await event(provider.outbox)
+        assert output["item"]["call_id"] == "rerun"
+        assert output["item"]["output"] == "Finished."
+        assert relay.protocol_counts["handoff_audio_sent"] == 1
+        execute.assert_awaited_once()
+    finally:
+        reader.cancel()
+        if relay.pending and not relay.pending.done():
+            relay.pending.cancel()
+        await asyncio.gather(
+            reader, *([relay.pending] if relay.pending else []), return_exceptions=True
+        )
+
+
 @pytest.mark.parametrize("title", ["My Tasks", "Maria's Tasks", "Our Tasks"])
 def test_direct_navigation_preserves_title_without_claiming_ownership(title):
     assert (

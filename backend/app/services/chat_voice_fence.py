@@ -10,9 +10,30 @@ from app.middleware.permissions_cache import isolated_permissions_cache
 from app.services.workspace_permissions import can_access_workspace
 
 
-def is_workspace_voice_thread(row: dict | None, principal: str, workspace: str) -> bool:
-    """Check native workspace-assistant scope against a primary graph row."""
+def channel_session_matches(
+    provider_session_id: str | None, workspace: str, channel_session: str
+) -> bool:
+    """True only for an explicit phone channel session bound to this workspace."""
+    return bool(
+        channel_session
+        and provider_session_id == channel_session
+        and channel_session.startswith(f"wa:{workspace}:")
+    )
+
+
+def is_workspace_voice_thread(
+    row: dict | None,
+    principal: str,
+    workspace: str,
+    channel_session: str = "",
+) -> bool:
+    """Check native workspace-assistant scope against a primary graph row.
+
+    A ``wa:`` thread passes only when ``channel_session`` names that exact
+    workspace-bound session. Browser callers leave it empty and stay refused.
+    """
     fields = (row or {}).get("context") or {}
+    session = fields.get("provider_session_id") or ""
     return bool(
         row
         and row.get("entity") == "ChatThread"
@@ -21,7 +42,11 @@ def is_workspace_voice_thread(row: dict | None, principal: str, workspace: str) 
         and fields.get("provider_id") == "integral_native"
         and not fields.get("archived")
         and not fields.get("agent_profile_key")
-        and not (fields.get("provider_session_id") or "").startswith("wa:")
+        and (
+            channel_session_matches(session, workspace, channel_session)
+            if channel_session
+            else not session.startswith("wa:")
+        )
     )
 
 
@@ -44,6 +69,7 @@ class VoiceFollowUpFence:
     workspace_id: str
     thread_id: str
     work_item_id: str
+    channel_session: str = ""
 
     async def lock_current(
         self, transaction: Any, work_item: dict, *, steering: bool = False
@@ -75,7 +101,9 @@ class VoiceFollowUpFence:
         thread = await transaction.find_one_and_update(
             "node", {"id": self.thread_id}, {"$set": {}}
         )
-        if not is_workspace_voice_thread(thread, self.principal_id, self.workspace_id):
+        if not is_workspace_voice_thread(
+            thread, self.principal_id, self.workspace_id, self.channel_session
+        ):
             raise InsufficientPermissionsError(message="Conversation unavailable")
         if thread["context"].get("active_work_item_id") != self.work_item_id:
             raise ResourceConflictError(

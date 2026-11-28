@@ -285,6 +285,11 @@ class Settings(BaseSettings):
     SPEECH_TRANSCRIBE_MAX_BYTES: int = 25 * 1024 * 1024
     SPEECH_TRANSCRIBE_TIMEOUT_SECONDS: float = 120.0
 
+    # jvvoice connector for WhatsApp calling. The server key and base URL
+    # belong to jvvoice. LiveKit credentials stay on that process.
+    JVVOICE_BASE_URL: str = ""
+    JVVOICE_API_KEY: str = Field(default="", repr=False, exclude=True)
+
     LOG_LEVEL: str = "INFO"
     # Query metrics stay enabled independently of noisy per-operation messages.
     DB_OPERATION_LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING"] = "INFO"

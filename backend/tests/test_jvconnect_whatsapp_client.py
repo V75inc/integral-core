@@ -8,9 +8,12 @@ import pytest
 
 from app.agentive.clients.jvconnect_whatsapp import (
     fetch_account,
+    fetch_calling_credentials,
+    fetch_calling_settings,
     register_webhook,
     send_text,
     send_typing_indicator,
+    set_calling_settings,
 )
 
 pytestmark = pytest.mark.unit
@@ -224,3 +227,102 @@ async def test_private_jvconnect_hosts_are_refused_before_sending_the_key(
     assert result.ok is False
     assert result.status_code == 0
     assert result.error == "host not allowed"
+
+
+_CALLING_TOKEN = "EAAG_do_not_log"
+
+
+@pytest.mark.asyncio
+async def test_fetch_calling_credentials_gets_token_and_omits_secrets_from_logs(
+    caplog,
+):
+    """Credentials GET uses the jvconnect bearer and returns access_token."""
+    caplog.set_level(logging.DEBUG)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert str(request.url) == (
+            "https://connect.example.test/api/v1/meta/whatsapp/calling/credentials"
+        )
+        assert request.headers["Authorization"] == f"Bearer {_API_KEY}"
+        return httpx.Response(
+            200,
+            json={
+                "phone_number_id": "109876543210",
+                "access_token": _CALLING_TOKEN,
+                "waba_id": "waba-1",
+            },
+        )
+
+    async with _client(handler) as client:
+        result = await fetch_calling_credentials(_BASE, _API_KEY, client=client)
+
+    assert result.ok is True
+    assert result.data["access_token"] == _CALLING_TOKEN
+    logged = _logged(caplog)
+    assert logged
+    assert _CALLING_TOKEN not in logged
+    assert _API_KEY not in logged
+    assert "Bearer" not in logged
+    assert "Authorization" not in logged
+
+
+@pytest.mark.asyncio
+async def test_calling_credentials_http_500_and_invalid_json_do_not_raise():
+    """Provider failures are a failed result, not an HTTP exception."""
+
+    def failed(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": "upstream"})
+
+    async with _client(failed) as client:
+        error = await fetch_calling_credentials(_BASE, _API_KEY, client=client)
+
+    assert error.ok is False
+    assert error.status_code == 500
+    assert error.error == "upstream"
+
+    def garbage(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"not-json")
+
+    async with _client(garbage) as client:
+        invalid = await fetch_calling_credentials(_BASE, _API_KEY, client=client)
+
+    assert invalid.ok is False
+    assert invalid.error == "invalid JSON response"
+
+
+@pytest.mark.asyncio
+async def test_calling_settings_get_and_post():
+    """Calling settings use the jvconnect bearer and send only enabled."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == f"Bearer {_API_KEY}"
+        if request.method == "GET":
+            assert str(request.url).endswith("/calling/settings")
+            return httpx.Response(
+                200,
+                json={
+                    "status": "DISABLED",
+                    "phone_number_id": "123",
+                    "waba_id": "456",
+                },
+            )
+        assert request.method == "POST"
+        assert json.loads(request.content) == {"enabled": True}
+        return httpx.Response(
+            200,
+            json={
+                "status": "ENABLED",
+                "phone_number_id": "123",
+                "waba_id": "456",
+            },
+        )
+
+    async with _client(handler) as client:
+        fetched = await fetch_calling_settings(_BASE, _API_KEY, client=client)
+        updated = await set_calling_settings(_BASE, _API_KEY, True, client=client)
+
+    assert fetched.ok is True
+    assert fetched.data["status"] == "DISABLED"
+    assert updated.ok is True
+    assert updated.data["status"] == "ENABLED"

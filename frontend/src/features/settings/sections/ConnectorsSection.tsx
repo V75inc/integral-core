@@ -457,7 +457,10 @@ function ScopedConnectorsSection({
   const managed = useQuery({
     queryKey: managedQueryKey,
     queryFn: ({ signal }) => managedChannelsApi.list(workspaceId, signal),
-    enabled: canReadManaged,
+    // Personal workspaces still own a WhatsApp grant. Owners need this list
+    // for the row switch and remove control. The connected-channel catalog
+    // stays on canReadManaged so a personal workspace does not list org channels.
+    enabled: Boolean(workspaceId && isWsAdmin),
     refetchOnMount: "always",
     retry: false,
   });
@@ -472,13 +475,12 @@ function ScopedConnectorsSection({
   }, []);
   type InstalledChannel = Extract<ManagedChannel, {connected: true}>;
   const channelToggle = useMutation({
-    mutationFn: async (channel: InstalledChannel) => {
+    mutationFn: async ({ channel, enable }: { channel: InstalledChannel; enable: boolean }) => {
       const session = getSessionGeneration();
       const slug = channel.definition.slug;
       const generation = { provision_id: channel.provision_id, route_epoch: channel.route_epoch };
-      const enable = channel.state === "inactive" || channel.enabled === false;
       if (enable && !channel.can_enable) throw new Error();
-      if (enable && channel.configuration_kind === "published-public-profile-v1") {
+      if (enable && channel.definition.visitor_surface && channel.configuration_kind === "published-public-profile-v1") {
         const profile = await qc.fetchQuery(managedProfileOptions(principalId, workspaceId, slug, generation, channel.definition.visitor_surface));
         if (!profile.eligible_profiles.some(choice => choice.key === profile.profile_key)) throw new Error();
       }
@@ -542,17 +544,15 @@ function ScopedConnectorsSection({
     return channel?.connected && <RemoveConnector name={channel.definition.display_name} disabled={removeInstalled.isPending || channelToggle.isPending}
       onClick={() => removeInstalled.mutate({id: channel.provision_id, name: channel.definition.display_name, channel, workspaceGrant})} />;
   }
-  function channelSwitch(channel: ManagedChannel | undefined) {
+  function channelSwitch(channel: ManagedChannel | undefined, enabledFallback?: boolean) {
     if (!channel?.connected) return null;
-    const enabled = channel.enabled ?? (channel.state === "unavailable" ? undefined : channel.state === "active");
+    const enabled = channel.enabled ?? (channel.state === "unavailable" ? enabledFallback : channel.state === "active");
     if (enabled === undefined) return null;
     return <InstallationSwitch name={channel.definition.display_name} checked={enabled} disabled={!enabled && !channel.can_enable || channelToggle.isPending}
-      busy={channelToggle.isPending && channelToggle.variables.provision_id === channel.provision_id} onChange={() => channelToggle.mutate(channel)} />;
+      busy={channelToggle.isPending && channelToggle.variables?.channel.provision_id === channel.provision_id}
+      onChange={() => channelToggle.mutate({ channel, enable: !enabled })} />;
   }
 
-  const selectedManaged = currentManagedChannels(managed).find(
-    row => selectedPackage?.id === row.definition.slug && row.connected,
-  );
   const currentConfiguredShare = shareSource && managedSelection?.action === "configure" &&
     currentManagedChannels(managed).some(row => row.connected && row.state === "active" &&
       row.definition.slug === managedSelection.slug) ? shareSource : undefined;
@@ -842,7 +842,7 @@ function ScopedConnectorsSection({
                     </div>
                     <div className="flex items-center gap-1">
                       <ConfigureCog label={`Configure ${pkg.name}`} onClick={() => setPackageSelection({ id: pkg.id, locationKey })} />
-                      {channelSwitch(currentManagedChannels(managed).find(channel => channel.connected && channel.definition.slug === pkg.id))}
+                      {channelSwitch(currentManagedChannels(managed).find(channel => channel.connected && channel.definition.slug === pkg.id), pkg.grant?.enabled)}
                       {channelRemove(currentManagedChannels(managed).find(channel => channel.connected && channel.definition.slug === pkg.id), true)}
                     </div>
                   </ConnectedConnectorRow>
@@ -1093,10 +1093,6 @@ function ScopedConnectorsSection({
               setPackageSelection({ id: installation.package_id, installationId: installation.id, locationKey });
             }
           }}
-          onManageChannel={selectedManaged ? () => {
-            setPackageSelection(null);
-            selectManaged(selectedManaged);
-          } : undefined}
         />
       )}
     </div>

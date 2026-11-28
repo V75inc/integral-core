@@ -32,3 +32,42 @@ class SaveWhatsAppChannelBindingRequest(BaseModel):
         if not value.startswith("jvk_") or len(value) <= 4:
             raise ValueError("API key must be a jvconnect key")
         return value
+
+
+class SetWhatsAppCallingRequest(BaseModel):
+    """Body for PUT /agentive/channels/whatsapp/binding/calling."""
+
+    calling_enabled: bool
+    expected_grant_id: str = Field(min_length=1)
+    expected_revision: int = Field(ge=0)
+
+    model_config = {"extra": "forbid"}
+
+
+class SaveWhatsAppVoiceServiceRequest(BaseModel):
+    """Body for PUT /agentive/channels/whatsapp/binding/calling/service."""
+
+    jvvoice_base_url: str = ""
+    api_key: str = Field(default="", repr=False)
+
+    model_config = {"extra": "forbid"}
+
+    @field_validator("jvvoice_base_url")
+    @classmethod
+    def _https_or_empty(cls, value: str) -> str:
+        stripped = value.strip().rstrip("/")
+        if not stripped:
+            return ""
+        parsed = urlparse(stripped)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "jvvoice base URL must be https without a user, query, or fragment"
+            )
+        return stripped

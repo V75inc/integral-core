@@ -10,7 +10,7 @@ import { PageMeta } from '../../../components/ui';
  * WhatsApp column gating (A3):
  *   • whatsapp.opted_in_at === null →
  *       — every WhatsApp cell is `disabled` with `opacity-50`,
- *       — column header renders a "verify phone" link to Workspace → WhatsApp.
+ *       — column header renders a "verify phone" link to Connectors.
  *   • whatsapp.opted_in_at set →
  *       — cells are interactive,
  *       — header shows a "verified" pill with the opt-in timestamp.
@@ -166,8 +166,8 @@ export function NotificationsSection({
                           <span className="inline-flex flex-col items-center gap-0.5">
                             <span>WhatsApp</span>
                             <a
-                              href="#whatsapp"
-                              onClick={e => { e.preventDefault(); navigateToSection?.('whatsapp'); }}
+                              href="#connectors"
+                              onClick={e => { e.preventDefault(); navigateToSection?.('connectors'); }}
                               className="text-[10px] font-normal normal-case text-[var(--brand-accent)] underline"
                             >
                               verify phone
