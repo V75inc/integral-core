@@ -4,9 +4,16 @@ import json
 
 import pytest
 
-from app.models.edges import CONTAINS, HAS_OPERATIONAL_MODEL, IS_MEMBER_OF
-from app.models.nodes import EntryType, OperationalModel, User
-from app.services.app_graph import catalog_user
+from app.models.edges import (
+    COLLABORATES_ON,
+    CONTAINS,
+    EXCLUDED_FROM,
+    HAS_OPERATIONAL_MODEL,
+    IS_MEMBER_OF,
+    OWNS,
+)
+from app.models.nodes import EntryType, OperationalModel, Track, User
+from app.services.app_graph import catalog_track, catalog_user
 from app.services.walkers.resource_schema_preview import app_schema_preview
 from tests.test_resource_location import graph
 
@@ -77,6 +84,104 @@ async def test_walker_hook_error_cannot_return_successful_partial_metadata(monke
         raise RuntimeError("source unavailable")
 
     monkeypatch.setattr(ResourceSchemaPreviewWalker, "_queue_types", unavailable)
+    with pytest.raises(QueryUnavailableError):
+        await app_schema_preview(
+            app_id=app.id, user_id=user.id, workspace_id=workspace.id
+        )
+
+
+async def test_shared_template_previews_only_materialized_types_per_track():
+    """Shared template siblings retain separate readable type bindings."""
+    user, workspace, app, track, _, kind = await schema_graph()
+    model = (await track.nodes(edge=[HAS_OPERATIONAL_MODEL], node=[OperationalModel]))[
+        0
+    ]
+    model.app_id = app.id
+    model.workspace_id = workspace.id
+    model.manifest = {
+        "materialization": {
+            "kind": "space_track_template",
+            "app_id": app.id,
+            "template_key": "project-detail",
+        },
+        "track": {"entry_types": [{"key": "candidate-exact"}]},
+    }
+    await model.save()
+    await app.connect(model, edge=CONTAINS)
+    track.template_id = "project-detail"
+    await track.save()
+    sibling = await Track.create(
+        title="Another project",
+        workspace_id=workspace.id,
+        template_id="project-detail",
+        attached_operational_model_id=model.id,
+    )
+    await catalog_track(sibling)
+    await app.connect(sibling, edge=CONTAINS)
+    await user.connect(sibling, edge=OWNS)
+    await sibling.connect(model, edge=HAS_OPERATIONAL_MODEL)
+    blueprint = await EntryType.create(name="Candidate template", is_template=True)
+    await model.connect(blueprint, edge=CONTAINS)
+    sibling_type = await EntryType.create(
+        name="Candidate",
+        track_id=sibling.id,
+        form_schema={
+            "_manifest_entry_type_key": "candidate-exact",
+            "fields": [
+                {"key": "sibling_only", "type": "text"},
+            ],
+        },
+    )
+    await model.connect(sibling_type, edge=CONTAINS)
+    preview = await app_schema_preview(
+        app_id=app.id, user_id=user.id, workspace_id=workspace.id
+    )
+    by_track = {row["id"]: row for row in preview["tracks"]}
+    assert kind.id in {row["id"] for row in by_track[track.id]["entry_types"]}
+    assert sibling_type.id not in {
+        row["id"] for row in by_track[track.id]["entry_types"]
+    }
+    assert {row["id"] for row in by_track[sibling.id]["entry_types"]} == {
+        sibling_type.id
+    }
+    assert blueprint.id not in json.dumps(preview)
+    reader = await User.create(display_name="Restricted project reader")
+    await catalog_user(reader)
+    await reader.connect(workspace, edge=IS_MEMBER_OF, role="member")
+    await reader.connect(app, edge=COLLABORATES_ON, role="viewer")
+    await reader.connect(sibling, edge=EXCLUDED_FROM)
+    restricted = await app_schema_preview(
+        app_id=app.id, user_id=reader.id, workspace_id=workspace.id
+    )
+    assert restricted["tracks"]
+    assert sibling.id not in json.dumps(restricted)
+    assert "sibling_only" not in json.dumps(restricted)
+    assert kind.id in json.dumps(restricted)
+
+    model.manifest["track"]["entry_types"].append({"key": "unmaterialized"})
+    await model.save()
+    partial = await app_schema_preview(
+        app_id=app.id, user_id=user.id, workspace_id=workspace.id
+    )
+    assert partial["incomplete"]
+    assert all(item["schema_keys_incomplete"] for item in partial["directory"])
+    from app.api.errors import QueryUnavailableError
+
+    sibling.template_id = "different-template"
+    await sibling.save()
+    with pytest.raises(QueryUnavailableError):
+        await app_schema_preview(
+            app_id=app.id, user_id=user.id, workspace_id=workspace.id
+        )
+
+
+async def test_dedicated_model_still_refuses_inconsistent_type_binding():
+    """The template exception cannot mask corrupt dedicated bindings."""
+    from app.api.errors import QueryUnavailableError
+
+    user, workspace, app, _, _, kind = await schema_graph()
+    kind.track_id = "different-track"
+    await kind.save()
     with pytest.raises(QueryUnavailableError):
         await app_schema_preview(
             app_id=app.id, user_id=user.id, workspace_id=workspace.id

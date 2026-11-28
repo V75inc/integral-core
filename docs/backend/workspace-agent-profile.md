@@ -143,6 +143,11 @@ A bounded live schema Walker supplies an admitted App's Track directory (up to
 25), and details for up to four relevant Tracks, six EntryTypes per parent and
 12 field keys per type. Literal declared keys remain intact; omitted details
 have explicit incomplete flags. Entry values are never read for this preview.
+Tracks anchored to the same App-owned template Operational Model share the
+model, not their materialized EntryType bindings. Preview validates the
+template's App, workspace and template key and pages only the selected Track's
+concretely bound types; sibling types and unmaterialized template IDs are not
+disclosed as usable types. Missing materializations are marked incomplete.
 App descriptions cannot establish that a particular EntryType exists. Generic
 record reads reject unknown type keys rather than returning a misleading zero;
 a known empty type still returns a valid zero count.
