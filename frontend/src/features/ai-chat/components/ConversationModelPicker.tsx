@@ -138,13 +138,13 @@ export function ConversationModelPicker() {
         if (!open && !event.currentTarget.contains(event.relatedTarget)) setTooltipDismissed(false);
       }}>
       <HoverTooltip label={overrideActive ? `Conversation override: ${overrideLabel}` : "Choose model and reasoning"} placement="top" disabled={open || tooltipDismissed}>
-        <Button type="button" variant="ghost" size="xs" aria-label="Model for this conversation"
+        <IconButton label="Model for this conversation" size="md"
           aria-description={overrideActive ? `Conversation override: ${overrideLabel}` : `Workspace default: ${workspaceRoutingLabel}`}
           aria-haspopup="dialog" aria-expanded={open} disabled={isRunning}
-          onClick={() => { setTooltipDismissed(true); setOpenThread(value => value === activeThreadId ? null : activeThreadId); }}
-          icon={<Brain size={17} strokeWidth={LINE_ICON_STROKE} aria-hidden />}>
-          <Text variant="label" tone={overrideActive ? "brand" : "inherit"}>{overrideActive ? "Chat override" : "Workspace default"}</Text>
-        </Button>
+          onClick={() => { setTooltipDismissed(true); setOpenThread(value => value === activeThreadId ? null : activeThreadId); }}>
+          <Brain size={17} strokeWidth={LINE_ICON_STROKE}
+            color={overrideActive ? "var(--brand-accent)" : "currentColor"} aria-hidden />
+        </IconButton>
       </HoverTooltip>
       {open && createPortal(
         <Surface ref={panel} role="dialog" aria-label="Chat model settings" elevation="pop" padding="md"
