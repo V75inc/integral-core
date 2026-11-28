@@ -6,6 +6,51 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Consolidate declarative, operator-controlled connector installation, scope,
+  health, lifecycle and settings contracts; preserve existing credentials,
+  grants, bindings and sync cursors. Web Chat supports published profiles,
+  private testing and configured visitor/API surfaces with existing service
+  identities and authorization fences.
+- Align saved model-role assignments with the resident harness and categorize
+  supported custom realtime model IDs. Reduce repeated or truncated native
+  browser speech, preserve accepted work during call interruptions, and use
+  a familiar first-name greeting where available.
+- Introduce the separate GPT Live browser adapter for the documented
+  `gpt-live-1` and `gpt-live-1.1` model IDs. Keep explicit provider/protocol
+  selection and no fallback; retain the existing Realtime path. Live is
+  selectable for qualification, not a claim of release-qualified browser
+  playback, interruption, durable review or call teardown.
+- Route eligible member WhatsApp calls through the same Core voice transport
+  boundary as native voice using the configured Realtime model. The connector
+  owns verified handset/line admission, the media peer and call-control
+  lifecycle; Core owns provider/model selection and audio-event translation.
+  Public calls, when enabled for a published public profile, are strictly
+  tool-free and separately grant-bound. The connector and model relays have
+  passed synthetic/fixture checks only; real handsets, provider event lifecycle,
+  public-caller product acceptance and durable multi-worker coordination still
+  need qualification. GPT Live handset calls are refused rather than falling
+  back; telephone approvals remain fail-closed through the existing text path.
+- Share one exact approval policy and explicit coverage inventory across
+  browser chat and voice. While an eligible voice call is active, present
+  supported bounded proposals conversationally, independently verify exact
+  decisions against their current proposal and revision, and read back
+  independently verified results. Support recurring routine creation and
+  qualifying scalar and bounded batch effects. Ordinary, domain and access
+  effects without a qualified exact spoken projection retain the existing
+  review path; this is not yet universal verbal confirmation and does not
+  silently expand Auto or Custom permissions.
+- Bound native conversation working-memory recall to encrypted, source-linked
+  and reauthorized historical pointers; use the resident's authorized
+  retrieval on a miss. Current record facts still require fresh reads.
+- Correct schema previews for shared Track templates by selecting the admitted
+  Track's materialized EntryTypes before applying the preview budget; preserve
+  explicit incompleteness and existing scope checks. Retain authorized
+  declared-query candidates and recovery guidance when generic lookup is
+  insufficient, without adding new grants.
+- Retire the withdrawn November 17 frontend advisory exception. Normal
+  dependency audits remain mandatory and fail closed on new unreviewed
+  high/critical findings.
+
 - Preserve deliberate review for permanent deletion, with a voice confirmation path for a single eligible leaf Entry. Prefer direct scoped record resolution over unrelated dashboard lookups; suppress speculative audio prefixes before a tool handoff.
 - Reconcile active filtered Track views on committed Entry changes; use authorized scope-only deletion refresh hints (live and catch-up), without exposing deleted record data. Start the independent event worker with the default local Docker stack.
 
@@ -147,7 +192,7 @@ bump does not establish that a release is available on a package index.
 
 - Align Settings page layouts, open agent profiles in dialogs, and move workspace chat visibility to each eligible profile. Fix a missed initial Approvals read and keep internal conversation-title jobs out of the active work list.
 
-- Reconcile personal WhatsApp text chat with native threads and approvals; require an account-issued one-time code for new phone pairing. Add an opt-in server connection-profile execution boundary for local host pilots, with current authorization and scoped sessions. Public provisioning and WhatsApp realtime voice remain unavailable. Authenticated in-app realtime voice is a separate opt-in pilot.
+- Reconcile personal WhatsApp text chat with native threads and approvals; require an account-issued one-time code for new phone pairing. Add an opt-in server connection-profile execution boundary for local host pilots, with current authorization and scoped sessions. Public provisioning remains unavailable. The later opt-in WhatsApp calling adapter and its remaining qualification limits are described above. Authenticated in-app realtime voice remains a separate opt-in pilot.
 
 - Give each Track its own entry count in the Home snapshot when hidden per-record Tracks are present.
 - Show "5 of 12 entries" in the Track header when the open view or filter shows part of the Track, so it agrees with the entry count on the App and Track lists.
