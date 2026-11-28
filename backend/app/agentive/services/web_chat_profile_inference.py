@@ -139,6 +139,84 @@ async def _published_persona(assignment: ExternalChatAssignment) -> str:
     return _text(published.get("persona", ""), _MAX_PERSONA, empty_ok=True)
 
 
+def bound_public_exchanges(
+    history: tuple[tuple[str, str], ...] | object,
+) -> tuple[tuple[str, str], ...]:
+    """Keep the newest public exchanges that fit the prompt budget.
+
+    Malformed or oversized rows are skipped. The model input stays strict;
+    this bound is what lets a long WhatsApp thread continue.
+    """
+    if not isinstance(history, tuple):
+        return ()
+    kept: list[tuple[str, str]] = []
+    total = 0
+    for item in reversed(history):
+        if len(kept) >= MAX_HISTORY_EXCHANGES:
+            break
+        if not isinstance(item, tuple) or len(item) != 2:
+            continue
+        visitor_raw, assistant_raw = item
+        if not isinstance(visitor_raw, str) or not isinstance(assistant_raw, str):
+            continue
+        try:
+            visitor = _text(visitor_raw[:_MAX_INPUT], _MAX_INPUT)
+            assistant = _text(assistant_raw[:_MAX_REPLY], _MAX_REPLY)
+        except ValueError:
+            continue
+        size = len(visitor) + len(assistant)
+        if total + size > MAX_HISTORY_CHARACTERS:
+            break
+        kept.append((visitor, assistant))
+        total += size
+    kept.reverse()
+    return tuple(kept)
+
+
+def clean_public_reply(reply: str) -> str:
+    """Store only text the next public prompt can read back."""
+    if not isinstance(reply, str):
+        return ""
+    stripped = "".join(
+        char
+        for char in reply.replace("\r\n", "\n").replace("\r", "\n")
+        if char in "\n\t" or unicodedata.category(char) not in {"Cc", "Cs"}
+    ).strip()
+    if not stripped:
+        return ""
+    try:
+        return _text(stripped[:_MAX_REPLY], _MAX_REPLY)
+    except ValueError:
+        return ""
+
+
+def public_text_model_input(
+    persona: str,
+    history: tuple[tuple[str, str], ...],
+    visitor_text: str,
+) -> WebChatModelInput:
+    """Build the tool-free public prompt. It carries no ids, tools, or grants."""
+    if not isinstance(history, tuple) or len(history) > MAX_HISTORY_EXCHANGES:
+        raise ValueError("Invalid public text history")
+    pairs = []
+    total = 0
+    for item in history:
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise ValueError("Invalid public text history")
+        visitor = _text(item[0], _MAX_INPUT)
+        assistant = _text(item[1], _MAX_REPLY)
+        total += len(visitor) + len(assistant)
+        if total > MAX_HISTORY_CHARACTERS:
+            raise ValueError("Invalid public text history")
+        pairs.append((visitor, assistant))
+    return WebChatModelInput(
+        _SYSTEM,
+        _text(persona, _MAX_PERSONA, empty_ok=True),
+        tuple(pairs),
+        _text(visitor_text, _MAX_INPUT),
+    )
+
+
 def _readback(turn: PreparedWebChatTurn) -> WebChatTextResult:
     claim = turn.claim
     if claim.state == "replayed" and claim.reply is not None:

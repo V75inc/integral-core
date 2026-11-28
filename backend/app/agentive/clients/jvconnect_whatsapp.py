@@ -200,6 +200,60 @@ async def fetch_account(
     )
 
 
+async def fetch_calling_settings(
+    base_url: str,
+    api_key: str,
+    *,
+    client: Optional[httpx.AsyncClient] = None,
+) -> JvconnectResult:
+    """GET Meta calling ENABLED/DISABLED for the key-bound phone."""
+    return await _call(
+        "GET",
+        _endpoint(base_url, "calling/settings"),
+        api_key,
+        client=client,
+        operation="calling settings",
+    )
+
+
+async def set_calling_settings(
+    base_url: str,
+    api_key: str,
+    enabled: bool,
+    *,
+    client: Optional[httpx.AsyncClient] = None,
+) -> JvconnectResult:
+    """POST Meta calling on or off for the key-bound phone."""
+    return await _call(
+        "POST",
+        _endpoint(base_url, "calling/settings"),
+        api_key,
+        json_body={"enabled": enabled},
+        client=client,
+        operation="calling settings update",
+    )
+
+
+async def fetch_calling_credentials(
+    base_url: str,
+    api_key: str,
+    *,
+    client: Optional[httpx.AsyncClient] = None,
+) -> JvconnectResult:
+    """GET the Meta token jvvoice needs for AcceptWhatsAppCall.
+
+    The access_token stays in the result data for the caller to forward.
+    This function does not log or store it.
+    """
+    return await _call(
+        "GET",
+        _endpoint(base_url, "calling/credentials"),
+        api_key,
+        client=client,
+        operation="calling credentials",
+    )
+
+
 async def register_webhook(
     base_url: str,
     api_key: str,

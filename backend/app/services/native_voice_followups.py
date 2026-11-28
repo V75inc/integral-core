@@ -30,6 +30,11 @@ class VoiceContinuationScope(Protocol):
     session: str
 
 
+def _channel_session(scope: VoiceContinuationScope) -> str:
+    """Phone channel session of a scope; empty for browser voice scopes."""
+    return getattr(scope, "channel_session", "") or ""
+
+
 @dataclass(frozen=True)
 class VoiceFollowUpTarget:
     """A server-authored target snapshot. Keep it unchanged on retries."""
@@ -57,14 +62,20 @@ async def resolve_voice_follow_up_target(
         raise InsufficientPermissionsError(message="Conversation unavailable")
     await require_voice_workspace_role(scope.principal, scope.workspace)
     row = await get_default_context().database.get("node", scope.thread)
-    if not is_workspace_voice_thread(row, scope.principal, scope.workspace):
+    if not is_workspace_voice_thread(
+        row, scope.principal, scope.workspace, _channel_session(scope)
+    ):
         raise InsufficientPermissionsError(message="Conversation unavailable")
     work_item_id = row["context"].get("active_work_item_id")
     if not work_item_id:
         return None
     return VoiceFollowUpTarget(
         VoiceFollowUpFence(
-            scope.principal, scope.workspace, scope.thread, work_item_id
+            scope.principal,
+            scope.workspace,
+            scope.thread,
+            work_item_id,
+            _channel_session(scope),
         ),
         scope.session,
     )
@@ -89,8 +100,14 @@ async def route_voice_follow_up(
             target.fence.principal_id,
             target.fence.workspace_id,
             target.fence.thread_id,
+            target.fence.channel_session,
         )
-        != (scope.principal, scope.workspace, scope.thread)
+        != (
+            scope.principal,
+            scope.workspace,
+            scope.thread,
+            _channel_session(scope),
+        )
     ):
         raise InsufficientPermissionsError(message="Conversation unavailable")
     if not isinstance(call_id, str) or not 0 < len(call_id) <= 128:
@@ -165,7 +182,9 @@ async def observe_spoken_follow_up(
     }
     await require_voice_workspace_role(scope.principal, scope.workspace)
     row = await get_default_context().database.get("node", scope.thread)
-    if not is_workspace_voice_thread(row, scope.principal, scope.workspace):
+    if not is_workspace_voice_thread(
+        row, scope.principal, scope.workspace, _channel_session(scope)
+    ):
         raise InsufficientPermissionsError(message="Conversation unavailable")
 
     key, message_id = _submission_identity(
@@ -234,7 +253,9 @@ async def observe_spoken_follow_up(
         return unavailable
     await require_voice_workspace_role(scope.principal, scope.workspace)
     row = await get_default_context().database.get("node", scope.thread)
-    if not is_workspace_voice_thread(row, scope.principal, scope.workspace):
+    if not is_workspace_voice_thread(
+        row, scope.principal, scope.workspace, _channel_session(scope)
+    ):
         raise InsufficientPermissionsError(message="Conversation unavailable")
     return SpokenFollowUpObservation(
         "promoted",

@@ -46,10 +46,12 @@ class _StoredFollowUp(ChatFollowUpRequest):
     """Encrypted worker input, never accepted by or serialized to the HTTP API."""
 
     voice_origin: Literal[True] | None = None
+    # Phone channel session; empty for browser voice and for older rows.
+    voice_channel_session: str = ""
 
     def public_request(self) -> ChatFollowUpRequest:
         return ChatFollowUpRequest.model_validate(
-            self.model_dump(exclude={"voice_origin"})
+            self.model_dump(exclude={"voice_origin", "voice_channel_session"})
         )
 
 
@@ -140,7 +142,11 @@ async def accept_chat_follow_up(
     if voice_fence is not None and (
         voice_fence
         != VoiceFollowUpFence(
-            principal_id, workspace_id, thread_id, request.after_work_item_id
+            principal_id,
+            workspace_id,
+            thread_id,
+            request.after_work_item_id,
+            voice_fence.channel_session,
         )
         or not request.after_work_item_id
         or request.entity_refs
@@ -149,6 +155,9 @@ async def accept_chat_follow_up(
     stored = _StoredFollowUp(
         **request.model_dump(include=set(ChatFollowUpRequest.model_fields)),
         voice_origin=True if voice_fence is not None else None,
+        voice_channel_session=(
+            voice_fence.channel_session if voice_fence is not None else ""
+        ),
     )
     async with postgres_graph_transaction() as transaction:
         scope_key = await _owned_scope(
@@ -341,7 +350,10 @@ async def consume_chat_follow_up(
         thread_row = await transaction.get("node", submission.thread_id)
         if (
             not is_workspace_voice_thread(
-                thread_row, submission.principal_id, submission.workspace_id
+                thread_row,
+                submission.principal_id,
+                submission.workspace_id,
+                pending[0].voice_channel_session,
             )
             or submission.execution_context is None
             or submission.execution_context.extra_data.get("voice_delegate") is not True
@@ -544,7 +556,10 @@ async def promote_next_chat_follow_up(
             if head.voice_origin:
                 current = await get_default_context().database.get("node", thread.id)
                 if not is_workspace_voice_thread(
-                    current, thread.user_id, thread.workspace_id
+                    current,
+                    thread.user_id,
+                    thread.workspace_id,
+                    head.voice_channel_session,
                 ):
                     continue
                 await require_voice_workspace_role(thread.user_id, thread.workspace_id)

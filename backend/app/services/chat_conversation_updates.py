@@ -17,6 +17,20 @@ _DIGEST = re.compile(r"[a-f0-9]{64}")
 _subscriptions: dict[tuple[str, str], set[ConversationSubscription]] = {}
 
 
+def _channel_session_allows(
+    provider_session_id: str | None, workspace_id: str, channel_session: str
+) -> bool:
+    """A ``wa:`` thread passes only for its exact workspace-bound channel session."""
+    session = provider_session_id or ""
+    if not session.startswith("wa:"):
+        return not channel_session
+    return (
+        bool(channel_session)
+        and session == channel_session
+        and channel_session.startswith(f"wa:{workspace_id}:")
+    )
+
+
 @dataclass(eq=False)
 class ConversationSubscription:
     """One coalescing wake latch, with no stored messages or event payloads."""
@@ -202,8 +216,12 @@ async def read_conversation_snapshot(
     *,
     profile_key: str | None = None,
     cursor: ConversationCursor | None = None,
+    channel_session: str = "",
 ) -> ConversationSnapshot:
     """Read current, bounded public conversation state under fresh admission.
+
+    A ``wa:`` thread is readable only when ``channel_session`` names that exact
+    workspace-bound session; the default empty value keeps refusing it.
 
     The cursor never authorizes access. A missing old watermark means the
     bounded window no longer proves continuity; callers can offer a deliberate
@@ -235,7 +253,9 @@ async def read_conversation_snapshot(
             or thread.workspace_id != workspace_id
             or thread.provider_id != "integral_native"
             or thread.archived
-            or (thread.provider_session_id or "").startswith("wa:")
+            or not _channel_session_allows(
+                thread.provider_session_id, workspace_id, channel_session
+            )
             or (
                 profile_key is not None
                 and profile_key != (thread.agent_profile_key or "")

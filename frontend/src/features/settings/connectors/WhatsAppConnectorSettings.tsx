@@ -13,7 +13,7 @@ export function WhatsAppConnectorSettings({ dialog }: { dialog?: WhatsAppDialog 
       key={scope?.scope?.workspaceId}
       dialog={dialog}
       canManageLine={role === 'owner' || role === 'admin'}
-      onBindingChange={() => void qc.invalidateQueries({ queryKey: ['connectors', 'whatsapp'] })}
+      onBindingChange={() => void qc.invalidateQueries({ queryKey: ['connectors'] })}
       onChange={() => void qc.invalidateQueries({ queryKey: NOTIFICATION_PREFS_KEY })}
     />
   );

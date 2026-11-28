@@ -13,16 +13,19 @@ from app.agentive.services.whatsapp_channel_binding import (
     read_api_key,
     read_webhook_secret,
 )
-from app.api.errors import MissingAuthenticationError
+from app.api.errors import MissingAuthenticationError, ResourceConflictError
 
 logger = logging.getLogger(__name__)
 
 _TEXT_ONLY_NOTICE = "Text only for now"
-_LINK_NOTICE = "Link your number in Integral settings"
+# Missed-call leftovers in ``messages`` are not user media. Do not send the
+# text-only notice for them. Image, audio, and other media stay ``non_text``.
+_CALL_SIGNAL_TYPES = frozenset({"call", "system", "unsupported", "unknown"})
 _LINKED_NOTICE = "Number linked. Send a message to continue."
 _NO_WORKSPACE_NOTICE = (
     "This number isn't a member of a workspace on this WhatsApp line."
 )
+_BUSY_NOTICE = "Still finishing the previous reply. Try again in a moment."
 _LINE_CHOICE = "whatsapp_line_workspace"
 
 
@@ -35,6 +38,7 @@ class ParsedWhatsAppEnvelope:
     sender_id: str
     message_id: str
     text: str
+    message_type: str = ""
 
 
 def verify_jvconnect_signature(raw_body: bytes, secret: str, signature: str) -> bool:
@@ -66,10 +70,12 @@ def verify_jvconnect_signature(raw_body: bytes, secret: str, signature: str) -> 
 def parse_whatsapp_envelope(payload: dict) -> ParsedWhatsAppEnvelope:
     """Return the first WhatsApp message in a Meta webhook envelope.
 
-    A text message with a string body is ``text``. Any other message type,
-    including text with no body, is ``non_text``. Status-only payloads, an
-    empty messages array, missing entry or changes, and a non-dict payload
-    are ``ignore``. Only the first entry, change, and message are read.
+    A text message with a string body is ``text``. Call leftovers
+    (``call``, ``system``, ``unsupported``, ``unknown``) are ``ignore``.
+    Any other message type, including text with no body, is ``non_text``.
+    Status-only payloads, an empty messages array, missing entry or
+    changes, and a non-dict payload are ``ignore``. Only the first entry,
+    change, and message are read.
     """
     if not isinstance(payload, dict):
         return _ignored()
@@ -114,6 +120,16 @@ def _from_message(value: dict, message: dict) -> ParsedWhatsAppEnvelope:
         phone_number_id = _string(metadata.get("phone_number_id"))
     sender_id = _string(message.get("from"))
     message_id = _string(message.get("id"))
+    message_type = _string(message.get("type"))
+    if message_type in _CALL_SIGNAL_TYPES or _is_call_interactive(message):
+        return ParsedWhatsAppEnvelope(
+            kind="ignore",
+            phone_number_id=phone_number_id,
+            sender_id=sender_id,
+            message_id=message_id,
+            text="",
+            message_type=message_type,
+        )
     if message.get("type") == "text":
         body = _text_body(message.get("text"))
         if body is not None:
@@ -123,6 +139,7 @@ def _from_message(value: dict, message: dict) -> ParsedWhatsAppEnvelope:
                 sender_id=sender_id,
                 message_id=message_id,
                 text=body,
+                message_type=message_type,
             )
     return ParsedWhatsAppEnvelope(
         kind="non_text",
@@ -130,7 +147,19 @@ def _from_message(value: dict, message: dict) -> ParsedWhatsAppEnvelope:
         sender_id=sender_id,
         message_id=message_id,
         text="",
+        message_type=message_type,
     )
+
+
+def _is_call_interactive(message: dict) -> bool:
+    """True when a messages webhook is a call leftover, not user media."""
+    if _string(message.get("type")) != "interactive":
+        return False
+    block = message.get("interactive")
+    nested = ""
+    if isinstance(block, dict):
+        nested = _string(block.get("type"))
+    return "call" in nested.lower()
 
 
 def _text_body(text_block: object) -> str | None:
@@ -387,6 +416,7 @@ async def _dispatch_verified(binding, envelope) -> dict:
     if existing:
         return {"ok": True}
     if envelope.kind == "non_text":
+        logger.info("whatsapp inbound non_text type=%s", envelope.message_type)
         await _show_typing(binding, envelope.message_id)
         await _send_notice_and_store(binding, envelope, _TEXT_ONLY_NOTICE, "non_text")
         return {"ok": True}
@@ -399,8 +429,16 @@ async def _dispatch_verified(binding, envelope) -> dict:
         return {"ok": True}
     identity = await _verified_sender(envelope.sender_id)
     if identity is None:
+        from app.agentive.services.whatsapp_public_profile import unknown_sender_reply
+
         await _show_typing(binding, envelope.message_id)
-        await _send_notice_and_store(binding, envelope, _LINK_NOTICE, "text")
+        body = await unknown_sender_reply(
+            binding,
+            envelope.sender_id,
+            envelope.text or "",
+            event_id=envelope.message_id,
+        )
+        await _send_notice_and_store(binding, envelope, body, "text")
         return {"ok": True}
     principal = await _sender_principal(identity)
     workspaces = await _accessible_workspaces(binding, principal) if principal else []
@@ -452,19 +490,84 @@ async def _dispatch_verified(binding, envelope) -> dict:
     from app.agentive.services.whatsapp_chat_bridge import admit_owner_whatsapp_text
 
     await _show_typing(binding, envelope.message_id)
-    await admit_owner_whatsapp_text(
-        binding,
-        envelope,
-        e164=e164,
-        user_id=principal,
-        workspace_id=workspace_id,
-    )
+    try:
+        await admit_owner_whatsapp_text(
+            binding,
+            envelope,
+            e164=e164,
+            user_id=principal,
+            workspace_id=workspace_id,
+        )
+    except ResourceConflictError:
+        await _send_notice_and_store(binding, envelope, _BUSY_NOTICE, "text")
+        return {"ok": True}
     return {"ok": True}
 
 
-async def receive_whatsapp_webhook(raw_body: bytes, signature: str) -> dict:
-    """Verify a jvconnect webhook and store a receipt when the message is new."""
-    from app.agentive.nodes import WhatsAppChannelBinding
+async def _load_call_inputs(binding):
+    """Owner's verified WhatsApp identities and enabled line grants.
+
+    Graph reads stay here. ``admit_whatsapp_caller`` receives the results.
+    A grant with no ``calling_enabled`` attribute counts as false.
+    """
+    from types import SimpleNamespace
+
+    from app.agentive.edges import USES_WHATSAPP_LINE
+    from app.agentive.nodes import ChannelIdentity
+    from app.agentive.services.whatsapp_channel_binding import workspace_line_grant
+
+    rows = await ChannelIdentity.find(channel="whatsapp", user_id=binding.user_id)
+    identities = [row for row in rows if getattr(row, "verified", False)]
+    workspaces = await binding.nodes(
+        edge=[USES_WHATSAPP_LINE],
+        direction="in",
+        node=["Workspace"],
+        limit=50,
+    )
+    grants = []
+    for workspace in workspaces:
+        grant = await workspace_line_grant(workspace.id, binding.id)
+        if grant is None or not getattr(grant, "enabled", False):
+            continue
+        profile_key = (getattr(grant, "public_profile_key", "") or "").strip()
+        profile_ready = False
+        if profile_key and bool(getattr(grant, "calling_enabled", False)):
+            from app.agentive.services.whatsapp_public_profile import (
+                public_profile_is_live,
+            )
+
+            profile_ready = await public_profile_is_live(workspace.id, profile_key)
+        grants.append(
+            SimpleNamespace(
+                workspace_id=workspace.id,
+                enabled=True,
+                calling_enabled=bool(getattr(grant, "calling_enabled", False)),
+                public_profile_key=profile_key,
+                public_profile_ready=profile_ready,
+            )
+        )
+    return identities, grants
+
+
+async def receive_whatsapp_webhook(
+    raw_body: bytes,
+    signature: str,
+    *,
+    find_bindings=None,
+    load_call_inputs=None,
+    http_client=None,
+    receipt_store=None,
+) -> dict:
+    """Verify a jvconnect webhook and store a receipt when the message is new.
+
+    A ``calls`` change is handled before the text parser. Text envelopes keep
+    ``parse_whatsapp_envelope`` and ``_dispatch_verified``.
+    """
+    from app.agentive.services.whatsapp_call_control import (
+        _GraphCallReceipts,
+        handle_whatsapp_call,
+        parse_whatsapp_call,
+    )
 
     if not isinstance(raw_body, (bytes, bytearray)):
         raise MissingAuthenticationError(message="Invalid webhook signature")
@@ -472,9 +575,30 @@ async def receive_whatsapp_webhook(raw_body: bytes, signature: str) -> dict:
     phone_number_id = _payload_phone_number_id(payload)
     if not phone_number_id:
         raise MissingAuthenticationError(message="Invalid webhook signature")
-    candidates = await WhatsAppChannelBinding.find(phone_number_id=phone_number_id)
+    if find_bindings is None:
+        from app.agentive.nodes import WhatsAppChannelBinding
+
+        candidates = await WhatsAppChannelBinding.find(phone_number_id=phone_number_id)
+    else:
+        candidates = await find_bindings(phone_number_id)
     binding = _binding_for_signature(bytes(raw_body), signature, candidates)
     if binding is None:
         raise MissingAuthenticationError(message="Invalid webhook signature")
-    envelope = parse_whatsapp_envelope(payload if isinstance(payload, dict) else {})
+    payload_dict = payload if isinstance(payload, dict) else {}
+    parsed_call = parse_whatsapp_call(payload_dict)
+    if parsed_call.is_calls:
+        loader = load_call_inputs if load_call_inputs is not None else _load_call_inputs
+        identities, grants = await loader(binding)
+        store = receipt_store if receipt_store is not None else _GraphCallReceipts()
+        return await handle_whatsapp_call(
+            binding,
+            parsed_call,
+            identities,
+            grants,
+            jvconnect_api_key=read_api_key(binding),
+            http_client=http_client,
+            receipt_store=store,
+            reload_call_inputs=loader,
+        )
+    envelope = parse_whatsapp_envelope(payload_dict)
     return await _dispatch_verified(binding, envelope)

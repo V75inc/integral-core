@@ -169,6 +169,47 @@ def test_text_message_yields_sender_phone_id_and_text():
 
 @pytest.mark.parametrize(
     "message_type",
+    ["call", "system", "unsupported", "unknown"],
+)
+@pytest.mark.unit
+def test_call_leftover_message_types_are_ignored(message_type: str):
+    """Hangup leftovers in messages are ignore, not the text-only notice."""
+    payload = _envelope(
+        [
+            {
+                "from": "15551212",
+                "id": "wamid.abc",
+                "type": message_type,
+                message_type: {"id": "call-1"},
+            }
+        ]
+    )
+    parsed = parse_whatsapp_envelope(payload)
+    assert parsed.kind == "ignore"
+    assert parsed.message_type == message_type
+    assert parsed.text == ""
+
+
+@pytest.mark.unit
+def test_call_interactive_message_is_ignored():
+    """A call leftover interactive message is ignore, not the text-only notice."""
+    payload = _envelope(
+        [
+            {
+                "from": "15551212",
+                "id": "wamid.abc",
+                "type": "interactive",
+                "interactive": {"type": "call_permission_request"},
+            }
+        ]
+    )
+    parsed = parse_whatsapp_envelope(payload)
+    assert parsed.kind == "ignore"
+    assert parsed.message_type == "interactive"
+
+
+@pytest.mark.parametrize(
+    "message_type",
     ["image", "document", "audio", "video", "sticker", "reaction"],
 )
 @pytest.mark.unit
@@ -641,6 +682,56 @@ async def test_owner_text_shows_typing_before_the_turn(
 
 
 @pytest.mark.asyncio
+async def test_busy_thread_returns_200_and_sends_a_notice(
+    enc_key, test_user, client, sent_texts, monkeypatch
+):
+    """A 409 on the thread still acks Meta and tells the sender to wait."""
+    from app.api.errors import ResourceConflictError
+
+    binding = await _ready_binding(test_user)
+
+    async def resolve(channel, channel_user_id):
+        if channel == "whatsapp" and channel_user_id == "+15551212":
+            return {
+                "user_id": binding.user_id,
+                "channel_user_id": "+15551212",
+            }
+        return None
+
+    async def admit(*args: object, **kwargs: object) -> None:
+        raise ResourceConflictError(
+            message="A turn is already in progress on this thread"
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.channel_identity.resolve_channel_identity",
+        resolve,
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_chat_bridge.admit_owner_whatsapp_text",
+        admit,
+    )
+    raw = _raw_payload(
+        _envelope(
+            [_text_message("hello", sender="15551212", message_id="wamid.busy")],
+            phone_number_id=_PHONE,
+        )
+    )
+    response = await _post_webhook(
+        client,
+        raw,
+        _jvconnect_signature(raw, _HOOK_SECRET),
+        header="X-Jvconnect-Signature",
+    )
+
+    assert response.status_code == 200
+    assert [call["body"] for call in sent_texts] == [
+        "Still finishing the previous reply. Try again in a moment."
+    ]
+    assert [call["message_id"] for call in sent_texts.typing] == ["wamid.busy"]
+
+
+@pytest.mark.asyncio
 async def test_typing_failure_still_sends_the_reply(
     enc_key, test_user, client, sent_texts, monkeypatch
 ):
@@ -895,3 +986,224 @@ async def test_new_pairing_requires_account_issued_code(test_user):
         await verify_pending_whatsapp_sender("15551212", started["pairing_code"])
         is None
     )
+
+
+def _public_grant():
+    from app.agentive.services.whatsapp_public_profile import PublicLineGrant
+
+    return PublicLineGrant(
+        workspace_id="ws-secret-one",
+        grant_id="grant-1",
+        revision=3,
+        profile_key="greeter",
+        published_version=1,
+        persona="Be brief.",
+        principal_id="n.User.profile",
+    )
+
+
+@pytest.mark.asyncio
+async def test_unknown_sender_gets_a_tool_free_public_reply(
+    enc_key, test_user, client, sent_texts, monkeypatch
+):
+    """One live public profile answers an unknown sender without tools or a user."""
+    from dataclasses import fields
+
+    from app.agentive.nodes import ChannelIdentity
+    from app.agentive.services.web_chat_profile_inference import WebChatModelInput
+    from app.models.whatsapp_visitor import WhatsAppVisitorExchange
+
+    seen = []
+
+    async def grants(_binding):
+        return [_public_grant()]
+
+    async def complete(grant, session_key, prompt):
+        seen.append((grant.principal_id, session_key, prompt))
+        return "Public hello"
+
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_public_profile.live_public_profile_grants",
+        grants,
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_public_profile._complete_public_text",
+        complete,
+    )
+    await _ready_binding(test_user)
+    raw = _raw_payload(
+        _envelope(
+            [_text_message("hello", sender="15559999", message_id="wamid.public")],
+            phone_number_id=_PHONE,
+        )
+    )
+    response = await _post_webhook(
+        client,
+        raw,
+        _jvconnect_signature(raw, _HOOK_SECRET),
+        header="X-Jvconnect-Signature",
+    )
+
+    assert response.status_code == 200
+    assert [call["body"] for call in sent_texts] == ["Public hello"]
+    assert len(seen) == 1
+    _principal, session_key, prompt = seen[0]
+    assert isinstance(prompt, WebChatModelInput)
+    assert "tools" not in {item.name for item in fields(prompt)}
+    assert "no tools" in prompt.instructions
+    assert prompt.persona == "Be brief."
+    assert prompt.visitor_text == "hello"
+    assert "15559999" not in session_key
+    assert "n.User.profile" not in session_key
+    assert (
+        await ChannelIdentity.find(channel="whatsapp", channel_user_id="+15559999")
+        == []
+    )
+    stored = await WhatsAppVisitorExchange.find(session_key=session_key)
+    assert len(stored) == 1
+    assert stored[0].visitor_text == "hello"
+    _assert_no_chat_submit()
+
+
+@pytest.mark.asyncio
+async def test_two_public_profiles_do_not_name_workspaces(
+    enc_key, test_user, client, sent_texts, monkeypatch
+):
+    """More than one live public grant gets a generic refusal."""
+    other = _public_grant()
+    second = type(other)(
+        workspace_id="ws-secret-two",
+        grant_id="grant-2",
+        revision=1,
+        profile_key="other",
+        published_version=1,
+        persona="Other",
+        principal_id="n.User.other",
+    )
+
+    async def grants(_binding):
+        return [_public_grant(), second]
+
+    async def complete(*_args: object) -> str:
+        raise AssertionError("ambiguous public lines must not call the model")
+
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_public_profile.live_public_profile_grants",
+        grants,
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_public_profile._complete_public_text",
+        complete,
+    )
+    await _ready_binding(test_user)
+    raw = _raw_payload(
+        _envelope(
+            [_text_message("hello", sender="15558888", message_id="wamid.many")],
+            phone_number_id=_PHONE,
+        )
+    )
+    response = await _post_webhook(
+        client,
+        raw,
+        _jvconnect_signature(raw, _HOOK_SECRET),
+        header="X-Jvconnect-Signature",
+    )
+
+    assert response.status_code == 200
+    body = sent_texts[0]["body"]
+    assert body == "This number can't start a chat right now."
+    assert "ws-secret" not in body
+    assert "greeter" not in body
+
+
+@pytest.mark.asyncio
+async def test_linked_member_does_not_use_the_public_profile(
+    enc_key, test_user, client, sent_texts, monkeypatch
+):
+    """A verified member stays on the native thread when a public profile is assigned."""
+    binding = await _ready_binding(test_user)
+    admitted = []
+
+    async def resolve(channel, channel_user_id):
+        if channel == "whatsapp" and channel_user_id == "+15551212":
+            return {"user_id": binding.user_id, "channel_user_id": "+15551212"}
+        return None
+
+    async def admit(bound, envelope, *, e164, user_id="", workspace_id=""):
+        admitted.append(e164)
+
+    async def grants(_binding):
+        raise AssertionError("a member must not be admitted as a public visitor")
+
+    monkeypatch.setattr(
+        "app.agentive.services.channel_identity.resolve_channel_identity", resolve
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_chat_bridge.admit_owner_whatsapp_text", admit
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_public_profile.live_public_profile_grants",
+        grants,
+    )
+    raw = _raw_payload(
+        _envelope(
+            [_text_message("hello", sender="15551212", message_id="wamid.member")],
+            phone_number_id=_PHONE,
+        )
+    )
+    response = await _post_webhook(
+        client,
+        raw,
+        _jvconnect_signature(raw, _HOOK_SECRET),
+        header="X-Jvconnect-Signature",
+    )
+
+    assert response.status_code == 200
+    assert admitted == ["+15551212"]
+    assert sent_texts == []
+
+
+@pytest.mark.asyncio
+async def test_pairing_code_does_not_get_a_public_reply(
+    enc_key, test_user, client, sent_texts, monkeypatch
+):
+    """A pairing code still links and does not start a visitor turn."""
+    from app.agentive.services.channel_identity import initiate_link
+
+    async def grants(_binding):
+        return [_public_grant()]
+
+    async def complete(*_args: object) -> str:
+        raise AssertionError("pairing must not call the public model")
+
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_public_profile.live_public_profile_grants",
+        grants,
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_public_profile._complete_public_text",
+        complete,
+    )
+    await _ready_binding(test_user)
+    started = await initiate_link(_user_id(test_user), "whatsapp", "+15551212")
+    raw = _raw_payload(
+        _envelope(
+            [
+                _text_message(
+                    started["pairing_code"], sender="15551212", message_id="wamid.pair"
+                )
+            ],
+            phone_number_id=_PHONE,
+        )
+    )
+    response = await _post_webhook(
+        client,
+        raw,
+        _jvconnect_signature(raw, _HOOK_SECRET),
+        header="X-Jvconnect-Signature",
+    )
+
+    assert response.status_code == 200
+    assert [call["body"] for call in sent_texts] == [
+        "Number linked. Send a message to continue."
+    ]

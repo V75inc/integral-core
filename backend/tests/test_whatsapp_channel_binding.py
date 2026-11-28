@@ -6,8 +6,17 @@ import json
 import pytest
 
 from app.agentive.clients.jvconnect_whatsapp import JvconnectResult
+from app.agentive.services.whatsapp_channel_binding import voice_key_last4
 from app.config import settings
 from app.services.credential_crypto import decrypt_secret_from_storage
+
+
+@pytest.mark.unit
+def test_voice_key_last4_hides_short_keys():
+    """A key shorter than four characters is not returned as the last four."""
+    assert voice_key_last4("abcd") == "abcd"
+    assert voice_key_last4("abc") == ""
+    assert voice_key_last4("  voice-secret-key  ") == "-key"
 
 
 def _user_id(user) -> str:
@@ -29,6 +38,11 @@ def _stub_jvconnect_account_failure(monkeypatch) -> None:
     async def register_webhook(*args: object, **kwargs):
         raise AssertionError("register_webhook must not be called")
 
+    async def fetch_calling_settings(*args: object, **kwargs):
+        return JvconnectResult(
+            ok=True, status_code=200, data={"status": "DISABLED"}, error=""
+        )
+
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.fetch_account",
         fetch_account,
@@ -36,6 +50,10 @@ def _stub_jvconnect_account_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.register_webhook",
         register_webhook,
+    )
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.fetch_calling_settings",
+        fetch_calling_settings,
     )
     monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "")
     monkeypatch.setattr(settings, "DEBUG", False)
@@ -313,6 +331,11 @@ def _stub_jvconnect_registration(
             error="",
         )
 
+    async def fetch_calling_settings(*args: object, **kwargs):
+        return JvconnectResult(
+            ok=True, status_code=200, data={"status": "DISABLED"}, error=""
+        )
+
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.fetch_account",
         fetch_account,
@@ -320,6 +343,10 @@ def _stub_jvconnect_registration(
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.register_webhook",
         register_webhook,
+    )
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.fetch_calling_settings",
+        fetch_calling_settings,
     )
     return calls
 
@@ -371,6 +398,37 @@ async def test_put_registers_webhook_and_hides_secrets(
 
 
 @pytest.mark.asyncio
+async def test_post_reregisters_the_webhook(enc_key, authenticated_client, monkeypatch):
+    """Admins can point JV Connect at the current public webhook again."""
+    calls = _stub_jvconnect_registration(monkeypatch)
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
+    saved = await authenticated_client.put(
+        "/api/agentive/channels/whatsapp/binding",
+        json={
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_test_secret_value",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert calls["register"] == [
+        "https://integral.example/api/agentive/channels/whatsapp/webhook"
+    ]
+    reregistered = await authenticated_client.post(
+        "/api/agentive/channels/whatsapp/binding/webhook"
+    )
+    assert reregistered.status_code == 200, reregistered.text
+    body = reregistered.json()["binding"]
+    assert body["enabled"] is True
+    assert body["webhook_registered"] is True
+    assert "webhook_secret" not in body
+    assert "jvk_test_secret_value" not in reregistered.text
+    assert calls["register"] == [
+        "https://integral.example/api/agentive/channels/whatsapp/webhook",
+        "https://integral.example/api/agentive/channels/whatsapp/webhook",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_two_adds_cannot_replace_the_workspace_line(
     enc_key, authenticated_client, monkeypatch
 ):
@@ -413,6 +471,7 @@ async def test_two_adds_cannot_replace_the_workspace_line(
 async def test_configure_cannot_replace_verified_line_with_a_different_number(
     enc_key, authenticated_client, monkeypatch
 ):
+    """Configure keeps the verified number when the replacement phone differs."""
     calls = _stub_jvconnect_registration(monkeypatch, phone="fixture-first")
     monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
     path = "/api/agentive/channels/whatsapp/binding"
@@ -431,18 +490,20 @@ async def test_configure_cannot_replace_verified_line_with_a_different_number(
     assert other.status_code == 409
     assert len(calls["register"]) == 1
     assert other_calls["register"] == []
-    assert (await authenticated_client.get(path)).json()["binding"] == binding
+    stored = (await authenticated_client.get(path)).json()["binding"]
+    assert {key: stored[key] for key in binding} == binding
 
 
 @pytest.mark.asyncio
 async def test_late_registration_cannot_restore_a_disconnected_workspace_line(
     enc_key, authenticated_client, monkeypatch
 ):
+    """A registration that finishes after disconnect does not restore the line."""
     _stub_jvconnect_registration(monkeypatch)
     monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
     started, complete = asyncio.Event(), asyncio.Event()
 
-    async def register_webhook(*args, **kwargs):
+    async def register_webhook(*args: object, **kwargs: object):
         started.set()
         await complete.wait()
         return JvconnectResult(
@@ -633,11 +694,20 @@ async def test_a_different_phone_stays_a_separate_line(
             error="",
         )
 
+    async def fetch_calling_settings(*args: object, **kwargs):
+        return JvconnectResult(
+            ok=True, status_code=200, data={"status": "DISABLED"}, error=""
+        )
+
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.fetch_account", fetch_account
     )
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.register_webhook", register_webhook
+    )
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.fetch_calling_settings",
+        fetch_calling_settings,
     )
     monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
     first = await authenticated_client.put(
@@ -846,3 +916,96 @@ async def test_managed_whatsapp_lifecycle_preserves_other_grants(
     assert kept.api_key_ciphertext == connection.api_key_ciphertext
     assert kept.webhook_secret_ciphertext == connection.webhook_secret_ciphertext
     assert len(calls["register"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_public_profile_assigns_only_while_the_line_is_disabled(
+    enc_key, test_user, authenticated_client, monkeypatch
+):
+    """A disabled grant stores one public profile. An enabled line rejects a change."""
+    from app.agentive.services.whatsapp_channel_binding import (
+        assign_workspace_line_public_profile,
+        binding_for_workspace,
+        create_whatsapp_channel_binding,
+        workspace_line_epoch,
+        workspace_line_grant,
+    )
+    from app.api.errors import ResourceConflictError
+    from app.services.personal_workspace import ensure_personal_workspace
+
+    class _Record:
+        def __init__(self, workspace_id: str) -> None:
+            self.revision = 2
+            self.workspace_id = workspace_id
+            self.profiles = {
+                "greeter": {
+                    "published": {
+                        "key": "greeter",
+                        "name": "Greeter",
+                        "version": 1,
+                        "audience": "public",
+                        "tools": [],
+                        "persona": "Be brief.",
+                    }
+                }
+            }
+
+    async def record(workspace_id, *, create=False):
+        return _Record(workspace_id)
+
+    monkeypatch.setattr("app.agentive.services.profile_management.record", record)
+    workspace = await ensure_personal_workspace(test_user)
+    await create_whatsapp_channel_binding(
+        user_id=_user_id(test_user),
+        jvconnect_base_url="https://connect.example",
+        api_key="jvk_test_secret_value",
+        workspace_id=workspace.id,
+    )
+    binding = await binding_for_workspace(workspace.id)
+    grant = await workspace_line_grant(workspace.id, binding.id)
+    epoch = workspace_line_epoch(binding, grant)
+    headers = {"X-Integral-Scope": f"ws:{workspace.id}"}
+    params = {
+        "workspace_id": workspace.id,
+        "provision_id": grant.id,
+        "route_epoch": epoch,
+    }
+    described = await authenticated_client.get(
+        "/api/agentive/managed-channels/whatsapp/configuration",
+        headers=headers,
+        params=params,
+    )
+    assert described.status_code == 200, described.text
+    body = described.json()
+    assert body["profile_key"] is None
+    assert body["editable"] is True
+    assert body["eligible_profiles"] == [{"key": "greeter", "name": "Greeter"}]
+    assert "Be brief." not in described.text
+    assert "persona" not in body
+
+    await assign_workspace_line_public_profile(
+        _user_id(test_user),
+        workspace.id,
+        grant.id,
+        epoch,
+        2,
+        "greeter",
+    )
+    saved = await workspace_line_grant(workspace.id, binding.id)
+    assert saved.public_profile_key == "greeter"
+    assert saved.revision == grant.revision + 1
+
+    binding.enabled = True
+    await binding.save()
+    enabled_epoch = workspace_line_epoch(binding, saved)
+    with pytest.raises(ResourceConflictError):
+        await assign_workspace_line_public_profile(
+            _user_id(test_user),
+            workspace.id,
+            saved.id,
+            enabled_epoch,
+            2,
+            None,
+        )
+    unchanged = await workspace_line_grant(workspace.id, binding.id)
+    assert unchanged.public_profile_key == "greeter"

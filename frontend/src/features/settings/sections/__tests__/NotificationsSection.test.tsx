@@ -174,7 +174,7 @@ describe('<NotificationsSection />', () => {
     }
     // A "verify phone" link must be present.
     const link = screen.getByRole('link', { name: /verify phone/i });
-    expect(link).toHaveAttribute('href', '#whatsapp');
+    expect(link).toHaveAttribute('href', '#connectors');
     const navigateToSection = vi.fn();
     cleanup();
     render(
@@ -183,6 +183,6 @@ describe('<NotificationsSection />', () => {
       </QueryClientProvider>,
     );
     fireEvent.click(screen.getByRole('link', { name: /verify phone/i }));
-    expect(navigateToSection).toHaveBeenCalledWith('whatsapp');
+    expect(navigateToSection).toHaveBeenCalledWith('connectors');
   });
 });

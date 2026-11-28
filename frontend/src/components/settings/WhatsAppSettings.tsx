@@ -9,9 +9,13 @@ import {
   getWhatsAppChannelBinding,
   saveWhatsAppChannelBinding,
   disableWhatsAppChannelBinding,
+  setWhatsAppCalling,
+  saveWhatsAppVoiceService,
+  reregisterWhatsAppWebhook,
   type WhatsAppChannelBinding,
 } from '../../api/agentive';
 import { Field } from '../../patterns';
+import { StatusPill, ToggleRow } from '../../features/settings/components/Field';
 import { Button, IconWell, LINE_ICON_STROKE } from '../ui';
 import { WHATSAPP_CONNECTOR } from '../../features/settings/connectors/connectorDefinitions';
 import { Input, Text } from '../../ui';
@@ -49,11 +53,13 @@ export interface WhatsAppDialog {
   onClose: () => void;
 }
 
-export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = true, dialog }: {
+export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = true, dialog, personalOnly = false }: {
   onChange?: () => void;
   onBindingChange?: () => void;
   canManageLine?: boolean;
   dialog?: WhatsAppDialog;
+  /** Account phone linking only. The workspace line stays on Connectors. */
+  personalOnly?: boolean;
 } = {}) {
   const { showToast } = useToast();
   const { enabled } = useAgentive();
@@ -70,7 +76,9 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [channelError, setChannelError] = useState('');
-  const [channelAction, setChannelAction] = useState<'save' | 'disable' | null>(null);
+  const [channelAction, setChannelAction] = useState<'save' | 'disable' | 'calling' | 'voice' | 'webhook' | null>(null);
+  const [voiceUrl, setVoiceUrl] = useState('');
+  const [voiceKey, setVoiceKey] = useState('');
 
   const loadIdentities = useCallback(async () => {
     if (!enabled) { setLoading(false); return; }
@@ -95,6 +103,8 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
       setChannelError('');
       setBindingLoadFailed(false);
       setBaseUrl(next?.jvconnect_base_url ?? '');
+      setVoiceUrl(next?.jvvoice_base_url ?? '');
+      setVoiceKey('');
     } catch (error: unknown) {
       setBindingLoadFailed(true);
       setChannelError(responseMessage(error, 'Could not load WhatsApp channel'));
@@ -103,7 +113,10 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
     }
   }, [enabled]);
 
-  useEffect(() => { loadIdentities(); void loadBinding(); }, [loadIdentities, loadBinding]);
+  useEffect(() => {
+    void loadIdentities();
+    if (!personalOnly) void loadBinding();
+  }, [loadIdentities, loadBinding, personalOnly]);
 
   const handleInitiate = async () => {
     if (!phone.trim()) { showToast('Enter your WhatsApp phone number', 'error'); return; }
@@ -171,6 +184,25 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
     }
   };
 
+  const handleReregisterWebhook = async () => {
+    if (!canManageLine || !binding?.id || bindingLoadFailed) return;
+    setChannelAction('webhook');
+    setChannelError('');
+    try {
+      const saved = await reregisterWhatsAppWebhook();
+      if (saved?.binding) setBinding(withoutSecrets(saved.binding));
+      showToast('Webhook reregistered', 'success');
+      onBindingChange?.();
+      await loadBinding();
+    } catch (error: unknown) {
+      const message = responseMessage(error, 'Could not reregister the webhook');
+      setChannelError(message);
+      showToast(message, 'error');
+    } finally {
+      setChannelAction(null);
+    }
+  };
+
   const handleDisableChannel = async () => {
     if (!canManageLine || !binding?.id || bindingLoadFailed) return;
     setChannelAction('disable');
@@ -218,6 +250,7 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
   const closeDialog = () => { if (!busy) dialog?.onClose(); };
 
   function renderSettings(body: ReactNode, primary?: ReactNode) {
+    if (personalOnly) return <>{body}</>;
     if (dialog) {
       return (
         <FormDialog open title={`${dialog.mode} ${title}`} onClose={closeDialog}
@@ -247,7 +280,7 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
       WhatsApp is unavailable. Contact your administrator to check channel configuration.
     </Text>,
   );
-  if (loading || !bindingReady) return renderSettings(
+  if (loading || (!personalOnly && !bindingReady)) return renderSettings(
     <div role="status" className="flex items-center gap-3">
       <Loader2 size={18} className="animate-spin text-[var(--text-muted)]" aria-hidden />
       <Text variant="body-sm" tone="muted" as="span">Loading WhatsApp settings…</Text>
@@ -261,6 +294,55 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
   );
 
   const canEditWorkspace = canManageLine && !bindingLoadFailed && dialog?.mode !== 'View';
+  const callingEnabled = Boolean(binding?.calling_enabled);
+
+  const handleCalling = async (enabled: boolean) => {
+    if (!canEditWorkspace || !binding?.calling_grant_id || busy) return;
+    setChannelAction('calling');
+    try {
+      await setWhatsAppCalling({
+        calling_enabled: enabled,
+        expected_grant_id: binding.calling_grant_id,
+        expected_revision: binding.calling_revision ?? 0,
+      });
+      await loadBinding();
+    } catch (error: unknown) {
+      const status = typeof error === 'object' && error !== null && 'response' in error
+        ? (error as { response?: { status?: number } }).response?.status
+        : undefined;
+      showToast(responseMessage(error, 'Could not update voice calling'), 'error');
+      if (status === 409 || status === 403 || status === 503) await loadBinding();
+    } finally {
+      setChannelAction(null);
+    }
+  };
+
+  const handleVoiceService = async () => {
+    if (!canEditWorkspace || !binding || busy) return;
+    setChannelAction('voice');
+    setChannelError('');
+    try {
+      const saved = await saveWhatsAppVoiceService({
+        jvvoice_base_url: voiceUrl.trim(),
+        api_key: voiceKey,
+      });
+      setVoiceKey('');
+      if (saved?.binding) {
+        const next = withoutSecrets(saved.binding);
+        setBinding(next);
+        setVoiceUrl(next.jvvoice_base_url || voiceUrl.trim());
+      }
+      showToast('Voice service saved', 'success');
+      await loadBinding();
+    } catch (error: unknown) {
+      const message = responseMessage(error, 'Could not save voice service');
+      setChannelError(message);
+      showToast(message, 'error');
+    } finally {
+      setChannelAction(null);
+    }
+  };
+
   const primary = canEditWorkspace ? (
     <Button variant="primary" size="sm" onClick={() => void handleSaveChannel()}
       loading={channelAction === 'save'} disabled={busy || (Boolean(dialog) && (!baseUrl.trim() || !apiKey.trim()))}>
@@ -372,6 +454,69 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
           {binding.last_error?.trim() ? <Text variant="body-sm" tone="danger" as="p">{binding.last_error}</Text> : null}
         </div>
       )}
+      {binding && (
+        <div className="space-y-3">
+          <ToggleRow
+            label="Voice calling"
+            hint="Text messaging stays available when calling is off. This also turns calling on or off in JV Connect."
+            checked={callingEnabled}
+            disabled={!canEditWorkspace || !binding.calling_grant_id || busy}
+            onChange={(enabled) => { void handleCalling(enabled); }}
+          />
+          {callingEnabled && (
+            <div className="space-y-3 rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--panel-2)] p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Text as="h5" variant="heading-sm">Voice service</Text>
+                {binding.jvconnect_calling_status === 'ENABLED' ? (
+                  <StatusPill state="ok">JV Connect calling on</StatusPill>
+                ) : binding.jvconnect_calling_status === 'DISABLED' ? (
+                  <StatusPill state="warn">JV Connect calling off</StatusPill>
+                ) : binding.jvconnect_calling_error ? (
+                  <StatusPill state="warn">JV Connect calling settings unavailable</StatusPill>
+                ) : null}
+              </div>
+              <Text as="p" variant="body-sm" tone="muted">
+                Integral accepts calls through jvvoice. LiveKit URL and keys stay on that jvvoice host.
+              </Text>
+              {binding.jvconnect_calling_error ? (
+                <Text as="p" variant="body-sm" tone="danger">{binding.jvconnect_calling_error}</Text>
+              ) : null}
+              <Field label="jvvoice base URL">
+                <Input
+                  type="url"
+                  value={voiceUrl}
+                  autoComplete="off"
+                  disabled={!canEditWorkspace || busy}
+                  onChange={(event) => setVoiceUrl(event.target.value)}
+                  placeholder="https://jvvoice.example"
+                />
+              </Field>
+              <Field label="jvvoice API key">
+                <Input
+                  type="password"
+                  value={voiceKey}
+                  autoComplete="new-password"
+                  disabled={!canEditWorkspace || busy}
+                  onChange={(event) => setVoiceKey(event.target.value)}
+                  placeholder={binding.jvvoice_api_key_last4 ? `Saved key ending in ${binding.jvvoice_api_key_last4}` : 'Optional if the server already has a key'}
+                />
+              </Field>
+              {canEditWorkspace && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleVoiceService()}
+                  loading={channelAction === 'voice'}
+                  disabled={busy}
+                >
+                  Save voice service
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {channelError ? <Text variant="body-sm" tone="danger" as="p" role="alert">{channelError}</Text> : null}
       {bindingLoadFailed && <Button variant="outline" size="sm" onClick={() => void loadBinding()}>Retry connection status</Button>}
       {!canManageLine && <Text variant="body-sm" tone="muted" as="p">
@@ -387,14 +532,21 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
         {(!dialog || binding) && <div className="flex gap-2">
           {!dialog && primary}
           {binding && (
-            <Button variant="outline" size="sm" onClick={() => void handleDisableChannel()} loading={channelAction === 'disable'} disabled={busy}>
-              Disconnect
-            </Button>
+            <>
+              <Button variant="outline" size="sm" onClick={() => void handleReregisterWebhook()} loading={channelAction === 'webhook'} disabled={busy}>
+                Reregister webhook
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => void handleDisableChannel()} loading={channelAction === 'disable'} disabled={busy}>
+                Disconnect
+              </Button>
+            </>
           )}
         </div>}
       </>}
     </section>
   );
+
+  if (personalOnly) return personalSettings;
 
   return renderSettings(
     <div className="flex flex-col gap-4">

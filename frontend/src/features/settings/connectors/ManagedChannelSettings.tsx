@@ -101,7 +101,10 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
     ? profileQuery.data : null;
   const assignedProfile = profile?.eligible_profiles.find(choice => choice.key === profile.profile_key);
   const assignedEligible = assignedProfile !== undefined;
-  const canEnable = channel?.connected && channel.can_enable && (!hasProfileAssignment || assignedEligible);
+  const profileRequiredToEnable = visitorSurface && hasProfileAssignment;
+  const canEnable = Boolean(
+    channel?.connected && channel.can_enable && (!profileRequiredToEnable || assignedEligible),
+  );
   const canEditProfile = profile?.editable === true && channel?.state !== 'active';
   const configuringWebChat = channel?.connected && channel.definition.visitor_surface === true;
   const draftKey = JSON.stringify([scopeKey, generationKey, profile?.profile_revision]);

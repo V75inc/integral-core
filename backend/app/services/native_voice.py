@@ -8,7 +8,7 @@ import logging
 import re
 import secrets
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from time import monotonic
 from urllib.parse import urlencode
@@ -479,6 +479,19 @@ class VoiceScope:
     page_context: dict | None = field(default=None, repr=False)
     page_revision: int = 0
     actions: VoiceCallActions = BROWSER_CALL_ACTIONS
+    # Explicit phone channel session (``wa:{workspace}:{e164}``). Empty for the
+    # browser; ``session`` stays the relay token, never this id.
+    channel_session: str = ""
+
+
+def _channel_session_allows(thread, scope: VoiceScope) -> bool:
+    """Browser scopes refuse ``wa:`` threads; a phone scope needs its exact id."""
+    session = thread.provider_session_id or ""
+    if not scope.channel_session:
+        return not session.startswith("wa:")
+    return session == scope.channel_session and scope.channel_session.startswith(
+        f"wa:{scope.workspace}:"
+    )
 
 
 async def authorize(scope: VoiceScope):
@@ -505,7 +518,7 @@ async def authorize(scope: VoiceScope):
                 or thread.user_id != scope.principal
                 or thread.workspace_id != scope.workspace
                 or (getattr(thread, "agent_profile_key", "") or "") != scope.profile
-                or (thread.provider_session_id or "").startswith("wa:")
+                or not _channel_session_allows(thread, scope)
             ):
                 raise InsufficientPermissionsError(message="Conversation unavailable")
             return thread
@@ -1203,6 +1216,62 @@ async def open_upstream(credential):
     )
 
 
+class ServerAudioPeer:
+    """In-process stand-in for the browser socket VoiceRelay already reads.
+
+    ``receive`` yields the same frames ``_read_browser`` accepts. Playback
+    leaves through ``send_bytes``. This object does not open a model socket.
+    """
+
+    def __init__(self) -> None:
+        self._inbound: asyncio.Queue = asyncio.Queue()
+        self.playback: list[bytes] = []
+        self.messages: list[dict] = []
+
+    async def push_audio(self, chunk: bytes) -> None:
+        await self._inbound.put({"type": "websocket.receive", "bytes": chunk})
+
+    async def close(self) -> None:
+        await self._inbound.put({"type": "websocket.disconnect"})
+
+    async def receive(self):
+        return await self._inbound.get()
+
+    async def send_bytes(self, data: bytes) -> None:
+        self.playback.append(data)
+
+    async def send_json(self, message: dict) -> None:
+        # Navigation is a browser page move. The handset peer drops it and
+        # does not call integral_open_view.
+        if message.get("type") == "navigation":
+            return
+        self.messages.append(message)
+
+
+def open_phone_relay(browser, upstream, scope: VoiceScope, **kwargs):
+    """Start the handset relay.
+
+    This is telephone admission beyond ADR 019's current release. The phone
+    call is not the browser socket that ADR describes.
+    """
+    kwargs.pop("review_confirmation_supported", None)
+    kwargs.pop("allow_browser_navigation", None)
+    kwargs.pop("review_voice", None)
+    if (
+        scope.actions.open_page
+        or scope.actions.post_note
+        or scope.actions.confirm_review
+    ):
+        scope = replace(scope, actions=VoiceCallActions())
+    return VoiceRelay(
+        browser,
+        upstream,
+        scope,
+        review_confirmation_supported=False,
+        **kwargs,
+    )
+
+
 @dataclass
 class _VoiceIntentGate:
     generation: int
@@ -1450,6 +1519,11 @@ class VoiceRelay:
         self.progress_at: dict[str, float] = {}
         self.progress_counts: Counter[str] = Counter()
         self.workspace_tool_generation: int | None = None
+        # A response.created after a workspace tool is withheld. A later
+        # function-only completion can be the next request. Audio on that
+        # response marks an unsolicited continuation and stays ignored.
+        self.deferred_response_id: str | None = None
+        self.deferred_response_spoke: bool = False
         self.last_spoken_response: str | None = None
         self.speaking = False
         self.microphone_muted = False
@@ -1564,7 +1638,9 @@ class VoiceRelay:
                 if not self.ready:
                     raise ValueError("Invalid voice control frame")
                 if raw_control.startswith('{"type":"page_context",'):
-                    if not self.scope.actions.open_page or len(raw_control) > 4096:
+                    if not self.scope.actions.open_page:
+                        continue
+                    if len(raw_control) > 4096:
                         raise ValueError("Invalid page context")
                     from app.services.chat_page_context import sanitize_page_snapshot
 
@@ -1655,6 +1731,8 @@ class VoiceRelay:
         self.end_intent_response = None
         self.generation += 1
         self.response_generation = None
+        self.deferred_response_id = None
+        self.deferred_response_spoke = False
         self.speech_only_response_id = None
         self._clear_capability_offer()
         self.opening_response_id = None
@@ -1776,14 +1854,7 @@ class VoiceRelay:
             or generation != self.generation
             or self.response_generation is not None
             or self.delegate_token
-            or (
-                (
-                    result is not None
-                    or handoff_intent is not None
-                    or handoff_request is not None
-                )
-                and self.speaking
-            )
+            or (result is not None and self.speaking)
         ):
             return
         review = (
@@ -2001,7 +2072,9 @@ class VoiceRelay:
         self.handoff_gate = gate
         self.handoff_waiters[call_id] = gate
         self.protocol_counts["handoff_requested"] += 1
-        if self.speaking or self.review_confirmation or self.delegate_token:
+        # A completed tool response can arrive before speech_stopped. The
+        # caller flag must not release this gate without the acknowledgment.
+        if self.review_confirmation or self.delegate_token:
             gate.ready.set()
             return
         if intent:
@@ -4280,9 +4353,11 @@ class VoiceRelay:
                         self.opening_response_id = response_id
                     self.opening_token = None
                 elif self.workspace_tool_generation == self.generation:
-                    # The caller has already delegated this utterance. An
-                    # unsolicited response must not displace a pending readout.
+                    # Audio on this response stays silent. A function-only
+                    # completion can still be the next request.
                     self.protocol_counts["suppressed_post_delegate_response"] += 1
+                    self.deferred_response_id = response_id
+                    self.deferred_response_spoke = False
                 else:
                     self.opening_response_id = None
                     self.opening_token = None
@@ -4361,6 +4436,8 @@ class VoiceRelay:
                 if self.review_confirmation:
                     continue
                 response_id = event.get("response_id")
+                if response_id and response_id == self.deferred_response_id:
+                    self.deferred_response_spoke = True
                 if (
                     (
                         self.workspace_tool_generation == self.generation
@@ -4647,6 +4724,25 @@ class VoiceRelay:
                         )
                     self._discard_silent_readout()
                     continue
+                # Audio on a withheld response is an unsolicited continuation.
+                # A function call with no audio is the next request.
+                if (
+                    response_id
+                    and response_id == self.deferred_response_id
+                    and not self.deferred_response_spoke
+                    and self.response_generation is None
+                    and not self.speech_only_response_id
+                    and not self.delegate_token
+                    and response.get("status") == "completed"
+                    and any(
+                        isinstance(item, dict) and item.get("type") == "function_call"
+                        for item in response.get("output") or ()
+                    )
+                ):
+                    self.response_generation = response_id
+                if response_id and response_id == self.deferred_response_id:
+                    self.deferred_response_id = None
+                    self.deferred_response_spoke = False
                 self.processing_tool_response = True
                 try:
                     await self._completed_response(event)
@@ -5682,7 +5778,16 @@ class VoiceRelay:
             async with asyncio.timeout(1):
                 # The shared snapshot reader authorizes stored scope itself.
                 # Provider and first-audio egress are independently rechecked.
-                result = await read(*pinned[:3], profile_key=pinned[3], cursor=cursor)
+                # Only a phone scope carries a channel session; browser reads
+                # keep the exact historical call shape.
+                channel = (
+                    {"channel_session": self.scope.channel_session}
+                    if self.scope.channel_session
+                    else {}
+                )
+                result = await read(
+                    *pinned[:3], profile_key=pinned[3], cursor=cursor, **channel
+                )
                 if self.closing or pinned != self._thread_status_scope():
                     return None
                 return result

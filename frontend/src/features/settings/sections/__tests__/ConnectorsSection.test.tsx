@@ -570,14 +570,14 @@ describe('<ConnectorsSection />', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Outside Text' }));
     const dialog = within(screen.getByRole('dialog', { name: 'Configure Outside Text' }));
     expect(await dialog.findByText(/Could not check the published profile assignment/)).toBeVisible();
-    expect(dialog.getByRole('button', { name: 'Enable channel' })).toBeDisabled();
+    expect(dialog.getByRole('button', { name: 'Enable channel' })).toBeEnabled();
     expect(dialog.getByRole('button', { name: 'Remove channel' })).toBeEnabled();
     expect(dialog.queryByRole('combobox')).not.toBeInTheDocument();
     expect(dialog.queryByText(/sensitive diagnostics/)).not.toBeInTheDocument();
     fireEvent.click(dialog.getByRole('button', { name: 'Retry profile check' }));
     const picker = await dialog.findByRole('combobox');
     expect(picker).toHaveDisplayValue('Current profile is no longer eligible');
-    expect(dialog.getByRole('button', { name: 'Enable channel' })).toBeDisabled();
+    expect(dialog.getByRole('button', { name: 'Enable channel' })).toBeEnabled();
     fireEvent.change(picker, { target: { value: '' } });
     fireEvent.click(dialog.getByRole('button', { name: 'Save profile' }));
     expect(await dialog.findByText(/Could not verify the profile assignment/)).toBeVisible();
@@ -585,6 +585,25 @@ describe('<ConnectorsSection />', () => {
       'shared', 'outside_text_fixture', { provision_id: 'provision-1', route_epoch: 'r1' }, 3, null);
     expect(dialog.queryByText('Profile assignment saved.')).not.toBeInTheDocument();
     expect(managedChannelsApi.change).not.toHaveBeenCalled();
+  });
+
+  it('enables WhatsApp with no public profile and does not offer a visitor embed', async () => {
+    selectWorkspace('shared');
+    const whatsapp = {
+      ...configurable('inactive', 'r1'),
+      definition: { ...channelDefinition, slug: 'whatsapp', display_name: 'WhatsApp' },
+    };
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([whatsapp]);
+    vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue({
+      ...profileConfig(1, 'r1', null), eligible_profiles: [],
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure WhatsApp' }));
+    const whatsappDialog = within(screen.getByRole('dialog', { name: 'Configure WhatsApp' }));
+    expect(await whatsappDialog.findByRole('combobox', { name: 'Published agent profile' })).toBeEnabled();
+    expect(whatsappDialog.getByRole('button', { name: 'Enable channel' })).toBeEnabled();
+    expect(whatsappDialog.queryByText(/does not enable web chat/i)).not.toBeInTheDocument();
+    expect(whatsappDialog.queryByRole('button', { name: /share|embed|full-page|copy link/i })).not.toBeInTheDocument();
   });
 
   function authenticateManager(id: string) {
@@ -1537,7 +1556,17 @@ describe('<ConnectorsSection />', () => {
       rejected: [],
       installations: [],
     });
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{
+      definition: {
+        slug: 'whatsapp', provider: 'JV Connect', display_name: 'WhatsApp',
+        description: 'Line', setup_kind: 'managed-text-v1', version: 1,
+      },
+      connected: true, state: 'inactive', action: 'configure', can_enable: true,
+      enabled: false, provision_id: 'wa-existing', route_epoch: 'e1',
+    }]);
     renderPanel();
+    expect(await screen.findByRole('switch', { name: 'Enable WhatsApp' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Remove WhatsApp' })).toBeVisible();
     const headings = await screen.findAllByRole('heading', { name: 'WhatsApp' });
     const heading = headings.find((item) => item.closest('ul')?.textContent?.includes('Workspace API'));
     if (!heading) throw new Error("Workspace WhatsApp row is missing");
@@ -1554,6 +1583,35 @@ describe('<ConnectorsSection />', () => {
     expect(screen.queryByRole('button', { name: 'Add WhatsApp (JV Connect)' })).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Configure WhatsApp' })).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows WhatsApp enable and remove in a personal workspace', async () => {
+    mockedScope.mockReturnValue({
+      scope: { workspaceId: 'personal' }, isPersonal: true,
+      activeWorkspace: { your_role: 'owner' },
+    } as NonNullable<ReturnType<typeof useScopeOptional>>);
+    mockedList.mockResolvedValue({ connectors: [], total: 0 });
+    vi.mocked(connectorPackagesApi.list).mockResolvedValue({
+      packages: [{
+        id: 'whatsapp', name: 'WhatsApp',
+        description: 'Workspace WhatsApp line through JV Connect.',
+        version: '1.0.0', capabilities: ['channel'], host_managed: true, configuration: [],
+        grant: { edge: 'USES_WHATSAPP_LINE', present: true, enabled: true, id: 'wa-existing' },
+      }],
+      rejected: [], installations: [],
+    });
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{
+      definition: {
+        slug: 'whatsapp', provider: 'JV Connect', display_name: 'WhatsApp',
+        description: 'Line', setup_kind: 'managed-text-v1', version: 1,
+      },
+      connected: true, state: 'active', action: 'configure', can_enable: false,
+      enabled: true, provision_id: 'wa-existing', route_epoch: 'e1',
+    }]);
+    renderPanel();
+    expect(await screen.findByRole('switch', { name: 'Disable WhatsApp' })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Remove WhatsApp' })).toBeVisible();
+    expect(screen.queryByText('Web Chat', { exact: true })).not.toBeInTheDocument();
   });
 
   it('keeps GitHub Issues in the library and restores focus on Cancel', async () => {
