@@ -468,8 +468,16 @@ unchanged. Direct
 tools use concise grounded cues. A provider response with several tool
 calls shares one combined cue. Arbitrary pre-tool speech does not establish
 a task recap; only verified matching spoken intent avoids replay. Once a tool is known,
-ordinary speculative audio is suppressed; queued ordinary audio is discarded
-before the direct-tool cue. Audio already played cannot be recalled. The
+ordinary speculative audio is suppressed; unoffered ordinary audio is discarded
+before the direct-tool cue. When the provider sends a late function marker
+after a message already reached playback, the relay finishes that exact
+audio item without flushing it. New speculative post-tool items remain
+suppressed. A complete, grounded spoken acknowledgment can be reused; if
+it did not match, the separate verified cue follows naturally. Genuine
+caller interruption still fences and flushes the previous turn. The
+first ordinary audio authorization check is performed at the actual
+release boundary. Aggregate call timing (no transcript or identifiers)
+distinguishes caller stop, cue synthesis, resident result and playback. The
 gate is released after the authorized cue audio is sent and synthesis
 completes. If no cue audio is delivered, the operation is not silently
 admitted; the caller can retry. Barge-in after the cue has begun preserves

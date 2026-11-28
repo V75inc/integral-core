@@ -1473,8 +1473,9 @@ async def test_live_opening_uses_authenticated_name_naturally():
     relay.caller_name = "Eldon Marks"
     relay._append = AsyncMock(return_value=True)
     await relay._send_opening()
-    assert "Eldon Marks" in relay._append.call_args.args[0]
-    assert "known name" in relay._append.call_args.args[0]
+    assert '"Eldon"' in relay._append.call_args.args[0]
+    assert "Eldon Marks" not in relay._append.call_args.args[0]
+    assert "familiar given name" in relay._append.call_args.args[0]
     assert "never repeat it in every reply" in relay._append.call_args.args[0]
 
 
