@@ -3,6 +3,11 @@
 from app.agentive.tooling.manifest import load_manifest
 from app.services.voice_approval_contract import (
     VOICE_REVIEW_CAPABILITIES,
+    IMPLEMENTED_VOICE_KINDS,
+    ORDINARY_REVIEW_PENDING,
+    DOMAIN_REVIEW_PENDING,
+    ACCESS_REVIEW_PENDING,
+    review_coverage,
     review_channel,
 )
 
@@ -10,8 +15,19 @@ from app.services.voice_approval_contract import (
 def test_all_manifest_staged_operations_have_a_channel_and_require_exact_voice_projection():
     manifest = load_manifest()
     kinds = {spec.staging_kind for spec in manifest.values() if spec.staging_kind}
+    groups = (
+        IMPLEMENTED_VOICE_KINDS,
+        ORDINARY_REVIEW_PENDING,
+        DOMAIN_REVIEW_PENDING,
+        ACCESS_REVIEW_PENDING,
+    )
+    assert (
+        set().union(*groups) == kinds
+    ), "A new manifest kind needs an explicit review classification"
+    assert sum(map(len, groups)) == len(kinds), "Review classifications overlap"
     assert "routine_task_create" in kinds
     for kind in kinds:
+        assert review_coverage(kind) != "unknown"
         assert (
             review_channel(kind, voice_active=False, exact_voice_review=True) == "chat"
         )
@@ -20,7 +36,7 @@ def test_all_manifest_staged_operations_have_a_channel_and_require_exact_voice_p
             == "visual_review_required"
         )
         assert review_channel(kind, voice_active=True, exact_voice_review=True) == (
-            "voice" if kind in VOICE_REVIEW_CAPABILITIES else "visual_review_required"
+            "voice" if kind in IMPLEMENTED_VOICE_KINDS else "visual_review_required"
         )
     assert (
         review_channel(

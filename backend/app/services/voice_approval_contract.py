@@ -31,6 +31,92 @@ VOICE_REVIEW_CAPABILITIES = {
 }
 
 
+# Explicit coverage inventory. Adding a staging kind requires an intentional
+# design choice and tests; the fallback below is for unrecognized runtime
+# data, not permission to omit a catalog entry.
+IMPLEMENTED_VOICE_KINDS = frozenset(VOICE_REVIEW_CAPABILITIES) - {"create_dashboard"}
+ORDINARY_REVIEW_PENDING = frozenset(
+    {
+        "create_app",
+        "create_track",
+        "update_track",
+        "save_view",
+        "create_dashboard",
+        "delete_view",
+        "delete_dashboard",
+        "add_entry_tag",
+        "remove_entry_tag",
+        "create_tag",
+        "update_tag",
+        "link_entries",
+        "transform_entry",
+        "add_comment",
+        "edit_comment",
+        "delete_comment",
+        "routine_task_update",
+        "routine_task_cancel",
+    }
+)
+DOMAIN_REVIEW_PENDING = frozenset(
+    {
+        "invoke_app_operation",
+        "call_workspace_tool",
+        "bulk_move_entries",
+        "bulk_delete_entries",
+        "file_content",
+        "attach_file",
+        "attach_uploaded_file",
+        "attach_uploaded_image",
+        "merge_tags",
+        "merge_tracks",
+        "split_track",
+        "configure_search_index",
+        "reindex_track",
+        "register_track_template",
+        "propose_profile_revision",
+        "discard_profile_draft",
+        "draft_new_profile",
+        "author_operational_model",
+        "modify_operational_model.*",
+        "resolve_conflict",
+        "trigger_sync",
+        "routine_task_purge",
+        "delete_track",
+        "delete_app",
+        "author_skill",
+        "update_skill",
+        "delete_skill",
+        "publish_profile_draft",
+        "apply_library_operational_model",
+    }
+)
+ACCESS_REVIEW_PENDING = frozenset(
+    {
+        "share",
+        "remove_collaborator",
+        "set_exclusion",
+        "remove_exclusion",
+        "mint_share_link",
+        "revoke_share_link",
+        "invite",
+    }
+)
+
+
+def review_coverage(kind: str) -> str:
+    if kind.startswith("modify_operational_model."):
+        kind = "modify_operational_model.*"
+    if kind in IMPLEMENTED_VOICE_KINDS:
+        return "bounded_voice_projection"
+    if kind in ORDINARY_REVIEW_PENDING:
+        return "ordinary_projection_pending"
+    if kind in DOMAIN_REVIEW_PENDING:
+        return "domain_projection_pending"
+    if kind in ACCESS_REVIEW_PENDING:
+        return "access_projection_pending"
+    return "unknown"
+
+
 def review_channel(kind: str, *, voice_active: bool, exact_voice_review: bool) -> str:
     """One presentation policy, independent of model/provider or tool name.
 
@@ -39,7 +125,7 @@ def review_channel(kind: str, *, voice_active: bool, exact_voice_review: bool) -
     """
     if not voice_active:
         return "chat"
-    if kind in VOICE_REVIEW_CAPABILITIES and exact_voice_review:
+    if review_coverage(kind) == "bounded_voice_projection" and exact_voice_review:
         return "voice"
     return "visual_review_required"
 
