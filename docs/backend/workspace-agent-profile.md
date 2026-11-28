@@ -152,6 +152,11 @@ over equivalent workspace-tool aliases within the discovery budget. Descriptors
 are capped at 6 KiB per App (4 KiB per standalone Track) and 7,000 bytes per page; whole schemas are omitted rather
 than sliced. Shared mode, App and catalogue bindings are encoded once in
 `query_invoke_args`; combine these with the selected query key and input params.
+After a generic App-record refusal, recover through resource discovery (which
+exposes declared queries as well as read-tool aliases), retaining an already
+admitted App ID where available. A refused read never represents zero records.
+The compacted discovery context retains the governed-query invocation guidance
+and pagination status rather than treating a partial page as complete.
 The bounded Track directory includes short, currently authorized purposes to
 distinguish different collections without inspecting records. Omitted purposes
 are explicit. The directory is preserved before optional field previews are

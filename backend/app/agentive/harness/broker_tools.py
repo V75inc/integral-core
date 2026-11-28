@@ -114,13 +114,15 @@ def _resource_links_for_model(
         enriched = {
             **enriched,
             "recovery": {
-                "tool": "integral_list_workspace_tools",
-                "arguments": {"read_only": True},
-                "invoke_with": "integral_call_workspace_tool",
+                "tool": "integral_find_workspace_resources",
+                "required_input": "query",
                 "message": (
-                    "These App records were not read. Discover the installed App's "
-                    "read tools, narrowing by its app_id from integral_list_apps, "
-                    "then invoke the matching tool with its declared input schema. "
+                    "These App records were not read. Discover the relevant "
+                    "installed App and its current read contracts using the "
+                    "user's information need. Prefer a matching complete "
+                    "read_queries contract via integral_governed_query; "
+                    "otherwise invoke a matching declared read tool. "
+                    "Follow next_offset if more sources are needed. "
                     "Do not report zero records or unavailable workspace access "
                     "based on this generic boundary."
                 ),
