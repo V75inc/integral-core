@@ -218,7 +218,9 @@ async def test_only_failed_card_can_resume_blessed_proposal(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["delete_entry", "share", "create_entry"])
+@pytest.mark.parametrize(
+    "kind", ["delete_entry", "share", "create_entry", "update_entry"]
+)
 async def test_voice_decision_does_not_expand_effect_ceiling(monkeypatch, kind):
     from unittest.mock import AsyncMock
 
