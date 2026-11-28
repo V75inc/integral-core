@@ -82,29 +82,19 @@ review the TestPyPI candidate's Core, Integral One and Integral Business accepta
 results. Their application-specific documentation and version pins remain in their
 own repositories. A candidate upload alone is not stable-release acceptance.
 
-The November 17 candidate has an explicitly approved, temporary build-tool
-exception for [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf).
-It expires at the start of November 24 UTC. The audit policy binds the exact lock
-graph, advisory/remediation metadata and frontend/SDK/build-script fingerprints
-in `.ci/frontend_dependency_review.json`; changes or expiry require a new review.
-The audit wrapper selects and verifies npm 11.6.2 for its audit process so local
-and CI inventories use the same reporting semantics. This does not change the
-project's npm install/build commands. Auditor selection failure blocks the gate;
-there is no fallback to the ambient npm version.
-Only npm's equivalent boolean/Tailwind 4.3.5 remediation hints for four explicitly
-reviewed transitive packages are normalized; root/direct fix changes still block.
-The separately approved GitHub report includes the existing development-only
-`tailwindcss-animate` peer. For that report alone, the boolean remediation flags
-for `anymatch`, `chokidar`, `fast-glob`, and `readdirp` may be true or false.
-Each report must otherwise match as a whole. The same lock, build inputs and
-expiry apply to both.
-The previous October exception remains expired. This is risk acceptance for
-trusted, finite Core build/test jobs: crafted glob inputs can still stall a Node
-worker. It does not cover exposed development servers or untrusted build services.
-The reviewed production module graph contains no affected modules; retain that
-artifact check, the production dependency audit and every normal release gate.
-No patched picomatch release was available at approval; npm's suggested major
-toolchain changes still left high findings in an isolated remediation trial.
+The November 17 temporary build-tool advisory exception is retired. GitHub
+withdrew [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)
+on November 18, 2026 because it was not a security issue; the previous review
+also expired on November 24 UTC. The normal November 28 dependency audit found
+no blocking high or critical advisories and no backend vulnerabilities.
+Historical review evidence is retained only as a test fixture, not an active
+exception. The October exception also remains expired.
+
+The audit wrapper continues to select and verify npm 11.6.2 for consistent
+reporting, and fails if that auditor cannot be selected. Continue to require
+the normal frontend and backend dependency audit for the exact candidate;
+new or reintroduced blocking advisories require remediation or separate
+explicit review. Moderate findings remain visible in the audit output.
 
 ## One-time setup
 

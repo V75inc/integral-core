@@ -20,10 +20,14 @@ spec = importlib.util.spec_from_file_location(
 policy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(policy)
 LOCK = json.loads((ROOT / "frontend/package-lock.json").read_text())
-REVIEW = json.loads((ROOT / ".ci/frontend_dependency_review.json").read_text())
+REVIEW = json.loads(
+    (
+        ROOT / "backend/tests/fixtures/frontend-audit-ci-20261117-retired.json"
+    ).read_text()
+)
 # Use historical advisory shapes as test fixtures, but bind the copied
-# approvals to this test's lockfile. The checked-in release review remains
-# unchanged and the real audit must establish the current candidate's status.
+# approvals to this test's lockfile. The historical evidence is a fixture only; the real audit must establish
+# the current candidate's status without an active exception.
 for candidate in (REVIEW, REVIEW["alternate_report"]):
     candidate["lock_sha256"] = policy.canonical_digest(LOCK)
     candidate["approval"] = {

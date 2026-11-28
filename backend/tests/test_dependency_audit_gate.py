@@ -259,7 +259,11 @@ def test_candidate_review_is_enforced_by_real_audit_wrapper(
     )
     policy = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(policy)
-    review = json.loads((REPO_ROOT / ".ci/frontend_dependency_review.json").read_text())
+    review = json.loads(
+        (
+            REPO_ROOT / "backend/tests/fixtures/frontend-audit-ci-20261117-retired.json"
+        ).read_text()
+    )
     document = {"vulnerabilities": review["graph"]}
     today = datetime.now(timezone.utc).date()
     review["reviewed_on"] = today.isoformat()
