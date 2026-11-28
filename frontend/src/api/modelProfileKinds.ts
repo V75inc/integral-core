@@ -15,14 +15,14 @@ export function isTranscriptionModel(model: string): boolean {
 }
 
 export function isRealtimeVoiceModel(model: string): model is Exclude<RealtimeVoiceChoice["model"], ""> {
-  return ["gpt-realtime-2.1-mini", "gpt-realtime", "gpt-realtime-mini"].includes(model);
+  return ["gpt-realtime-2.1-mini", "gpt-realtime-2.1", "gpt-realtime-2", "gpt-realtime-1.5", "gpt-realtime", "gpt-realtime-mini"].includes(model);
 }
 
 /** The role catalog and chat picker must agree on older profiles without a policy tier. */
 export function specializedModel(model: string) {
   const id = model.trim().toLowerCase().split("/").pop() ?? "";
   if (isTranscriptionModel(id)) return "Speech to Text";
-  if (isRealtimeVoiceModel(id) || /^(?:gpt-realtime|gpt-4o(?:-mini)?-realtime-preview)(?:[-.]|$)/.test(id)) return "Realtime Voice";
+  if (isRealtimeVoiceModel(id) || /^(?:gpt-realtime|gpt-live-1|gpt-4o(?:-mini)?-realtime-preview)(?:[-.]|$)/.test(id)) return "Realtime Voice";
   if (isEmbeddingProfile({ model })) return "Embeddings";
   return null;
 }

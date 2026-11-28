@@ -1,5 +1,38 @@
 # Shared conversation contract for text and live voice
 
+## Provider protocol boundaries
+
+OpenAI Realtime and GPT-Live use different session and event contracts. The
+provider transport registry selects only documented exact model IDs and fixed
+official endpoints. The GPT-Live primary WebSocket starts with `session.start`
+in client-delegation mode, waits for the resolved configuration, streams PCM,
+and requests `session.close` with bounded cleanup. Provider transcript deltas,
+delegation IDs and commentary acknowledgments are observations, not complete
+caller turns, spoken-delivery receipts, or approvals. A host-committed full
+utterance is required before the delegation ledger admits a task; the existing
+resident and review authority remain separate. Silent context and speech use
+distinct provider events. The pinned SDK does not provide the newer Live client.
+
+The browser route has a protocol-specific Live media adapter under qualification.
+Synthetic sessions exercise the original browser framing, native resident
+admission, independent exact-review audio preparation and post-playback caller
+capture. The real Live provider does not furnish an ordinary audio-completion
+or response-cancel event. A commentary ACK accompanied by transcript and PCM
+is evidence of offered speech, not proof of complete playback. Live permits
+only up to 800 ms of automatic acknowledgment delay; a timely silent status
+append suppresses pending automatic acknowledgments but cannot retract earlier
+speech. Result updates carry the original delegation ID. A voice approval
+still requires the exact verified review and fresh, independently captured
+caller answer, never a delegation or transcript event. The existing capture
+size budget is unchanged; rendered review audio has a separate bounded
+verification path using the same authorized Speech to Text credential.
+
+Voice assignment continues to allow only the qualified Realtime IDs. Do not
+publish GPT-Live as an enabled voice choice until provider-level playback,
+interruption, result delivery, follow-up/steering and the pending telephone
+relay's caller-scope contract are qualified. This is an implementation
+checkpoint, not a claim of equivalent product support.
+
 This contract covers signed-in browser calls attached to an Integral Native
 conversation. The [voice-first guide](../product/VOICE_FIRST_OPERATION.md)
 describes how to use and qualify spoken navigation, review and readback.
