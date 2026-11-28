@@ -141,7 +141,7 @@ def _non_chat_tier(provider: str, model: str) -> str | None:
     bare = model.removeprefix("openai/")
     if re.fullmatch(
         r"(?:whisper-1|gpt-(?:4o-(?:mini-)?transcribe(?:-diarize)?|"
-        r"(?:live-)?transcribe|realtime(?:-2\.1-mini|-mini)?|"
+        r"(?:live-)?transcribe|realtime(?:-2(?:\.1(?:-mini)?)?|-1\.5|-mini)?|live-1(?:\.1)?|"
         r"4o-(?:mini-)?realtime-preview))(?:-\d{4}-\d{2}-\d{2})?",
         bare,
     ):

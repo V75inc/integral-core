@@ -215,6 +215,30 @@ it("assigns a registered realtime model inline and omits other model classes", a
   );
 });
 
+it("permits a custom registered compatible Realtime ID without treating GPT-Live or transcription as the same protocol", async () => {
+  const registered = [...profiles,
+    { ...profiles[1], id: "custom-realtime", name: "Custom Realtime", model: "gpt-realtime-2.1" },
+    { ...profiles[1], id: "live-protocol", name: "GPT-Live", model: "gpt-live-1.1" },
+    { ...profiles[1], id: "unknown-live", name: "Unknown Live mini", model: "gpt-live-1-mini" },
+    { ...profiles[1], id: "translation", name: "Translation", model: "gpt-realtime-translate" },
+  ];
+  show(<RealtimeVoiceConfiguration connections={connections} profiles={registered} />);
+  const model = await screen.findByRole("combobox", { name: "Realtime model" });
+  expect(screen.getByRole("option", { name: /Custom Realtime/ })).toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: /GPT-Live|Unknown Live mini|Translation/ })).not.toBeInTheDocument();
+  fireEvent.change(model, { target: { value: "profile:custom-realtime" } });
+  vi.mocked(realtimeVoiceConfigurationApi.save).mockResolvedValue({
+    editable: true, revision: 7, effective_model: "gpt-realtime-2.1",
+    configuration: { mode: "provider", model: "gpt-realtime-2.1", connection_id: "openai" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save realtime model" }));
+  expect(await screen.findByText("Active: gpt-realtime-2.1")).toBeInTheDocument();
+  expect(realtimeVoiceConfigurationApi.save).toHaveBeenCalledWith(
+    { mode: "provider", connection_id: "openai", model: "gpt-realtime-2.1", revision: 6 },
+    { headers: { "X-Integral-Scope": "ws:workspace" } },
+  );
+});
+
 it("keeps assigned realtime model visible to a non-editor", async () => {
   vi.mocked(realtimeVoiceConfigurationApi.get).mockResolvedValue({
     editable: false, revision: 6,

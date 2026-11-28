@@ -37,7 +37,7 @@ import { ModelRoutingSection } from "./ModelRoutingSection";
 import { useToast } from "../../../context/ToastContext";
 import { useAuthOptional } from "../../../context/AuthContext";
 import { useScopeOptional } from "../../../context/ScopeContext";
-import { isChatProfile, specializedModel } from "../../../api/modelProfileKinds";
+import { isChatProfile, isRealtimeVoiceModel, specializedModel } from "../../../api/modelProfileKinds";
 import { useAIConfiguration } from "../hooks/useAIConfiguration";
 import {
   AudioLines,
@@ -66,6 +66,9 @@ const SPECIALTY_MODELS: Partial<Record<ModelProvider, { id: string; label: strin
     { id: "gpt-4o-transcribe", label: "GPT-4o transcribe (Speech to Text)" },
     { id: "whisper-1", label: "Whisper (Speech to Text)" },
     { id: "gpt-realtime-2.1-mini", label: "GPT-Realtime 2.1 mini (Realtime Voice)" },
+    { id: "gpt-realtime-2.1", label: "GPT-Realtime 2.1 (Realtime Voice)" },
+    { id: "gpt-realtime-2", label: "GPT-Realtime 2 (Realtime Voice)" },
+    { id: "gpt-realtime-1.5", label: "GPT-Realtime 1.5 (Realtime Voice)" },
     { id: "gpt-realtime", label: "GPT-Realtime (Realtime Voice)" },
     { id: "gpt-realtime-mini", label: "GPT-Realtime mini (Realtime Voice)" },
     { id: "text-embedding-3-small", label: "Text embedding 3 small (Embeddings)" },
@@ -1028,7 +1031,9 @@ export function AiConfigurationSection({
                     <Text as="span" variant="body-sm">Use as an embedding encoder</Text>
                   </label>
                 )}
-                {nonChat && <Text variant="body-sm" tone="muted">Assign this model under {specialty}.</Text>}
+                {nonChat && <Text variant="body-sm" tone="muted">{specialty === "Realtime Voice" && !isRealtimeVoiceModel(profile.model)
+                  ? "This voice model is not assignable through the currently supported Realtime session protocol."
+                  : `Assign this model under ${specialty}.`}</Text>}
                 {!nonChat && <>
                 {caps.isError && (
                   <Text as="p" variant="body-sm" tone="warn">

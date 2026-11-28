@@ -110,6 +110,14 @@ recognition. Realtime Voice similarly offers Off or an eligible registered
 OpenAI model. A voice model uses the saved provider connection from its catalog
 entry. Voice is independent of chat setup: no chat model or duplicate API
 key entry is required. Existing settings continue working until explicitly changed.
+The Realtime session adapter accepts the documented conversational IDs
+`gpt-realtime-2.1-mini`, `gpt-realtime-2.1`, `gpt-realtime-2`,
+`gpt-realtime-1.5` and the existing legacy Realtime IDs. A custom registration
+using one of those exact IDs can be assigned without treating arbitrary model
+names as compatible. Translation and transcription are distinct roles.
+`gpt-live-1` and `gpt-live-1.1` use a different wire protocol and are not
+assignable through the Realtime session adapter. See the
+[OpenAI GPT-Live migration guide](https://developers.openai.com/api/docs/guides/live-migration).
 Only OpenAI streaming transcription is currently supported; other provider
 connections are not offered as voice choices. Live resolution follows provider
 key rotation and owner changes. An unavailable explicit provider falls back to

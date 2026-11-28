@@ -22,13 +22,14 @@ from app.models.nodes import Workspace
 from app.schemas.voice_configuration import VoiceStart
 from app.services.native_voice import (
     BROWSER_CALL_ACTIONS,
-    VoiceRelay,
     VoiceScope,
     authorize,
+    build_native_voice_relay,
     open_upstream,
     voice_thread_continuity,
 )
 from app.services.native_voice_review_audio import ReviewVoice
+from app.services.openai_voice_protocol import OpenAILiveSession
 from app.services.permissions import get_user_node
 from app.services.user_timezone import greeting_period
 from app.services.voice_configuration import resolve_realtime_credential
@@ -153,12 +154,31 @@ async def native_voice(browser: WebSocket):
         await still_authorized(scope)
         workspace = await Workspace.get(scope.workspace)
         workspace_label = " ".join(workspace.name.split())[:100] if workspace else ""
-        await VoiceRelay(
+        review_voice = ReviewVoice(lambda: open_upstream(credential))
+        if isinstance(upstream, OpenAILiveSession):
+            from app.agentive.services.speech.service import (
+                transcribe_voice_review_readback,
+            )
+            from app.services.native_live_voice_review_audio import LiveReviewVoice
+
+            async def verify_readback(confirmation, audio):
+                await still_authorized(scope)
+                return await transcribe_voice_review_readback(
+                    scope.principal,
+                    scope.workspace,
+                    audio,
+                    expected_binding=confirmation.speech_binding,
+                )
+
+            review_voice = LiveReviewVoice(
+                lambda: open_upstream(credential), verify_readback
+            )
+        await build_native_voice_relay(
             browser,
             upstream,
             scope,
             check=still_authorized,
-            review_voice=ReviewVoice(lambda: open_upstream(credential)),
+            review_voice=review_voice,
             review_confirmation_supported=opening.review_confirmation,
             conversational_review=opening.conversational_review,
         ).run(

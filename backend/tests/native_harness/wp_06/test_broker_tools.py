@@ -2635,9 +2635,9 @@ async def test_app_read_protocol_visibility_does_not_unlock_unloaded_writes(
 def test_generic_app_read_boundary_advertises_live_read_protocol(key):
     original = {key: {"declared_query_required": True}, "results": []}
     projected = _resource_links_for_model(original)
-    assert projected["recovery"]["tool"] == "integral_list_workspace_tools"
-    assert projected["recovery"]["arguments"] == {"read_only": True}
-    assert projected["recovery"]["invoke_with"] == "integral_call_workspace_tool"
+    assert projected["recovery"]["tool"] == "integral_find_workspace_resources"
+    assert projected["recovery"]["required_input"] == "query"
+    assert "integral_governed_query" in projected["recovery"]["message"]
     assert "recovery" not in original
 
 

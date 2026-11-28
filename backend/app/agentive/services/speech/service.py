@@ -430,6 +430,39 @@ async def transcribe_voice_confirmation(
     user_id: str, workspace_id: str, audio: bytes, *, expected_binding
 ) -> str:
     """Recognize only a bounded, independently captured voice confirmation."""
+    return await _transcribe_bound_voice_audio(
+        user_id,
+        workspace_id,
+        audio,
+        expected_binding=expected_binding,
+        max_bytes=400_000,
+        timeout_seconds=12,
+    )
+
+
+async def transcribe_voice_review_readback(
+    user_id: str, workspace_id: str, audio: bytes, *, expected_binding
+) -> str:
+    """Verify a bounded rendered review, not a caller approval recording."""
+    return await _transcribe_bound_voice_audio(
+        user_id,
+        workspace_id,
+        audio,
+        expected_binding=expected_binding,
+        max_bytes=5_500_044,
+        timeout_seconds=25,
+    )
+
+
+async def _transcribe_bound_voice_audio(
+    user_id: str,
+    workspace_id: str,
+    audio: bytes,
+    *,
+    expected_binding,
+    max_bytes: int,
+    timeout_seconds: int,
+) -> str:
     if await can_access_workspace(user_id, workspace_id) not in _PROVIDER_ROLES:
         raise SpeechAccessDenied("Voice confirmation unavailable")
     if not allow("speech.transcribe", user_id, settings.SPEECH_TRANSCRIBE_RATE_LIMIT):
@@ -446,7 +479,7 @@ async def transcribe_voice_confirmation(
         )
     if speech_credential_binding(cred) != expected_binding:
         raise SpeechNotConfigured("Speech to Text settings changed")
-    if not 44 < len(audio) <= 400_000:
+    if not 44 < len(audio) <= max_bytes:
         raise SpeechProviderFailure("bad_request", "Invalid confirmation recording")
     transcript = await provider.transcribe(
         ProviderContext(
@@ -459,6 +492,6 @@ async def transcribe_voice_confirmation(
         audio,
         mime_type="audio/wav",
         filename="confirmation.wav",
-        opts=TranscribeOptions(language="en", timeout_seconds=12),
+        opts=TranscribeOptions(language="en", timeout_seconds=timeout_seconds),
     )
     return transcript.text

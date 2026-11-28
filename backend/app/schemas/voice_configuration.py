@@ -22,7 +22,13 @@ class VoiceModelWrite(BaseModel):
 
 
 RealtimeVoiceModel = Literal[
-    "", "gpt-realtime-2.1-mini", "gpt-realtime", "gpt-realtime-mini"
+    "",
+    "gpt-realtime-2.1-mini",
+    "gpt-realtime-2.1",
+    "gpt-realtime-2",
+    "gpt-realtime-1.5",
+    "gpt-realtime",
+    "gpt-realtime-mini",
 ]
 
 
