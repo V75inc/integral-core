@@ -105,7 +105,7 @@ export function QuickProviderSetup({ data, disabled, onBusyChange, assignments }
           mode: "provider", connection_id: saved.id, model: voiceDefaults.transcription, revision: transcription.revision,
         }, request);
       }
-      if (registeredRealtime && isRealtimeVoiceModel(voiceDefaults.realtime) && realtime?.revision === 0 && realtime.configuration.mode === "disabled") {
+      if (registeredRealtime && isRealtimeVoiceModel(voiceDefaults.realtime, realtime?.supported_models) && realtime?.revision === 0 && realtime.configuration.mode === "disabled") {
         await realtimeVoiceConfigurationApi.save({
           mode: "provider", connection_id: saved.id, model: voiceDefaults.realtime, revision: realtime.revision,
         }, request);

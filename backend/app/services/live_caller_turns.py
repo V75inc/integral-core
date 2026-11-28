@@ -48,6 +48,7 @@ class LiveCallerTurns:
     _delegations: list[LiveDelegation] = field(default_factory=list)
     _seen: set[str] = field(default_factory=set)
     _invalid: bool = False
+    _completed: list[CompletedCallerTurn] = field(default_factory=list)
     speech_revision: int = 0
 
     @property
@@ -63,6 +64,21 @@ class LiveCallerTurns:
         count = len(pcm) // 2
         voiced = voiced_sample_count(pcm)
         if voiced:
+            # A fresh burst after a strong local silence boundary settles the
+            # preceding utterance even if Live omitted its delegation. Never
+            # splice a prior social turn onto a new explicit control command.
+            # This only records a completed turn; admission stays in the host.
+            if (
+                self._quiet >= _QUIET_SAMPLES
+                and not self._invalid
+                and not self._delegations
+            ):
+                previous = self._finish_pending(allow_missing_delegation=True)
+                if previous is not None:
+                    if len(self._completed) >= 8:
+                        self.discard()
+                    else:
+                        self._completed.append(previous)
             self.speech_revision += 1
             self._voiced += voiced
             self._quiet = 0
@@ -96,6 +112,10 @@ class LiveCallerTurns:
 
     def discard(self) -> None:
         """Never carry inhibited, muted, interrupted review or invalid speech forward."""
+        self._completed.clear()
+        self._reset_pending()
+
+    def _reset_pending(self) -> None:
         self._previous_end_ms = max(
             [self._previous_end_ms]
             + [item.end_ms for item in self._fragments]
@@ -108,6 +128,17 @@ class LiveCallerTurns:
         self._invalid = False
 
     def poll(self) -> CompletedCallerTurn | None:
+        """Return one settled utterance, ordered across adjacent speech bursts."""
+        if self._invalid:
+            self.discard()
+            return None
+        if self._completed:
+            return self._completed.pop(0)
+        return self._finish_pending()
+
+    def _finish_pending(
+        self, *, allow_missing_delegation: bool = False
+    ) -> CompletedCallerTurn | None:
         """Return one settled utterance after PCM silence plus transcript quiet.
 
         A provider delegation can precede a correction in the same spoken turn.
@@ -132,14 +163,20 @@ class LiveCallerTurns:
         bound = [
             item for item in self._delegations if start <= item.offset_ms <= end + 3000
         ]
-        if not bound and self.clock() - self._last_transcript_at < 3:
+        if (
+            not bound
+            and not allow_missing_delegation
+            and self.clock() - self._last_transcript_at < 3
+        ):
             return None
         text = "".join(item.delta for item in self._fragments).strip()
         if not text or len(text) > 16_000 or end <= start:
             self.discard()
             return None
         end = max([end] + [item.offset_ms for item in bound])
-        turn = CompletedCallerTurn(uuid4().hex, start, end, text)
-        self.discard()
+        turn = CompletedCallerTurn(
+            uuid4().hex, start, end, text, superseded=allow_missing_delegation
+        )
+        self._reset_pending()
         self._previous_end_ms = max(self._previous_end_ms, end)
         return turn

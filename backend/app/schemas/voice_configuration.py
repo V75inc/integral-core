@@ -30,6 +30,7 @@ RealtimeVoiceModel = Literal[
     "gpt-realtime",
     "gpt-realtime-mini",
     "gpt-live-1",
+    "gpt-live-1.1",
 ]
 
 

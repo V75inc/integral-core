@@ -134,6 +134,7 @@ class CompletedCallerTurn:
     start_ms: int
     end_ms: int
     text: str
+    superseded: bool = False
 
 
 @dataclass(frozen=True)

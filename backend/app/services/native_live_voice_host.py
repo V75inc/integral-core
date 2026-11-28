@@ -45,6 +45,7 @@ class NativeLiveVoiceHost:
         submit=delegate,
         bind_thread=_bind_ready_thread,
         accept_explicit_continuations: bool = False,
+        request_end: Callable[[], Awaitable[None]] | None = None,
     ):
         self.session = session
         self.scope = scope
@@ -53,6 +54,7 @@ class NativeLiveVoiceHost:
         self.bind_thread = bind_thread
         self.acknowledge = acknowledge
         self.accept_explicit_continuations = accept_explicit_continuations
+        self.request_end = request_end
         self.ledger = LiveTurnLedger()
         self.turns = LiveCallerTurns()
         self.ready = False
@@ -132,6 +134,7 @@ class NativeLiveVoiceHost:
             turn,
             accept_explicit_continuation=(
                 self.accept_explicit_continuations
+                and not turn.superseded
                 and explicit_continuation(turn.text) is not None
                 and not self.review_capture
                 and not self.microphone_muted
@@ -142,13 +145,19 @@ class NativeLiveVoiceHost:
             or self.closing
             or self.microphone_muted
             or self.review_capture
+            or turn.superseded
         ):
             return None
         await self.check(self.scope)
         if self.scope.actions.end_call and _explicit_end_call(turn.text):
-            self.closing = True
-            self.ready = False
-            await self.session.close()
+            if self.request_end is not None:
+                # The relay must announce call_ending before finalization and
+                # own the browser terminal event, including provider timeout.
+                await self.request_end()
+            else:
+                self.closing = True
+                self.ready = False
+                await self.session.close()
             return None
         speech_revision = self.turns.speech_revision
         if request is None or not await self.acknowledge(request):

@@ -4,10 +4,10 @@ import { profileAssignmentLabel } from "./ModelAssignmentField";
 
 export type VoiceRole = "transcription" | "realtime";
 
-export function allowsVoiceRole(connection: ModelConnection | undefined, model: string, role: VoiceRole): boolean {
+export function allowsVoiceRole(connection: ModelConnection | undefined, model: string, role: VoiceRole, supported?: readonly string[]): boolean {
   if (connection?.provider !== "openai") return false;
   if (role === "transcription") return isTranscriptionModel(model);
-  return isRealtimeVoiceModel(model) && ["", "https://api.openai.com", "https://api.openai.com/v1"].includes(
+  return isRealtimeVoiceModel(model, supported) && ["", "https://api.openai.com", "https://api.openai.com/v1"].includes(
     (connection.base_url ?? "").replace(/\/+$/, ""),
   );
 }
@@ -17,10 +17,11 @@ export function voiceRoleOptions(
   profiles: ModelProfile[],
   role: VoiceRole,
   current?: { mode: string; connection_id?: string; model?: string },
+  supported?: readonly string[],
 ) {
   const options = profiles.flatMap(profile => {
     const connection = connections.find(item => item.id === profile.connection_id);
-    return !profile.embedding_only && allowsVoiceRole(connection, profile.model, role)
+    return !profile.embedding_only && allowsVoiceRole(connection, profile.model, role, supported)
       ? [{ id: `profile:${profile.id}`, label: profileAssignmentLabel(profile, connections), connectionId: profile.connection_id, model: profile.model }]
       : [];
   });

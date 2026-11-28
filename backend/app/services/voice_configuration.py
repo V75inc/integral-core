@@ -219,6 +219,7 @@ async def describe_realtime(user_id: str, workspace_id: str):
         "revision": config.realtime_voice_settings_revision if config else 0,
         "configuration": selection if editable else {"mode": selection["mode"]},
         "effective_model": effective.model if effective else "",
+        "supported_models": sorted(set(get_args(RealtimeVoiceModel)) - {""}),
     }
 
 

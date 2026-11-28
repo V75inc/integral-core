@@ -80,6 +80,7 @@ class NativeLiveVoiceRelay(VoiceRelay):
             acknowledge=self._acknowledge,
             submit=self._submit,
             accept_explicit_continuations=True,
+            request_end=self._request_live_end,
         )
         self._commentary: _Commentary | None = None
         self._commentary_lock = asyncio.Lock()
@@ -453,12 +454,22 @@ class NativeLiveVoiceRelay(VoiceRelay):
             self._end_notified = True
             await self.browser.send_json({"type": "call_ended"})
 
+    async def _request_live_end(self):
+        # Explicit call termination is local presentation control; do not
+        # cancel already-admitted durable resident work.
+        self.end_requested.set()
+
     async def _watch_live_end(self):
         await self.end_requested.wait()
         await self.browser.send_json({"type": "call_ending"})
-        self.host.closing = True
-        await self.upstream.close()
-        await self._notify_ended()
+        # Mark the UI transition first, then await provider finalization.
+        # Keep the poller alive until this watcher emits the final browser event.
+        self.host.ready = False
+        try:
+            await self.upstream.close()
+        finally:
+            await self._notify_ended()
+            self.host.closing = True
 
     async def _poll_turns(self):
         while not self.host.closing:
@@ -563,6 +574,7 @@ class NativeLiveVoiceRelay(VoiceRelay):
                 "Wait for the host commentary before acknowledging or promising a follow-up. "
                 "If the person's continuation is unclear, ask them to say After that for "
                 "separate work or Correction to the current task for a revision. "
+                "If the caller explicitly asks to end or disconnect the call, do not start new work. The host closes the call. "
                 "Do not invent results, perform approvals, or claim an action succeeded "
                 "before the host verifies it. The host owns exact spoken confirmations. "
                 "Address the person directly. "
@@ -585,7 +597,9 @@ class NativeLiveVoiceRelay(VoiceRelay):
         )
         self.ready = True
         self.conversation_ready.set()
-        await self.browser.send_json({"type": "ready", "thread_id": self.scope.thread})
+        await self.browser.send_json(
+            {"type": "ready", "thread_id": self.scope.thread, "audio_protocol": "live"}
+        )
         tasks = [
             asyncio.create_task(worker())
             for worker in (

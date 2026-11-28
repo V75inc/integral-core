@@ -14,15 +14,16 @@ export function isTranscriptionModel(model: string): boolean {
   return ["whisper-1", "gpt-transcribe", "gpt-live-transcribe"].includes(model) || /^gpt-4o(?:-mini)?-transcribe(?:-[a-z0-9]+)*$/.test(model);
 }
 
-export function isRealtimeVoiceModel(model: string): model is Exclude<RealtimeVoiceChoice["model"], ""> {
-  return ["gpt-realtime-2.1-mini", "gpt-realtime-2.1", "gpt-realtime-2", "gpt-realtime-1.5", "gpt-realtime", "gpt-realtime-mini", "gpt-live-1"].includes(model);
+export function isRealtimeVoiceModel(model: string, supported?: readonly string[]): model is Exclude<RealtimeVoiceChoice["model"], ""> {
+  if (supported) return supported.includes(model);
+  return ["gpt-realtime-2.1-mini", "gpt-realtime-2.1", "gpt-realtime-2", "gpt-realtime-1.5", "gpt-realtime", "gpt-realtime-mini", "gpt-live-1", "gpt-live-1.1"].includes(model);
 }
 
 /** The role catalog and chat picker must agree on older profiles without a policy tier. */
-export function specializedModel(model: string) {
+export function specializedModel(model: string, supported?: readonly string[]) {
   const id = model.trim().toLowerCase().split("/").pop() ?? "";
   if (isTranscriptionModel(id)) return "Speech to Text";
-  if (isRealtimeVoiceModel(id) || /^(?:gpt-realtime|gpt-live-1|gpt-4o(?:-mini)?-realtime-preview)(?:[-.]|$)/.test(id)) return "Realtime Voice";
+  if (isRealtimeVoiceModel(id, supported) || /^(?:gpt-realtime|gpt-live-1|gpt-4o(?:-mini)?-realtime-preview)(?:[-.]|$)/.test(id)) return "Realtime Voice";
   if (isEmbeddingProfile({ model })) return "Embeddings";
   return null;
 }

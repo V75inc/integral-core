@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { NativeVoiceControls } from "../NativeVoiceCall";
+import { NativeVoiceControls, createVoicePlayback } from "../NativeVoiceCall";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { AssistantDockProvider } from "../../../../context/AssistantDockContext";
 import { ConfirmProvider } from "../../../../context/ConfirmContext";
@@ -811,4 +811,28 @@ it("finishes a confirmed spoken hangup if the final relay event never arrives", 
     expect(stopTrack).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Start voice call" })).toBeVisible();
   } finally { vi.useRealTimers(); }
+});
+
+it("keeps paced GPT-Live packets contiguous despite arrival jitter, then restores lead after underrun", () => {
+  const audio = new FakeAudioContext();
+  const playback = createVoicePlayback(audio as unknown as AudioContext);
+  playback.usePacedLive();
+  const pcm = new ArrayBuffer(4800);
+  playback.enqueue(pcm);
+  expect(startPlayback).toHaveBeenLastCalledWith(0.15);
+  FakeAudioContext.time = 0.115;
+  playback.enqueue(pcm);
+  expect(startPlayback.mock.lastCall?.[0]).toBeCloseTo(0.25);
+  FakeAudioContext.time = 0.24;
+  playback.enqueue(pcm);
+  expect(startPlayback.mock.lastCall?.[0]).toBeCloseTo(0.35);
+  FakeAudioContext.time = 0.65;
+  playback.enqueue(pcm);
+  expect(startPlayback.mock.lastCall?.[0]).toBeCloseTo(0.8);
+});
+
+it("does not change ordinary Realtime playback lead", () => {
+  const playback = createVoicePlayback(new FakeAudioContext() as unknown as AudioContext);
+  playback.enqueue(new ArrayBuffer(4800));
+  expect(startPlayback).toHaveBeenLastCalledWith(0.02);
 });

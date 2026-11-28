@@ -115,8 +115,9 @@ The Realtime session adapter accepts the documented conversational IDs
 `gpt-realtime-1.5` and the existing legacy Realtime IDs. A custom registration
 using one of those exact IDs can be assigned without treating arbitrary model
 names as compatible. Translation and transcription are distinct roles.
-`gpt-live-1` is selectable for local qualification through a distinct Live
-wire adapter. `gpt-live-1.1` remains gated pending equivalent qualification.
+`gpt-live-1` and `gpt-live-1.1` are selectable through the distinct Live
+wire adapter after local qualification. The browser uses a Live-specific playout
+lead for paced audio, without changing the Realtime path.
 For Live task continuations, say "After that" for separate work or "Correction
 to the current task" for a refinement. When intent is unclear or two commands
 arrive together, the host asks for clarification rather than merging them. See the
