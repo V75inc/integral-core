@@ -27,7 +27,11 @@ vi.mock('../../../api/agentive', () => ({
   disableWhatsAppChannelBinding: vi.fn(),
   saveWhatsAppVoiceService: vi.fn(),
   setWhatsAppCalling: vi.fn(),
+  listChannelIdentities: vi.fn().mockResolvedValue({ identities: [] }),
+  unlinkChannelIdentity: vi.fn(),
+  initiateWhatsAppVerification: vi.fn(),
 }));
+vi.mock('../../../context/AgentiveContext', () => ({ useAgentive: () => ({ enabled: true }) }));
 
 vi.mock('../../../api/managedChannels', () => ({
   managedChannelsApi: {
@@ -66,9 +70,9 @@ function PackageDetailFixture({ id, install = false }: { id: string; install?: b
     queryFn: () => connectorPackagesApi.list('ws-1'),
   });
   if (!data) return null;
-  return <ConnectorPackageDetail workspaceId="ws-1" pkg={data.packages.find(pkg => pkg.id === id)}
+  return <ToastProvider><ConnectorPackageDetail workspaceId="ws-1" pkg={data.packages.find(pkg => pkg.id === id)}
     installations={install ? [] : data.installations.filter(row => row.package_id === id)}
-    onClose={() => undefined} onChanged={() => undefined} />;
+    onClose={() => undefined} onChanged={() => undefined} /></ToastProvider>;
 }
 
 describe('ConnectorPackageDetail', () => {
@@ -501,17 +505,13 @@ describe('ConnectorPackageDetail', () => {
     expect(screen.getByText(/jvvoice key ending sFOk/)).toBeInTheDocument();
     expect(screen.getByText(/key ending 7Vxt is saved/)).toBeInTheDocument();
     expect(await screen.findByRole('combobox', { name: 'Published agent profile' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Disable line to change profile' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Disable line to change profile' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enable line' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Personal WhatsApp number' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save voice service' }));
     await waitFor(() => expect(saveWhatsAppVoiceService).toHaveBeenCalledWith({
       jvvoice_base_url: 'https://voice.example', api_key: '',
     }));
-    fireEvent.click(screen.getByRole('button', { name: 'Disable line to change profile' }));
-    await waitFor(() => expect(managedChannelsApi.change).toHaveBeenCalledWith(
-      'ws-1', 'whatsapp', {
-        kind: 'enabled', enabled: false,
-        generation: { provision_id: 'grant-1', route_epoch: '10:epoch' },
-      },
-    ));
+    expect(managedChannelsApi.change).not.toHaveBeenCalled();
   });
 });

@@ -250,6 +250,11 @@ to Core startup or Settings to make an extension work.
   Revalidate the authenticated principal, scope, exact provision and revision
   at the relevant read and effect boundaries. Unknown readiness fails closed;
   preserve safe disable/remove, installed identity and legacy access.
+- **Show the shared row controls.** A connected host-managed row uses the
+  shared switch and remove control from the managed channel projection,
+  including when the owner is in their personal workspace. Do not add a
+  second enable/disable inside Configure. Prove the row in a personal
+  workspace, not only an organization workspace.
 - **Use the trusted runtime boundary.** Connector-owned routes go through
   explicit host startup admission, not import-time mounts or a UI request.
   The deployment supplies approved origins, proxy/TLS and admission controls.

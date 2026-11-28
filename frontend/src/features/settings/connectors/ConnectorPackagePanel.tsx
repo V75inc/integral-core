@@ -29,7 +29,7 @@ import { WhatsAppLineSetup } from './WhatsAppLineSetup';
 type InstallationTargets = Partial<Record<ConnectorBindingScope, string>>;
 
 export function ConnectorPackageDetail({
-  workspaceId, pkg, installations = [], initialInstallationId, onClose, onChanged, onManageChannel, targets, onInstalledInScope,
+  workspaceId, pkg, installations = [], initialInstallationId, onClose, onChanged, targets, onInstalledInScope,
 }: {
   workspaceId: string;
   pkg?: ConnectorPackageSummary;
@@ -37,7 +37,6 @@ export function ConnectorPackageDetail({
   initialInstallationId?: string;
   onClose: () => void;
   onChanged: () => void;
-  onManageChannel?: () => void;
   targets?: InstallationTargets;
   onInstalledInScope?: (target: string, installation: ConnectorPackageInstallation) => void;
 }) {
@@ -88,9 +87,6 @@ export function ConnectorPackageDetail({
         {row && !adding && !initialInstallationId && pkg && !pkg.host_managed &&
           pkg.binding_scopes?.some(binding => targets?.[binding] && targets[binding] !== workspaceId) &&
           <Button type="button" variant="secondary" onClick={() => setAdding(true)}>Add in another scope</Button>}
-        {onManageChannel && <Button type="button" variant="secondary" onClick={onManageChannel}>
-          Channel status and controls
-        </Button>}
         <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
       </Modal.Footer>
     </Modal>

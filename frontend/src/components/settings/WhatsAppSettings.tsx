@@ -53,11 +53,13 @@ export interface WhatsAppDialog {
   onClose: () => void;
 }
 
-export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = true, dialog }: {
+export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = true, dialog, personalOnly = false }: {
   onChange?: () => void;
   onBindingChange?: () => void;
   canManageLine?: boolean;
   dialog?: WhatsAppDialog;
+  /** Account phone linking only. The workspace line stays on Connectors. */
+  personalOnly?: boolean;
 } = {}) {
   const { showToast } = useToast();
   const { enabled } = useAgentive();
@@ -111,7 +113,10 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
     }
   }, [enabled]);
 
-  useEffect(() => { loadIdentities(); void loadBinding(); }, [loadIdentities, loadBinding]);
+  useEffect(() => {
+    void loadIdentities();
+    if (!personalOnly) void loadBinding();
+  }, [loadIdentities, loadBinding, personalOnly]);
 
   const handleInitiate = async () => {
     if (!phone.trim()) { showToast('Enter your WhatsApp phone number', 'error'); return; }
@@ -245,6 +250,7 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
   const closeDialog = () => { if (!busy) dialog?.onClose(); };
 
   function renderSettings(body: ReactNode, primary?: ReactNode) {
+    if (personalOnly) return <>{body}</>;
     if (dialog) {
       return (
         <FormDialog open title={`${dialog.mode} ${title}`} onClose={closeDialog}
@@ -274,7 +280,7 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
       WhatsApp is unavailable. Contact your administrator to check channel configuration.
     </Text>,
   );
-  if (loading || !bindingReady) return renderSettings(
+  if (loading || (!personalOnly && !bindingReady)) return renderSettings(
     <div role="status" className="flex items-center gap-3">
       <Loader2 size={18} className="animate-spin text-[var(--text-muted)]" aria-hidden />
       <Text variant="body-sm" tone="muted" as="span">Loading WhatsApp settings…</Text>
@@ -539,6 +545,8 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
       </>}
     </section>
   );
+
+  if (personalOnly) return personalSettings;
 
   return renderSettings(
     <div className="flex flex-col gap-4">

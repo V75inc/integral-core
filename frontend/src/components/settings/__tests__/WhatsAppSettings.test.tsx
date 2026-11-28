@@ -22,6 +22,13 @@ beforeEach(() => {
   vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({ binding: null });
 });
 describe('WhatsApp notification setup', () => {
+  it('links a personal number without loading the workspace line', async () => {
+    render(<WhatsAppSettings personalOnly />);
+    expect(await screen.findByRole('region', { name: 'Personal WhatsApp number' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Link WhatsApp number' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Workspace WhatsApp line' })).not.toBeInTheDocument();
+    expect(getWhatsAppChannelBinding).not.toHaveBeenCalled();
+  });
   it('shows a failed identity request and permits retry', async () => {
     vi.mocked(listChannelIdentities).mockRejectedValueOnce(new Error('Unavailable'));
     render(<WhatsAppSettings />);

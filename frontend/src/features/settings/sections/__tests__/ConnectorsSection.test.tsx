@@ -1556,7 +1556,17 @@ describe('<ConnectorsSection />', () => {
       rejected: [],
       installations: [],
     });
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{
+      definition: {
+        slug: 'whatsapp', provider: 'JV Connect', display_name: 'WhatsApp',
+        description: 'Line', setup_kind: 'managed-text-v1', version: 1,
+      },
+      connected: true, state: 'inactive', action: 'configure', can_enable: true,
+      enabled: false, provision_id: 'wa-existing', route_epoch: 'e1',
+    }]);
     renderPanel();
+    expect(await screen.findByRole('switch', { name: 'Enable WhatsApp' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Remove WhatsApp' })).toBeVisible();
     const headings = await screen.findAllByRole('heading', { name: 'WhatsApp' });
     const heading = headings.find((item) => item.closest('ul')?.textContent?.includes('Workspace API'));
     if (!heading) throw new Error("Workspace WhatsApp row is missing");
@@ -1573,6 +1583,35 @@ describe('<ConnectorsSection />', () => {
     expect(screen.queryByRole('button', { name: 'Add WhatsApp (JV Connect)' })).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Configure WhatsApp' })).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows WhatsApp enable and remove in a personal workspace', async () => {
+    mockedScope.mockReturnValue({
+      scope: { workspaceId: 'personal' }, isPersonal: true,
+      activeWorkspace: { your_role: 'owner' },
+    } as NonNullable<ReturnType<typeof useScopeOptional>>);
+    mockedList.mockResolvedValue({ connectors: [], total: 0 });
+    vi.mocked(connectorPackagesApi.list).mockResolvedValue({
+      packages: [{
+        id: 'whatsapp', name: 'WhatsApp',
+        description: 'Workspace WhatsApp line through JV Connect.',
+        version: '1.0.0', capabilities: ['channel'], host_managed: true, configuration: [],
+        grant: { edge: 'USES_WHATSAPP_LINE', present: true, enabled: true, id: 'wa-existing' },
+      }],
+      rejected: [], installations: [],
+    });
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{
+      definition: {
+        slug: 'whatsapp', provider: 'JV Connect', display_name: 'WhatsApp',
+        description: 'Line', setup_kind: 'managed-text-v1', version: 1,
+      },
+      connected: true, state: 'active', action: 'configure', can_enable: false,
+      enabled: true, provision_id: 'wa-existing', route_epoch: 'e1',
+    }]);
+    renderPanel();
+    expect(await screen.findByRole('switch', { name: 'Disable WhatsApp' })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Remove WhatsApp' })).toBeVisible();
+    expect(screen.queryByText('Web Chat', { exact: true })).not.toBeInTheDocument();
   });
 
   it('keeps GitHub Issues in the library and restores focus on Cancel', async () => {

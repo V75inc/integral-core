@@ -8,6 +8,7 @@ import {
   type WhatsAppChannelBinding,
 } from '../../../api/agentive';
 import { managedChannelsApi, type ManagedChannel } from '../../../api/managedChannels';
+import { WhatsAppSettings } from '../../../components/settings/WhatsAppSettings';
 import { Button } from '../../../components/ui/Button';
 import { Field } from '../../../patterns';
 import { Input, Text } from '../../../ui';
@@ -94,20 +95,6 @@ export function WhatsAppLineSetup({ workspaceId }: { workspaceId: string }) {
       await line.refetch();
     },
   });
-  const lineEnabled = useMutation({
-    mutationFn: (enabled: boolean) => {
-      if (!generation) throw new Error('The line is not ready to change.');
-      return managedChannelsApi.change(workspaceId, 'whatsapp', {
-        kind: 'enabled', enabled, generation,
-      });
-    },
-    onSuccess: async (_result, enabled) => {
-      setError('');
-      setNotice(enabled ? 'Line enabled.' : 'Line disabled. You can choose a profile now.');
-      await refresh();
-    },
-    onError: () => setError('Could not change the line. Refresh and try again.'),
-  });
   const assign = useMutation({
     mutationFn: (profileKey: string | null) => {
       if (!profile.data || !generation) throw new Error('Profile assignment is not available.');
@@ -123,7 +110,7 @@ export function WhatsAppLineSetup({ workspaceId }: { workspaceId: string }) {
     onError: () => setError('Could not save the profile. The line must be disabled first.'),
   });
 
-  const busy = voice.isPending || calling.isPending || lineEnabled.isPending || assign.isPending;
+  const busy = voice.isPending || calling.isPending || assign.isPending;
 
   return (
     <div className="flex flex-col gap-3 border-t border-[var(--border-subtle)] pt-3">
@@ -148,12 +135,10 @@ export function WhatsAppLineSetup({ workspaceId }: { workspaceId: string }) {
         locked={profile.data ? !profile.data.editable : false}
         configuration={profile.data}
         busy={busy}
-        onDisable={() => { setNotice(''); lineEnabled.mutate(false); }}
-        onEnable={() => { setNotice(''); lineEnabled.mutate(true); }}
-        canEnable={Boolean(channel?.connected && channel.can_enable)}
         onSave={key => { setNotice(''); assign.mutate(key); }}
         onRetry={() => void refresh()}
       />
+      <WhatsAppSettings personalOnly />
       {notice ? <Text as="p" variant="body-sm" role="status">{notice}</Text> : null}
       {error ? <Text as="p" variant="body-sm" tone="danger" role="alert">{error}</Text> : null}
     </div>
@@ -242,7 +227,7 @@ function Calls({
 }
 
 function PublicProfile({
-  channel, loading, failed, locked, configuration, busy, onDisable, onEnable, canEnable, onSave, onRetry,
+  channel, loading, failed, locked, configuration, busy, onSave, onRetry,
 }: {
   channel: ReturnType<typeof connectedWhatsApp>;
   loading: boolean;
@@ -250,9 +235,6 @@ function PublicProfile({
   locked: boolean;
   configuration: Awaited<ReturnType<typeof managedChannelsApi.profileConfiguration>> | undefined;
   busy: boolean;
-  onDisable: () => void;
-  onEnable: () => void;
-  canEnable: boolean;
   onSave: (key: string | null) => void;
   onRetry: () => void;
 }) {
@@ -261,7 +243,7 @@ function PublicProfile({
       <Text as="h3" variant="heading-sm">Public caller profile</Text>
       <Text as="p" variant="body-sm" tone="muted">
         Unknown callers hear this published profile. It has no tools and cannot change records.
-        Choose it while the line is disabled, then enable the line again.
+        Turn WhatsApp off on the connector to choose a different profile.
       </Text>
       {loading ? <Text as="p" variant="body-sm" role="status">Loading public profile…</Text> : null}
       {failed ? (
@@ -274,21 +256,11 @@ function PublicProfile({
         <Text as="p" variant="body-sm" tone="muted">This line does not have a public profile assignment yet.</Text>
       ) : null}
       {configuration ? (
-        <>
-          {locked ? (
-            <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={onDisable}>
-              Disable line to change profile
-            </Button>
-          ) : null}
-          <ManagedChannelProfileAssignment
-            configuration={configuration}
-            locked={locked || busy}
-            onSave={onSave}
-          />
-          {canEnable ? (
-            <Button type="button" size="sm" disabled={busy} onClick={onEnable}>Enable line</Button>
-          ) : null}
-        </>
+        <ManagedChannelProfileAssignment
+          configuration={configuration}
+          locked={locked || busy}
+          onSave={onSave}
+        />
       ) : null}
     </section>
   );
