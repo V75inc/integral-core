@@ -702,7 +702,7 @@ async def test_call_duration_limit_has_distinct_explanation(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("synthesis_done", [False, True])
-async def test_completed_results_preempt_smalltalk_and_preserve_each_other(
+async def test_completed_results_wait_for_smalltalk_and_preserve_each_other(
     monkeypatch, synthesis_done
 ):
     """Test the actual relay loop with overlapping audio, two receipts, and a following turn."""
@@ -766,34 +766,25 @@ async def test_completed_results_preempt_smalltalk_and_preserve_each_other(
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(browser.outbox.get(), 0.03)
         outcomes["first"] = ("succeeded", "The first report is ready.")
-        start = asyncio.get_running_loop().time()
         relay.result_wake.set()
-        flush = await event(browser.outbox)
-        assert flush["type"] == "flush_ordinary"
         if not synthesis_done:
-            assert flush["report_handles"] == [marker["handle"]]
-        elapsed = asyncio.get_running_loop().time() - start
-        assert elapsed < 0.5
-        print(
-            f"priority flush ({'buffered' if synthesis_done else 'active'}): {elapsed * 1000:.1f} ms"
-        )
-        context = await event(provider.outbox)
-        assert context["type"] == "conversation.item.create"
-        if not synthesis_done:
-            # Ordinary playback stops promptly, but the provider must finish
-            # its semantic turn before any completed result can speak.
+            # A queued resident result must not interrupt a sentence or
+            # discard already-buffered ordinary speech.
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(browser.outbox.get(), 0.03)
             with pytest.raises(TimeoutError):
                 await asyncio.wait_for(provider.outbox.get(), 0.03)
+            await provider.inbox.put(stale_audio)
+            assert await event(browser.outbox) == b"\x00\x01"
             await provider.inbox.put(
                 {
                     "type": "response.done",
                     "response": {"id": "smalltalk", "status": "completed"},
                 }
             )
-        result = await event(provider.outbox)
+        result = await completed_readout(provider, "The first report is ready.")
         assert "The first report is ready." in result["response"]["instructions"]
-        if not synthesis_done:
-            assert "Transition naturally" in result["response"]["instructions"]
+        assert browser.outbox.empty()
         await provider.inbox.put(stale_audio)
         await provider.inbox.put(
             {
@@ -811,6 +802,7 @@ async def test_completed_results_preempt_smalltalk_and_preserve_each_other(
                 "delta": "AgM=",
             }
         )
+        assert await event(browser.outbox) == {"type": "playback_item", "handle": None}
         assert await event(browser.outbox) == b"\x02\x03"
         outcomes["second"] = ("succeeded", "The second report is ready.")
         relay.result_wake.set()
@@ -857,7 +849,7 @@ async def test_completed_results_preempt_smalltalk_and_preserve_each_other(
         )
         await asyncio.sleep(0.03)
         assert relay.protocol_counts["readout_sent"] == 2
-        assert relay.protocol_counts["priority_result_interrupt"] == 1
+        assert relay.protocol_counts["priority_result_interrupt"] == 0
         assert not relay.result_receipts
         assert not call.done()
         submit.assert_awaited_once()
@@ -915,10 +907,10 @@ async def test_priority_delivery_excludes_user_speech_review_and_tool_response()
 
 
 @pytest.mark.asyncio
-async def test_completed_tool_racing_priority_cut_is_processed_before_result(
+async def test_completed_tool_during_ordinary_response_processed_before_result(
     monkeypatch,
 ):
-    """A late complete tool must survive immediate ordinary audio preemption."""
+    """A late complete tool must be processed before a queued result, without audio preemption."""
     browser, provider = Browser(), Provider()
     relay = native_voice.VoiceRelay(
         browser,
@@ -949,15 +941,10 @@ async def test_completed_tool_racing_priority_cut_is_processed_before_result(
         assert await event(browser.outbox) == b"\x00\x01"
         relay.peer_readouts[("saved-answer", "message")] = "Your report is ready."
         relay.result_wake.set()
-        assert (await event(browser.outbox))["type"] == "flush_ordinary"
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(browser.outbox.get(), 0.03)
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(provider.outbox.get(), 0.03)
-        await relay._truncate_interrupted_playback(
-            native_voice.VoicePlaybackInterrupted(
-                type="playback_interrupted", items=[(marker["handle"], 0)]
-            )
-        )
-        assert (await event(provider.outbox))["type"] == "conversation.item.truncate"
         await provider.inbox.put(
             request(
                 "identity-call",
@@ -986,6 +973,7 @@ async def test_completed_tool_racing_priority_cut_is_processed_before_result(
                 "delta": "AgM=",
             }
         )
+        assert await event(browser.outbox) == {"type": "playback_item", "handle": None}
         assert await event(browser.outbox) == b"\x02\x03"
         await provider.inbox.put(
             {
@@ -1021,8 +1009,8 @@ async def test_completed_tool_racing_priority_cut_is_processed_before_result(
 
 
 @pytest.mark.asyncio
-async def test_user_barge_in_after_priority_cut_preserves_unsent_result(monkeypatch):
-    """A caller speaking during the priority transition wins and gets the result later."""
+async def test_user_barge_in_while_result_waits_preserves_unsent_result(monkeypatch):
+    """A caller speaking while an ordinary response is finishing wins and gets the result later."""
     browser, provider = Browser(), Provider()
     relay = native_voice.VoiceRelay(
         browser,
@@ -1053,7 +1041,8 @@ async def test_user_barge_in_after_priority_cut_preserves_unsent_result(monkeypa
         key = ("answer", "message")
         relay.peer_readouts[key] = "Your lookup is ready."
         relay.result_wake.set()
-        assert (await event(browser.outbox))["type"] == "flush_ordinary"
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(browser.outbox.get(), 0.03)
         await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
         assert await event(browser.outbox) == {"type": "flush"}
         await provider.inbox.put(

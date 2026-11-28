@@ -43,16 +43,22 @@ consent or resident work.
 
 The shared media factory preserves each transport's admitted action scope; the tool-free public adapter separately checks a current public grant before PCM input and output and has no resident dispatch. The pending telephone connector can call these factories without changing its bearer or grant contract; it still needs its own integration review. Its current transport does not offer browser playback-confirmation or navigation capabilities.
 
-Voice assignment continues to allow only the qualified Realtime IDs. Do not
-publish GPT-Live as an enabled voice choice until provider-level playback,
-interruption, result delivery, follow-up/steering and the pending telephone
-relay's caller-scope contract are qualified. Live client-delegation notices
-have no structured continuation operation: a new transcript while resident
-work is active is not automatically a queue item or steering correction.
-Until the host can distinguish those intents through a reviewed typed
-contract, the relay declines the follow-up rather than guessing or promising
-execution. This is an implementation
-checkpoint, not a claim of equivalent product support.
+Voice assignment follows the backend's exact supported-model registry:
+the Realtime IDs and locally qualified GPT-Live 1 and 1.1. This is not a claim
+of full product equivalence or completed telephone qualification. Live client
+delegation notices lack a structured continuation operation. The host accepts
+explicit caller-authored continuation cues only after a completed utterance,
+with exact active-work receipts and shared authorization; unclear or merged
+cues are clarified rather than guessed. The normal resident and exact review
+contracts remain unchanged.
+
+Live media playback uses a short speech hysteresis independent of the more
+conservative completed-command boundary. Brief noise cannot flush the voice;
+sustained caller speech interrupts playback, with a short quiet release so
+the first words of a provider reply are retained. Spoken commentary and
+advisory context respect a natural output pause. Acknowledged commentary,
+provider transcript and offered PCM do not prove complete playback. Media
+diagnostics are aggregate counts and timing, never captured caller content.
 
 This contract covers signed-in browser calls attached to an Integral Native
 conversation. The [voice-first guide](../product/VOICE_FIRST_OPERATION.md)
@@ -88,17 +94,16 @@ conversational surface, not another worker, database, or source of authority.
   after 15 seconds, then after another 30 and 60 seconds if still active.
   It checks the exact receipt again before audio, waits for a conversational
   pause, and gives completed results and review precedence over progress.
-  It never resubmits or automatically cancels work to provide an update. A verified terminal result or committed typed assistant reply has priority
-  over ordinary small talk. The relay observes completion even during speech,
-  cuts only the ordinary response and flushes its queued PCM. The browser keeps
-  earlier verified readout audio queued; it reports discarded or already-played
-  samples for the exact relay-issued playback handles so unheard provider
-  history can be trimmed. A natural transition is optional. User speech,
-  tool-bearing responses, confirmations and other verified readouts retain
-  precedence. A tool call that completed while an ordinary response was being
-  cut is processed through the original turn after the readout; partial tool
-  calls are never executed. Cancellation here targets speech synthesis by
-  response ID, never the resident task.
+  It never resubmits or automatically cancels work to provide an update.
+  A completed result or committed typed assistant reply waits for the current
+  ordinary response to finish and the conversational pause. It does not flush
+  the sentence being heard or preempt already queued speech. Genuine caller
+  interruption retains precedence and reports exact discarded audio handles
+  so provider history can be trimmed. Tool-bearing responses, confirmations
+  and verified readouts retain their existing authority and admission fences.
+  A completed tool turn is processed before the queued result; unfinished tool
+  calls are never executed. Already admitted resident work continues during
+  caller interruptions.
   For a workspace lookup the voice model calls the resident first and speaks its answer. After the delegation, only a requested acknowledgment or authorized readout can speak until the caller speaks again, including after the readout completes. Buffered speculative lookup speech is discarded. The acknowledgment is a short line to voice. It is never replayed to the model as a new user request. A denial is reported when the authorized lookup returns one.
   When speaking record details, the same renderer shapes structured values
   into conversational sentences, rather than reading schema keys, JSON or

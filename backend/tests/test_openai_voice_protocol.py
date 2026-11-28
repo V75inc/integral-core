@@ -1404,3 +1404,133 @@ async def test_live_superseded_end_cannot_close_call_or_admit_late_delegation():
     )
     end.assert_not_awaited()
     submit.assert_not_awaited()
+
+
+def test_live_playback_speech_gate_debounces_noise_and_releases_without_waiting_for_command_commit():
+    from app.services.native_live_voice_relay import _LiveBargeIn
+
+    gate = _LiveBargeIn()
+    voice = b"\xff\x7f" * 2400  # 100 ms
+    quiet = bytes(4800)
+    assert not gate.update(voice)  # a click or isolated noise cannot flush
+    assert not gate.update(quiet)
+    assert not gate.update(voice)
+    assert gate.update(voice)  # sustained caller speech wins
+    assert gate.update(quiet)
+    assert not gate.update(quiet)  # 200 ms quiet, not 1.5 s admission fence
+
+
+@pytest.mark.asyncio
+async def test_live_media_releases_first_reply_words_while_command_turn_still_settling():
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from tests.test_native_voice import Browser
+
+    browser = Browser()
+    session = OpenAILiveSession(FakeSocket(), "gpt-live-1")
+    relay = NativeLiveVoiceRelay(
+        browser,
+        session,
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay.host.ready = True
+    relay.host.session.append_audio = AsyncMock()
+    data = b"\xff\x7f" * 2400
+
+    async def send(pcm):
+        await relay.send_event(
+            {
+                "type": "input_audio_buffer.append",
+                "audio": base64.b64encode(pcm).decode(),
+            }
+        )
+
+    await send(data)
+    assert browser.outbox.empty()
+    await send(data)
+    assert relay.speaking
+    assert await browser.outbox.get() == {"type": "flush"}
+    await send(bytes(4800))
+    assert relay.speaking
+    await send(bytes(4800))
+    assert not relay.speaking
+    assert relay.host.turns.speaking  # independent, conservative command fence
+    assert relay.protocol_counts["live_caller_barge_in"] == 1
+    assert relay.protocol_counts["live_caller_playback_released"] == 1
+
+
+@pytest.mark.asyncio
+async def test_live_opening_uses_authenticated_name_naturally():
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from tests.test_native_voice import Browser
+
+    relay = NativeLiveVoiceRelay(
+        Browser(),
+        OpenAILiveSession(FakeSocket(), "gpt-live-1"),
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay.caller_name = "Eldon Marks"
+    relay._append = AsyncMock(return_value=True)
+    await relay._send_opening()
+    assert "Eldon Marks" in relay._append.call_args.args[0]
+    assert "known name" in relay._append.call_args.args[0]
+    assert "never repeat it in every reply" in relay._append.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_live_commentary_waits_for_prior_output_to_finish_instead_of_cutting_it():
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from tests.test_native_voice import Browser
+
+    session = OpenAILiveSession(FakeSocket(), "gpt-live-1")
+    relay = NativeLiveVoiceRelay(
+        Browser(),
+        session,
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay.host.ready = True
+    relay._input_clock.set()
+    session.append_context = AsyncMock()
+    relay._last_audio = asyncio.get_running_loop().time()
+    task = asyncio.create_task(relay._append("Verified answer", spoken=True))
+    try:
+        await asyncio.sleep(0.1)
+        session.append_context.assert_not_awaited()
+        # The output falls quiet; a new commentary can now begin.
+        relay._last_audio = asyncio.get_running_loop().time() - 1
+        async with asyncio.timeout(1):
+            while not session.append_context.await_count:
+                await asyncio.sleep(0.01)
+        relay._commentary.offset = 1
+        relay._commentary.transcript = relay._commentary.audio = True
+        relay._commentary.changed.set()
+        assert await task
+        session.append_context.assert_awaited_once()
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_live_audio_frame_is_discarded_if_call_closes_during_authorization():
+    session = OpenAILiveSession(FakeSocket(), "gpt-live-1")
+    scope = VoiceScope("caller", "workspace", "", "thread")
+    host = NativeLiveVoiceHost(
+        session,
+        scope,
+        check=AsyncMock(),
+        acknowledge=AsyncMock(),
+    )
+    host.ready = True
+
+    async def closing_check(_scope):
+        session.closing = True
+        host.ready = False
+
+    host.check = closing_check
+    session.append_audio = AsyncMock()
+    await host.audio(bytes(4800))
+    session.append_audio.assert_not_awaited()
