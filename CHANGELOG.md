@@ -6,6 +6,199 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Consolidate declarative, operator-controlled connector installation, scope,
+  health, lifecycle and settings contracts; preserve existing credentials,
+  grants, bindings and sync cursors. Web Chat supports published profiles,
+  private testing and configured visitor/API surfaces with existing service
+  identities and authorization fences.
+- Align saved model-role assignments with the resident harness and categorize
+  supported custom realtime model IDs. Reduce repeated or truncated native
+  browser speech, preserve accepted work during call interruptions, and use
+  a familiar first-name greeting where available.
+- Introduce the separate GPT Live browser adapter for the documented
+  `gpt-live-1` and `gpt-live-1.1` model IDs. Keep explicit provider/protocol
+  selection and no fallback; retain the existing Realtime path. Live is
+  selectable for qualification, not a claim of release-qualified browser
+  playback, interruption, durable review or call teardown.
+- Route eligible member WhatsApp calls through the same Core voice transport
+  boundary as native voice using the configured Realtime model. The connector
+  owns verified handset/line admission, the media peer and call-control
+  lifecycle; Core owns provider/model selection and audio-event translation.
+  Public calls, when enabled for a published public profile, are strictly
+  tool-free and separately grant-bound. The connector and model relays have
+  passed synthetic/fixture checks only; real handsets, provider event lifecycle,
+  public-caller product acceptance and durable multi-worker coordination still
+  need qualification. GPT Live handset calls are refused rather than falling
+  back; telephone approvals remain fail-closed through the existing text path.
+- Share one exact approval policy and explicit coverage inventory across
+  browser chat and voice. While an eligible voice call is active, present
+  supported bounded proposals conversationally, independently verify exact
+  decisions against their current proposal and revision, and read back
+  independently verified results. Support recurring routine creation and
+  qualifying scalar and bounded batch effects. Ordinary, domain and access
+  effects without a qualified exact spoken projection retain the existing
+  review path; this is not yet universal verbal confirmation and does not
+  silently expand Auto or Custom permissions.
+- Bound native conversation working-memory recall to encrypted, source-linked
+  and reauthorized historical pointers; use the resident's authorized
+  retrieval on a miss. Current record facts still require fresh reads.
+- Correct schema previews for shared Track templates by selecting the admitted
+  Track's materialized EntryTypes before applying the preview budget; preserve
+  explicit incompleteness and existing scope checks. Retain authorized
+  declared-query candidates and recovery guidance when generic lookup is
+  insufficient, without adding new grants.
+- Retire the withdrawn November 17 frontend advisory exception. Normal
+  dependency audits remain mandatory and fail closed on new unreviewed
+  high/critical findings.
+
+- Preserve deliberate review for permanent deletion, with a voice confirmation path for a single eligible leaf Entry. Prefer direct scoped record resolution over unrelated dashboard lookups; suppress speculative audio prefixes before a tool handoff.
+- Reconcile active filtered Track views on committed Entry changes; use authorized scope-only deletion refresh hints (live and catch-up), without exposing deleted record data. Start the independent event worker with the default local Docker stack.
+
+- Give Custom permissions an explicit Home and dashboard selection for eligible owned private Apps, with exact proposal and revision checks. Existing list-only grants do not silently expand. Independently confirm bounded record descriptions, Home labels and dashboard metadata edits in voice; retain review for complex effects without an App grant.
+- Reuse a completed, task-specific navigation acknowledgment rather than voicing it twice; speak the verified route outcome without recap. Use semantic turn detection in the native OpenAI realtime session to reduce interruptions on natural pauses while retaining barge-in.
+
+- Stabilize live voice navigation acknowledgments across route transitions and concurrent result observers, retaining authorization and stale-route checks. Preserve the full qualified destination request when delegating named navigation.
+
+- Honor Auto and Custom permissions for schema-declared simple scalar edits (including text registrations), preserving canonical validation, revision fences and review for unsupported effects.
+
+- Restore voice confirmation for bounded multi-paragraph and bullet-list task descriptions, independent of unrelated UI focus; speak directly to the signed-in person.
+
+- Add bounded encrypted, source-linked native conversation working memory.
+  Voice can recall verified dated caller statements without a resident turn;
+  ambiguous or stale recall falls back to the resident’s scoped memory tool
+  and fresh authorized retrieval. No new physical PostgreSQL indexes.
+
+- Local Docker setup provisions the reviewed PostgreSQL index catalog in a
+  separate one-time maintenance container before serving. The API and native
+  launcher disable automatic index creation, verify the catalog and use
+  restricted serving credentials. Existing databases without a catalog
+  require a reviewed upgrade.
+
+- Native chat and browser voice share a per-workspace **Permissions** control.
+  **Ask for approval** reviews each change by default. **Approve for me**
+  covers simple record edits in owned private lists, **Custom** remembers
+  selected lists across mode changes, and **Full access** covers record
+  creates and edits across apps the caller can edit.
+- The call uses the configured realtime voice for acknowledgments, workspace
+  lookup results and eligible reviews. Callers can answer yes or no, request
+  the details again or correct a supported field before deciding. A new private
+  record and a one-time reminder to the current chat can be reviewed together.
+  Chat keeps the review details and the saved outcome.
+- Mute, end call and composer actions share one row in narrow chat. Dictation
+  returns when the call ends. The attachment hint stays inside the composer
+  on hover and keyboard focus. In-call controls retain their pill shape at
+  constrained widths; a quiet local ringback sounds during setup only.
+- A call started in full-page native chat stays active in the sidebar when
+  navigating inside its workspace. Explicit conversation departure offers
+  a confirmation; accepted work continues after hang-up. Document departure
+  uses the browser-native warning and best-effort media/transport cleanup.
+- Voice no longer treats arbitrary pre-tool speech as a task recap, or cancels
+  an undecided caller tool response when a completed result interrupts speech.
+  Every actionable voice request, including quick reads and direct navigation,
+  is gated on one brief spoken intent before execution. Spoken intent keeps
+  the assistant and caller viewpoints distinct without rewriting the resident
+  request or changing third-party ownership and quoted titles.
+  Substantive work uses a distinct action tool and a recap synthesized from
+  the original request if the model omits its cue; explicit plan follow-through
+  keeps the saved plan but avoids a redundant pending spoken replay.
+  App-owned reload uses the Integral leave dialog; explicit spoken hang-up
+  has bounded acknowledgment and teardown recovery.
+
+- Live calls give results and review status aloud while chat remains available for optional written answers, file uploads and approvals. Voice can read more of a saved answer on request.
+
+- Live voice can queue a related lookup during active work and pick up a separate question after completion. The caller receives clearer feedback when another call is open.
+
+- Stream ordinary native chat replies as their model produces answer text. Platform administrators can enable whole-answer protection in AI Models. Local workers and event readers wake as chat work arrives.
+- Callers can ask the workspace voice assistant to post a directory in their current chat. It rechecks access, writes the ordered names, and speaks a brief confirmation.
+- Browser voice presents directory names conversationally in their original order without reading tool headings aloud. Ordinary replies share the same brief spoken style.
+- Browser voice can open a named App or a numbered choice from its last spoken directory through the resident’s authorized navigation tool.
+- Voice can answer which workspace a call belongs to from its authorized binding, and read back a saved chat note. Named-workspace calls retain their opening greeting.
+
+- Capture the initial Track IDs created by a package install on its first App definition. Existing installations retain their original history.
+- Bind a bundled schedule to its dedicated conversation on first eligible dispatch, so installing an App does not open a blank chat.
+- Let trusted Apps restrict Entry edits and attachment writes by declared record state. The Entry editor shows the effective restriction and downloads remain available under normal read permissions.
+
+- Refresh affected track views and totals after committed Entry changes.
+- Apply the shared outbound URL policy and DNS pinning to JV Connect requests.
+- Order published profile service membership creation with workspace
+  authorization mutations.
+
+- Keep completed native voice results available for the next spoken task
+  and reconcile a finished worker before refusing a follow-through request.
+  Avoid repeating history summarization within the same admitted native run.
+
+- Voice can revise a pending record’s title or date by its schema-defined
+  field name and recover one pending revision for the same selected target.
+  Optional empty rich-text fields no longer prevent simple spoken creation.
+  Live calls can discover new approval outcomes for older turns in the same chat.
+
+- Register reviewed native OpenAI Sol Responses and streaming capabilities through the pinned SDK so function tool calls retain their exact arguments and selected model identity.
+
+- Confirm agent-requested voice navigation from the originating browser, preserve drafts and handle thread deep links. Retain scoped terminal decision correlation for rapid card actions and distinguish application errors. Add independently confirmed scalar record creation with schema/value checks, date correction and saved-value readback.
+
+- Route live voice App and Track requests through native browser navigation; observe durable review outcomes across chat and voice. Reduce repeated typed-message acknowledgments and offer concise review prompts for supported record edits.
+
+- End a live voice call by explicitly asking to hang up; release the browser and provider connection after a short, bounded farewell without cancelling admitted work. Present structured record details as natural speech while preserving exact requested values and verbatim review readbacks.
+
+- Give verified task results priority over ordinary voice small talk: stop stale synthesis and discard its buffered speech, keeping caller speech, review and other committed readouts protected.
+
+- Speak a concise task plan before substantial delegated work, offer bounded verified progress at quiet pauses, and suppress unsolicited repeated replies after a lookup. Report temporary microphone interruption and resume capture without closing the call; distinguish the connection time limit from normal task completion.
+
+- Keep a live voice call connected when expanding chat from the sidebar or moving full-page chat back to the sidebar. The microphone keeps its mute setting across both transitions.
+
+- Live voice sends filtered questions and multi-step App tasks to the same resident as typed chat. Ask which workspace you are in, save a note to the current conversation, or hear a saved reply. Accepted work can announce when it needs review.
+
+- Add call-local spoken navigation, numbered App, Track and record selection, and revalidated focus for native voice requests. Add voice entry to the Home composer and explicit cancellation of accepted native work. Calls remain bound to their original workspace and profile. Add independent, one-use spoken confirmation for supported reversible record edits, using the configured Speech to Text adapter and the existing staged decision service.
+
+- App and Track imports can restore configuration alone from a full export. Select **Include records and attachments** in the import preview to copy the data as well.
+
+- Every published agent profile receives a persistent, addressable workspace user. Service identities start as guests and participate in scoped sharing and mentions. Existing publications can be adopted without publishing pending drafts.
+
+- Platform administrators can edit six installation-wide native chat limits in AI Models. The host sets the maximums, and individual model profiles can impose tighter limits.
+
+- Browser voice calls through `integral web` preserve the caller's origin during the WebSocket handshake. The production build serves its microphone processor as a same-origin asset.
+
+- Quick Configuration summarizes current model assignments and accepts Google Gemini API keys and registers provider-specific specialist profiles. Images and documents lists compatible saved profiles in the Vision model selector, with image processing preferences below it on the right. Model assignments use the registered catalog. Embedding settings review the selected encoder’s dimensions and workspace consent. Custom encoder IDs can be registered in Providers & Models.
+
+- Live voice now routes quick workspace lookups according to the active assistant profile. Interrupting a spoken reply trims unheard audio from the realtime provider’s conversation, even when generation finished ahead of playback.
+
+- Native chat loads a bounded set of read and write schemas for each workflow and uses Pydantic AI to reveal further tools on demand. Broad procedures send smaller model requests while keeping workspace checks and write review in place.
+
+- Route native chat by the state or actions required, using completed exchanges and verified account context across phrasings. Keep routing format errors within Pydantic’s bounded output correction, preserve physical model usage, and send fewer unrelated skill descriptions. Check execution authority at public delivery while buffered candidate text stays private.
+
+- Re-enable Web Chat after Disable when the host approves the current installation generation. Previously issued visitor links stay revoked. Removable connector rows now have a named, confirmed removal action.
+
+- Installed connector rows expose per-installation lifecycle switches where supported. Web Chat Configure groups public transport settings beneath the published agent profile and private test. Approved hosts can supply a copyable server API endpoint, an exact-site popup launcher and a full-page visitor URL.
+
+- Preserve Firefox's browser-generated Origin on full-page Web Chat POSTs while keeping requests scoped to the visitor origin.
+
+- Connector packages declare Workspace, Personal Workspace, or both. Add records the chosen scope before authorization and preserves the installation through OAuth.
+- Admit operator-controlled declarative connector folders through Rescan. The project scaffold includes `integral-connectors/`, and the managed launcher discovers the sibling folder beside the configured App path.
+- Add an offline, repeatable catalog migration and rollback that preserve Connector IDs, credentials, bindings, and cursors.
+- Prepare WhatsApp credentials and manage workspace grants through the managed-channel lifecycle. Saving credentials leaves the grant disabled, and enabling or removing one grant preserves other workspaces’ access.
+
+- Authorize Gmail and QuickBooks workspace installs from the connector package panel, preserving the installation, Track binding and sync cursor on reauthorization. Enable checks the provider after consent.
+
+- Register management-only Web Chat in the managed-channel registry at startup, and refuse that API when no registry is installed.
+- Add an offline, reversible credential migration for legacy connector rows. Store package secret fields encrypted regardless of their names.
+- Ship the connector schema and first-party integrations in the Core wheel. Core wires built-in adapters through fixed imports at startup.
+- Run package MCP health and tool calls through the shared client, including OAuth credentials and supported stdio configuration.
+
+- Drop the cached conversation after a chat turn releases its admission, so a queued follow-up can start instead of seeing a stale busy thread.
+
+- Save provider and supported default model roles from Quick Setup using the same settings as Models and Providers, preserving explicit voice and embedding choices. Group Providers & Models and Model Assignments under a collapsible Advanced Configuration section.
+
+- Polish the in-app voice controls and request one greeting per call. Voice-first calls attach to a saved conversation once ready; delegated work uses that same conversation.
+
+- Align Settings page layouts, open agent profiles in dialogs, and move workspace chat visibility to each eligible profile. Fix a missed initial Approvals read and keep internal conversation-title jobs out of the active work list.
+
+- Reconcile personal WhatsApp text chat with native threads and approvals; require an account-issued one-time code for new phone pairing. Add an opt-in server connection-profile execution boundary for local host pilots, with current authorization and scoped sessions. Public provisioning remains unavailable. The later opt-in WhatsApp calling adapter and its remaining qualification limits are described above. Authenticated in-app realtime voice remains a separate opt-in pilot.
+
+- Give each Track its own entry count in the Home snapshot when hidden per-record Tracks are present.
+- Show "5 of 12 entries" in the Track header when the open view or filter shows part of the Track, so it agrees with the entry count on the App and Track lists.
+- Let editors change dates from app-designed record views: the calendar opens and the change is written with Save, against the record revision on screen. The calendar also opens above a field when there is no room below it.
+- Show member email addresses again on Workspace Members. The admin-only members list now returns each active account's email; the shared public user view still omits it. A blank or invalid stored address leaves only that row without one.
+- With a type or tag filter chosen, the Track header says how many entries are shown beside the whole Track count. A date saved from an app-designed view stays with the record it began on, leaves other dates free to refresh, and offers a read-only retry if the record cannot be read back. Date offsets use the record revision the save is checked against. The view ignores save results older than the displayed record and shows unavailable live values as unknown, including while a date draft is open.
 - Move domain form workflows, document UI, template selection and legacy App aliases to explicit host contracts; Core renders declared groups, review and acknowledgment steps without inferring business policy from field names. Host migration/readiness and paired artifact qualification are required before adoption.
 - Require declared create-action argument names and import eligibility; remove implicit record-copy and identifier-preview behavior from Core forms. Enforce an app-neutral runtime and SDK architecture gate without named-App exceptions.
 

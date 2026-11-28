@@ -78,6 +78,8 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 type LiveValuesContextShape = {
   values: Record<string, unknown>;
   commit: (key: string, value: unknown) => void;
+  /** Show a value the server has confirmed; later snapshots may replace it. */
+  sync: (key: string, value: unknown) => void;
 };
 
 const LiveValuesContext = createContext<LiveValuesContextShape | null>(null);
@@ -109,7 +111,11 @@ export function useLiveValuesProvider(initial: Record<string, unknown> | undefin
     committedRef.current.add(key);
     setValues(prev => ({ ...prev, [key]: value }));
   }, []);
-  return { values, commit };
+  const sync = useCallback((key: string, value: unknown) => {
+    committedRef.current.delete(key);
+    setValues(prev => ({ ...prev, [key]: value }));
+  }, []);
+  return { values, commit, sync };
 }
 
 export { LiveValuesContext };

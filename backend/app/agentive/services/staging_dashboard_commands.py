@@ -53,6 +53,42 @@ async def apply_dashboard_command(
                 kind=kind,
                 targets=dict(payload),
             ) as complete:
+                if (
+                    kind == "update_dashboard"
+                    and "expected_dashboard_updated_at" in payload
+                ):
+                    from jvspatial.core.context import get_default_context
+
+                    from app.models.nodes import Dashboard
+
+                    dash_location = await locate_resource(
+                        "dashboard",
+                        payload["dashboard_id"],
+                        allowed_app_states=MANAGEMENT_APP_STATES,
+                    )
+                    if (
+                        not dash_location
+                        or (dash_location.workspace_id, dash_location.app_id)
+                        != (location.workspace_id, app_id)
+                        or not await get_default_context().database.find_one_and_update(
+                            "node",
+                            {
+                                "entity": Dashboard._entity_name(),
+                                "id": payload["dashboard_id"],
+                                "context.updated_at": payload[
+                                    "expected_dashboard_updated_at"
+                                ],
+                            },
+                            {"$set": {}},
+                        )
+                    ):
+                        raise UnappliedStagedCommand(
+                            {
+                                "ok": False,
+                                "error_code": "dashboard_changed",
+                                "message": "Dashboard changed. Read it again and propose a new edit.",
+                            }
+                        )
                 result = await execute()
                 if result.get("error") or result.get("ok") is False:
                     raise UnappliedStagedCommand(result)

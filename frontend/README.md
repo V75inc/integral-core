@@ -60,3 +60,40 @@ Anchored and relation navigation retain their parent-record links. Standalone
 Tracks keep the Tracks listing as their parent. A resolved resource's workspace
 wins over a temporarily stale workspace switcher; equal labels do not imply
 that two distinct resource links are duplicates.
+
+### Optional iframe Web Chat asset
+
+`npm run build:web-chat-embed` produces a separate
+`dist-web-chat-embed/public-web-chat-embed.html` and hashed files referenced at
+`/web-chat-embed-assets/assets/`. Neither the standard build nor
+`build:web-chat` emits this artifact. The build installs no route, starts no
+service, and gives no workspace permission.
+
+Only a separately reviewed HTTPS embed host may render the template on its
+vetted origin for a current admitted route and publication. Place the
+HTML-escaped values on `#public-web-chat-embed-root` exactly once:
+
+| Attribute | Host-projected value |
+| --- | --- |
+| `data-web-chat-embed-route` | The current opaque embed route segment, not a URL. |
+| `data-web-chat-embed-origin` | The iframe's canonical HTTPS origin, not its parent's. |
+| `data-web-chat-embed-bootstrap-seed` | A fresh short-lived `iweb_` proof for this embed admission. |
+| `data-web-chat-embed-title` | A public display title, never credentials or visitor information. |
+
+Missing, malformed, repeated roots or unexpected embed configuration fail
+closed; opening the template as a top-level page does not start a session.
+The entry removes its configuration attributes before rendering or issuing
+requests. This does not remove the original bytes of the HTML response.
+The proof is used once in a bounded JSON request to the same-origin embed API,
+never in a URL, cookie, browser storage, or parent message. The bearer remains
+in this frame's JS memory. The first embed release must not offer in-place
+session rotation without server support; reopening from the embedding site
+requires a freshly admitted document and starts a new conversation.
+
+The host must enforce the exact allowed frame ancestors in CSP on the distinct
+HTTPS origin, serve the rendered document and API replies with
+`Cache-Control: no-store`, serve only reviewed same-origin scripts on this
+document and avoid logging or persisting its rendered proof. The iframe
+client's origin check does not authenticate the parent or grant authority.
+The server must independently verify the route, publication, origin policy
+and revocation, and atomically consume the proof.

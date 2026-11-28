@@ -84,9 +84,11 @@ or more items and choose **Configuration only** to reuse their structure, or
 **Configuration and data** to include records and attached files. Select related
 items together so their record links can be restored.
 
-To import, choose the downloaded `.integral.zip` file, review its names and counts,
-then select **Import copies**. Copies are private and do not replace existing
-content. Track imports opened inside an App stay inside that App. Sharing,
+To import, choose the downloaded `.integral.zip` file and select **Preview import**.
+Review the names and counts. Leave **Include records and attachments** unchecked for
+an empty copy, or check it to bring the data along. This choice appears when the
+archive contains records. Confirm with **Import copies** or **Install and import**.
+Copies are private and do not replace existing content. Track imports opened inside an App stay inside that App. Sharing,
 credentials and activity history are not transferred. Some installed Apps require
 their original package's migration tools. See [portability details and limits](../platform/resource-portability.md).
 The separate **Import template** action still accepts existing YAML/JSON templates
@@ -99,6 +101,12 @@ Use titles people will recognize. The title is useful in lists, relations, links
 Use the body for explanatory content and typed fields for values you want to validate, filter, relate, or present consistently. A date belongs in an appropriate date field if it should appear in a calendar. A person reference belongs in a member field. A file belongs in a file field or attachment surface.
 
 When editing, check that the save completes. If another person or process changed the record, a revision conflict may require reloading and reconciling your changes. A stale tab is not authority to overwrite newer work.
+
+In App record views that support date editing, choose a date and select **Save**.
+Any date offset uses the saved field values from the revision you started
+editing. An unavailable live field appears blank, with a notice that its value
+is unknown. If the record could not be read back after saving, select
+**Refresh entry** to load it again.
 
 When a record is opened from a supported list, **Previous** and **Next** move
 through that list's current order and filters. Opening the next page happens
@@ -230,7 +238,47 @@ approve any change.
 
 The default resident uses Integral AI through Pydantic AI. A host can configure another supported binding. Provider availability, model choice, and credential policy affect the experience.
 
+### Use live voice
+
+In a workspace with a configured Realtime Voice model, select the waveform
+control on Home or in native chat and allow microphone access. The call uses
+that workspace and agent profile until you hang up. The workspace assistant can
+list Apps and Tracks, select saved views, look up records by title, and select from the numbered
+results. Ask it to repeat a list, hear the next page, or say where you are.
+
+Use **Open full chat** in the sidebar or **Move chat to sidebar** on the
+full chat page to change layouts during a call. The same conversation stays
+connected, including its current microphone mute setting. **End call** hangs up.
+
+Ask a complete question such as “Which high-priority tasks are due today?”
+or “Add a task called Check the delivery, due today.” The assistant checks the
+App’s fields and asks for any missing detail. With the default **Ask for
+approval** setting, the call offers to confirm eligible changes aloud. Chat
+keeps their review details. You can also say “Put this note in our chat” or “Read
+the last reply back to me.” A standalone note can be saved after active work
+and any pending review in that conversation have settled.
+
+For a supported edit, the call asks a question such as “Would you like me
+to rename ‘Site visit’ to ‘Site inspection’?” You can ask to hear it again.
+When the question finishes, say “yes,” “go ahead,” “no thanks,” or another
+clear answer. The configured Speech to Text model recognizes the reply.
+Integral checks the current proposal again and announces the outcome.
+If the review expires, the proposal changes, or your reply is unclear,
+the change stays pending. Ask to hear it again when ready.
+You can answer that same question with a correction. For example, “Actually,
+call it ‘Site audit’” prepares a revised proposal. Hear the new title and
+confirm it when it is right. You can also correct a supported date. For other changes, reject the old proposal
+and ask for the corrected edit. Other proposal types and unsupported devices use the ordinary review controls.
+
+You can ask to cancel the current accepted task, hear its status, or continue
+reading a saved reply. Interrupting speech does not cancel work. Published agent
+profiles use their declared capabilities. See the
+[voice conversation contract](../backend/voice-chat-conversation-contract.md)
+for current coverage.
+
 ## 11. Review proposed changes
+
+In the workspace assistant, open **Permissions**. **Ask for approval** reviews each proposed change and is the default. **Approve for me** allows simple edits in private lists you own, including ordinary text, choice, numeric, boolean and date fields. Complex fields and save hooks may still require review. Choose **Custom** to select lists and Home/dashboard configurations across eligible private apps you own, then **Use Custom** to activate your selection. Selecting an app includes its currently eligible lists and presentation configuration; you can select either separately. Existing list-only grants stay unchanged until you explicitly include Home and dashboards. Switching modes keeps those choices. **Full access** allows the assistant to create or edit records across all apps where you can make that change. Separate actions such as deleting records, sharing or calling a connector still follow their review rules. These modes apply to both typed and spoken requests in this workspace. While on a call, Integral can read back an eligible single record’s permanent deletion and ask for a deliberate spoken decision. Say “yes, delete it” to confirm or “no” to keep the record. This is not automatic deletion; ambiguous, changed, anchored or broader destructive requests retain their stronger review.
 
 Read the proposed scope and change before approving it. Confirm the target resource, important values, and any dependent steps. Human-friendly names should let you understand the proposal without interpreting opaque graph IDs.
 

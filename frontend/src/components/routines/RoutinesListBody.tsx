@@ -48,6 +48,7 @@ interface RoutinesListBodyProps {
   onRetry(): void;
   onChanged?(): void;
   selectedRoutineId?: string;
+  emptyMessage?: string;
 }
 
 export function RoutinesListBody({
@@ -57,6 +58,7 @@ export function RoutinesListBody({
   onRetry,
   onChanged,
   selectedRoutineId,
+  emptyMessage = 'No scheduled routines yet.',
 }: RoutinesListBodyProps) {
   const confirm = useConfirm();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -87,7 +89,7 @@ export function RoutinesListBody({
   if (error) {
     return (
       <div
-        className="rounded-[var(--radius-card)] border border-[color:var(--danger-fg)]/30 bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-fg)]"
+        className="rounded-[var(--radius-card)] border border-[color:var(--danger-fg)]/30 bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-fg)] [overflow-wrap:anywhere]"
         role="alert"
       >
         {error}
@@ -109,7 +111,7 @@ export function RoutinesListBody({
   }
 
   if (rows.length === 0) {
-    return <Text as="p" tone="muted" variant="body-sm">No scheduled routines yet.</Text>;
+    return <Text as="p" tone="muted" variant="body-sm">{emptyMessage}</Text>;
   }
 
   return (
@@ -256,10 +258,10 @@ function RoutineRow({
           />
           <div className="min-w-0 flex-1">
             {highlighted && <Text as="p" variant="meta" tone="muted" className="mb-1">Linked routine</Text>}
-            <Text as="p" variant="body" tone="default" weight="medium" className={activityOpen ? "whitespace-pre-wrap break-words" : "line-clamp-2"}>
+            <Text as="p" variant="body" tone="default" weight="medium" className={`[overflow-wrap:anywhere] ${activityOpen ? "whitespace-pre-wrap" : "line-clamp-2"}`}>
               {routine.instruction}
             </Text>
-            <Text as="p" variant="body-sm" tone="muted" className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <Text as="p" variant="body-sm" tone="muted" className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 [overflow-wrap:anywhere]">
               <span className="capitalize">{snoozedUntil ? 'snoozed' : routine.status}</span>
               <span aria-hidden>·</span>
               <span title={routine.cron}>{scheduleLabel}</span>

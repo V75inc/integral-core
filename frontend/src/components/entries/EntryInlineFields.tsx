@@ -9,6 +9,7 @@ import { isVisible } from '../views/regionConditions';
 import type { Entry, OperationalModelFieldSpec } from '../../types';
 import { EntryMetaFields, type EntryMetaFieldsProps } from './EntryMetaFields';
 import { SeamlessField } from './SeamlessField';
+import { hasRevisions, readSavedEntry } from './savedEntryRead';
 
 // Relations, files and derived fields retain their full-form workflows: a
 // relation can represent a reverse projection, and an upload has side effects
@@ -38,11 +39,6 @@ interface FieldDraft {
   value: unknown;
   recordRevision: number;
   schemaRevision: number;
-}
-
-function hasRevisions(entry: Entry): boolean {
-  return Number.isSafeInteger(entry.record_revision) && (entry.record_revision ?? 0) > 0 &&
-    Number.isSafeInteger(entry.schema_revision) && (entry.schema_revision ?? 0) > 0;
 }
 
 /** One session per record: a late completion cannot edit a newly opened record. */
@@ -129,32 +125,8 @@ function EntryInlineFieldsSession({ entry, onSaved, ...meta }: EntryInlineFields
         expected_record_revision: draft.recordRevision,
         expected_schema_revision: draft.schemaRevision,
       });
-      // The server still enforces authorization, field validation, approvals
-      // and both revisions. Only an authoritative response changes read mode.
-      if (saved.id !== entry.id) throw new Error('Unexpected saved record');
-      let complete: Entry;
-      let refreshFailure: string | null = null;
-      try {
-        complete = await entriesApi.get(entry.id);
-        if (complete.id !== entry.id || !hasRevisions(complete) ||
-            (complete.record_revision ?? 0) < (saved.record_revision ?? 0)) {
-          throw new Error('Unexpected refreshed record');
-        }
-      } catch (cause) {
-        // A successful write must never be reported as a failed save or
-        // offered for blind replay. Retain structural context; live projections
-        // become explicitly unknown and stay protected until a full read works.
-        const prior = latest.current.entry;
-        const keys = Array.from(new Set([
-          ...Object.keys(prior.read_time_fields?.values ?? {}),
-          ...Object.keys(prior.read_time_fields?.status ?? {}),
-        ]));
-        complete = { ...prior, ...saved, ...(keys.length ? { read_time_fields: {
-          values: Object.fromEntries(keys.map(key => [key, null])),
-          status: Object.fromEntries(keys.map(key => [key, 'unavailable'])),
-        } } : {}) };
-        refreshFailure = errorMessageFromAxios(cause, 'The latest entry could not be loaded.');
-      }
+      const { complete, refreshError: refreshFailure } =
+        await readSavedEntry(entry.id, saved, () => latest.current.entry);
       void queryClient.invalidateQueries({ queryKey: ['entry', entry.id] });
       void queryClient.invalidateQueries({ queryKey: ['entries'] });
       void invalidateFeedCaches(queryClient);

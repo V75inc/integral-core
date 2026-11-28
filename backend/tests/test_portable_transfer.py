@@ -80,8 +80,12 @@ async def fixture(user_id):
 @pytest.mark.asyncio
 @pytest.mark.smoke
 @pytest.mark.parametrize("kind", ["app", "track"])
-@pytest.mark.parametrize("mode", ["configuration", "full"])
-async def test_round_trip(kind, mode, authenticated_client, test_user, monkeypatch):
+@pytest.mark.parametrize(
+    ("mode", "include_data"), [("configuration", True), ("full", True), ("full", False)]
+)
+async def test_round_trip(
+    kind, mode, include_data, authenticated_client, test_user, monkeypatch
+):
     ws, app, track, first, second = await fixture(test_user.id)
     # Avoid a background extraction outliving this test's disposable graph.
     from app.services.attachment_metadata.service import get_metadata_extraction_service
@@ -128,9 +132,12 @@ async def test_round_trip(kind, mode, authenticated_client, test_user, monkeypat
     )
     descriptor, files = await read_archive(data)
     assert bool(files) == (mode == "full")
-    result = await import_resources(user_id=test_user.id, workspace_id=ws, data=data)
-    assert result["entries"] == (2 if mode == "full" else 0)
-    assert result["attachments"] == (1 if mode == "full" else 0)
+    result = await import_resources(
+        user_id=test_user.id, workspace_id=ws, data=data, include_data=include_data
+    )
+    restored_data = mode == "full" and include_data
+    assert result["entries"] == (2 if restored_data else 0)
+    assert result["attachments"] == (1 if restored_data else 0)
     if kind == "app":
         copied_app = await App.get(result["resource_ids"][0])
         assert copied_app.name != app.name  # collision creates a new copy
@@ -146,7 +153,7 @@ async def test_round_trip(kind, mode, authenticated_client, test_user, monkeypat
     assert len(types) == 1
     assert types[0].form_schema["fields"][0]["required"] is True
     entries = await copied.nodes(edge=[CONTAINS], node=["Entry"])
-    if mode == "configuration":
+    if not restored_data:
         assert entries == []
         return
     rows = {entry.title: entry for entry in entries}
@@ -435,7 +442,7 @@ async def test_http_export_preview_import(authenticated_client, test_user):
     response = await authenticated_client.post(
         "/api/portable/export",
         headers=headers,
-        json={"kind": "app", "ids": [app.id], "mode": "configuration"},
+        json={"kind": "app", "ids": [app.id], "mode": "full"},
     )
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "application/zip"
@@ -445,10 +452,44 @@ async def test_http_export_preview_import(authenticated_client, test_user):
         "/api/portable/preview", headers=headers, content=response.content
     )
     assert preview.status_code == 200, preview.text
-    result = await authenticated_client.post(
-        "/api/portable/import", headers=headers, content=response.content
+    bad = await authenticated_client.post(
+        "/api/portable/import?include_data=invalid",
+        headers=headers,
+        content=response.content,
     )
-    assert result.status_code == 200, result.text
+    assert bad.status_code == 400
+    for query, expected_count in [
+        ("?include_data=false", 0),
+        ("?include_data=true", 2),
+        ("", 2),
+    ]:
+        result = await authenticated_client.post(
+            "/api/portable/import" + query, headers=headers, content=response.content
+        )
+        assert result.status_code == 200, result.text
+        body = result.json()
+        assert body.get("data", body)["entries"] == expected_count
+
+
+@pytest.mark.asyncio
+async def test_configuration_only_refuses_saved_record_reference(test_user):
+    ws, app, _, first, _ = await fixture(test_user.id)
+    data = await export_resources(
+        user_id=test_user.id,
+        workspace_id=ws,
+        selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
+    )
+    archive, files = await read_archive(data)
+    archive.apps[0].tracks[0].views[0].config = {"selected_entry_id": first.id}
+    before = {row.id for row in await App.find({"context.workspace_id": ws})}
+    with pytest.raises(BadRequestError, match="Include records and attachments"):
+        await import_resources(
+            user_id=test_user.id,
+            workspace_id=ws,
+            data=encode_archive(archive.wire_dict(), files),
+            include_data=False,
+        )
+    assert {row.id for row in await App.find({"context.workspace_id": ws})} == before
 
 
 @pytest.mark.asyncio

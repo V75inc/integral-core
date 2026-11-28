@@ -22,6 +22,27 @@ class ResidentAssignment(Edge):
     bidirectional: bool = False
 
 
+class HasWhatsAppChannelBinding(Edge):
+    """User → WhatsAppChannelBinding (personal jvconnect channel credentials)."""
+
+    created_at: Optional[str] = None
+    bidirectional: bool = False
+
+
+class UsesWhatsAppLine(Edge):
+    """Workspace → WhatsAppChannelBinding (this workspace may use the line)."""
+
+    attached_by: str = ""
+    attached_at: Optional[str] = None
+    enabled: bool = True
+    calling_enabled: bool = False
+    revision: int = 0
+    # Empty means unknown senders are not admitted. Members stay on the
+    # verified personal-number path either way.
+    public_profile_key: str = ""
+    bidirectional: bool = False
+
+
 class HasChannelIdentity(Edge):
     """User → ChannelIdentity (external channel linkages)."""
 
@@ -128,6 +149,8 @@ class Owns(Edge):
 
 
 # Backward-compatible aliases for existing imports/usages.
+HAS_WHATSAPP_CHANNEL_BINDING = HasWhatsAppChannelBinding
+USES_WHATSAPP_LINE = UsesWhatsAppLine
 HAS_CHANNEL_IDENTITY = HasChannelIdentity
 HAS_INTEGRAL_CONTEXT = HasIntegralContext
 HAS_AGENT_CONFIG = HasAgentConfig

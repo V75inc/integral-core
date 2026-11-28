@@ -139,7 +139,7 @@ class OperationTransactionUnavailableError(ServiceUnavailableError):
 class NotImplementedAPIError(JVSpatialAPIException):
     """501 envelope for "registered but unimplemented" connector dispatch.
 
-    Raised by agentive ``/chat/message`` when ``get_chat_connector(agent_type)``
+    Raised by agentive ``/chat/message`` when ``get_chat_agent(agent_type)``
     fails because the agent's declared ``agent_type`` has no chat connector
     registered. Per AGT-03 D-11 vendor-neutral dispatch.
     """

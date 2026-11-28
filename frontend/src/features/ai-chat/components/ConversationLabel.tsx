@@ -6,12 +6,13 @@ import { aiChatApi } from '../../../api/aiChat';
 export const CONVERSATION_PREVIEW_DELAY_MS = 700;
 
 /** Compact single-line title; the full name remains available outside the scrolling rail. */
-export function ConversationLabel({ title, threadId, lastActivity, createdAt, messageCount, working = false }: {
+export function ConversationLabel({ title, threadId, lastActivity, createdAt, messageCount, agentName, working = false }: {
   title: string;
   threadId?: string;
   lastActivity?: string | null;
   createdAt?: string;
   messageCount?: number;
+  agentName?: string;
   working?: boolean;
 }) {
   const tooltipId = useId();
@@ -118,9 +119,13 @@ export function ConversationLabel({ title, threadId, lastActivity, createdAt, me
       onMouseEnter={e => { keepOpen(); scheduleReveal(e.currentTarget); }} onMouseLeave={e => { if (e.relatedTarget === null) dismiss(); else hideSoon(); }}
       onFocusCapture={e => scheduleReveal(e.currentTarget)} onBlurCapture={dismiss}>
       <span className="block truncate text-[13px] leading-[17px]" aria-describedby={position ? tooltipId : undefined}>{title}</span>
-      {lastActivity && <Text as="span" variant="meta" tone="subtle" className="mt-0.5 block pr-7 tabular-nums"><time dateTime={lastActivity} title={new Date(lastActivity).toLocaleString()}>
-        {new Date(lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-      </time></Text>}
+      {(agentName || lastActivity) && <Text as="span" variant="meta" tone="subtle" className={`mt-0.5 min-w-0 pr-7 tabular-nums ${agentName ? "flex items-center gap-1" : "block"}`}>
+        {agentName && <span className="min-w-0 truncate">{agentName}</span>}
+        {agentName && lastActivity && <span aria-hidden="true">·</span>}
+        {lastActivity && <time className="shrink-0" dateTime={lastActivity} title={new Date(lastActivity).toLocaleString()}>
+          {new Date(lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </time>}
+      </Text>}
       {position && createPortal(<Surface ref={cardRef} as="span" id={tooltipId} role="tooltip" tone="panel" border="default" radius="input" padding="sm" elevation="pop"
         onMouseEnter={keepOpen} onMouseLeave={e => { if (e.relatedTarget === null) dismiss(); else hideSoon(); }}
         style={position} className="max-h-[calc(100vh-16px)] overflow-y-auto pointer-events-auto fixed z-popover w-[min(560px,calc(100vw-16px))] whitespace-normal [overflow-wrap:anywhere]"><Text as="span" variant="body-sm" weight="medium" className="block whitespace-normal [overflow-wrap:anywhere]">{displayTitle}</Text>

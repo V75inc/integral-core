@@ -13,6 +13,7 @@ def test_app_overlay_keeps_standard_allowed_tools_without_registered_list(tmp_pa
         "---\nname: read-artifact\ndescription: Read an App artifact.\nallowed-tools: integral_list_apps integral_governed_query\n---\nRead through the declared query.\n"
     )
     skill = SimpleNamespace(
+        id="n.Skill.read-artifact",
         key="read_artifact",
         name="Read artifact",
         enabled=True,
@@ -25,6 +26,7 @@ def test_app_overlay_keeps_standard_allowed_tools_without_registered_list(tmp_pa
         description="Read an App artifact.",
     )
     doc = _skill_to_overlay_doc(skill, app_slug="artifacts", bundle_dir=tmp_path)
+    assert doc.metadata["skill_id"] == skill.id
     assert doc.requires_tools == ("integral_list_apps", "integral_governed_query")
     skill.body_override = "allowed-tools: integral_delete_entry\nCustom instructions."
     skill.tools_required = ["integral_resolve_entry"]

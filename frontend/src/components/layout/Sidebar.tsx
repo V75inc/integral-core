@@ -1,3 +1,4 @@
+import { useVoiceDepartureGuard } from "../../features/ai-chat/useVoiceDepartureGuard";
 import { useDeployment } from '../../hooks/useDeployment';
 import { AppIcon } from '../../ui';
 /**
@@ -865,7 +866,9 @@ export function Sidebar({
     if (!isDesktop) onMobileOpenChange(false);
   };
 
+  const { confirmDeparture } = useVoiceDepartureGuard();
   const handleLogout = async () => {
+    if (!await confirmDeparture()) return;
     await logout();
     navigate('/login');
   };

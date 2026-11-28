@@ -13,7 +13,7 @@ vendor source key; the runtime namespaces it with the Integral workspace and
 installed connector instance. Two instances deliberately own distinct records.
 Legacy ambiguous or mismatched provenance requires reconciliation before sync.
 
-Locked decision #12 (core, not AGENTIVE_ENABLED-gated): only the BASE class +
+Locked decision #12 (Core): only the BASE class +
 registry live here. Subclasses live in ``app/agentive/connectors/<slug>.py``
 (the Connector Node itself stays in agentive per Phase 1 D-08).
 """

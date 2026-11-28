@@ -38,6 +38,12 @@ Use jvspatial Object for log-shaped/scalar-keyed records that have no meaningful
 
 ### I-RUNTIME-01 — Bounded repeated work
 
+Managed PostgreSQL serving processes use a pre-provisioned reviewed index
+catalog and a restricted DML role. Automatic index creation can be disabled
+without weakening mandatory startup catalog verification. Index builds and
+retirements belong to the reviewed maintenance lifecycle, never ordinary
+request or worker execution. See [governed storage](backend/governed-indexes.md).
+
 Async request/worker paths offload pure synchronous source parsing, manifest
 compilation, document rendering and image processing. Graph operations,
 transactions and authorization remain on the originating asyncio Task. Do not
@@ -333,7 +339,7 @@ Use `type: member` to refer to an account. Materialize HAS_MEMBER_REF and valida
 
 ## Events, audit, and review
 
-All change emission uses `emit_change_event`; no direct competing logger writes. Transactional resource writes may capture durable `OperationEventOutbox` intent through their canonical command instead; audit persistence and consumers run in the independent event worker after commit. A successful save never waits for delivery. Refusal audit evidence remains independent of rejected writes. See [event worker](backend/event-worker.md). Internal actor recursion bypass stays in process and must not leak into stored audit or observability. High-fan-out denial/cascade actions can suppress websocket push while retaining audit. Introspection extends additively without changing existing key types.
+All change emission uses `emit_change_event`; no direct competing logger writes. Transactional resource writes may capture durable `OperationEventOutbox` intent through their canonical command instead; audit persistence and consumers run in the independent event worker after commit. A successful save never waits for delivery. Refusal audit evidence remains independent of rejected writes. See [event worker](backend/event-worker.md). Internal actor recursion bypass stays in process and must not leak into stored audit or observability. High-fan-out denial/cascade actions can suppress websocket push while retaining audit. Introspection extends additively without changing existing key types. A committed Entry deletion whose event fails current resource admission may release only a scope-only Track invalidation hint, subject to fresh Track read and event-feed authority. Never disclose the deleted Entry identity, snapshots, actor, or event as part of that hint.
 
 ### I-APPROVAL-01 — Reviewed re-entry is narrowly guarded
 
@@ -644,6 +650,11 @@ Generic defaults use `package.class: core_package` and the generic installer. Co
 
 **Scope:** `backend/app/agentive/unstaged_targets.py`, `backend/app/agentive/tooling/dispatch.py`, `backend/app/services/operational_model_compile.py`, `backend/app/services/operational_model_merge.py`, bundle manifests declaring `app.unstaged_tracks`.
 
+Interactive native chat and live voice always stage user-requested record mutations,
+including writes to manifest-declared capture tracks. The resident's saved
+permission can decide an eligible proposal under I-WORK-05. Existing background
+observation and decision-ledger contracts retain their own boundaries.
+
 **Rule:** An agent write MAY bypass staging only when ALL of the following hold: the staging kind is `create_entry` or `update_entry`; the target Track carries a manifest key (`Track.template_id`) listed in its App's attached-manifest `app.unstaged_tracks`; that App is `lifecycle_state=active`; the App's Workspace is `kind="personal"`; and the acting principal resolves to that Workspace's `IS_MEMBER_OF{role:"owner"}` User. Every other write stages — including every other track in the same App. The exempt keys are declared in the bundle manifest and gated at compile on `package.trust_tier ∈ {trusted, audited}` with a cap of `MAX_UNSTAGED_TRACKS_PER_APP`; the substrate MUST NOT name a bundle or a track key (I-SUBSTRATE-01). The gate fails closed: any error, missing link or ambiguity resolves to "stage it".
 
 **Rationale:** The approval surface exists so a person can refuse a change to their substrate. An App that records observations about the person would fill that surface with items where refusal means only "do not remember that", draining the signal from every other card. Observations are not changes to what the person owns; beliefs are, and beliefs stage.
@@ -944,6 +955,22 @@ Preserve the 80% global coverage requirement and 90% per-file requirement for ca
 
 **Verification:** `tests/test_work_approvals.py`.
 
+A standing resident permission binds a human to their workspace. Ask (default) never authorizes an edit. Auto covers eligible simple edits in private tracks the caller owns. Custom limits those edits to the saved set. Full covers canonical record creates and updates in that workspace, subject to the caller’s current resource policy and the writer’s validation. Changing modes preserves the saved Custom set. Each effective grant revision is captured at interactive turn admission
+and rechecked under lock at the staged effect. Manual and automatic decisions
+use the canonical writer and receipt. For Auto and Custom, ordinary bounded
+scalar edits may be evaluated against the actual effective field schema and
+record revision; reference, file, composite and computed fields and hooks
+are not silently treated as simple edits. A change to the grant cannot authorize
+a proposal from an earlier turn. Voice presents the same decision as chat.
+Custom can separately authorize Home and dashboard presentation changes in an
+owned private App. The App selection is explicit; legacy Track-only selections
+never silently acquire this authority. Scope, current App authority, the exact
+proposal and the relevant Home or dashboard revision are rechecked at the
+canonical writer. This grant does not authorize visibility, schema, deletion,
+sharing or security changes. Complex presentation effects without an explicit
+standing grant retain their review requirements; literal bounded presentation
+label/layout edits can be described and independently confirmed in voice. A single unambiguous leaf Entry deletion may use an independent, deliberate spoken confirmation of the exact permanent removal, with current authority, record revision, and absence of anchored Tracks rechecked at the canonical effect. This is explicit strong review, not a standing grant; ambiguous speech, changed proposals, batch, App or Track deletion and other high-impact effects retain their existing gates.
+
 For legacy staged workspace tools, an explicit dictionary result `ok: false`
 is a refused outcome, even when dispatch returned normally. The approval must
 remain unapplied with a recorded explanation. Preserve the original tool output
@@ -1215,3 +1242,17 @@ rollback removes both. Accepted queue state does not claim provider acceptance.
 
 Gates: `test_email_delivery_authority.py`, `test_email_operation_effect.py`,
 `contract/test_email_notification_postgres.py`, `contract/test_native_email_postgres.py`.
+
+
+### I-CONTEXT-03 — Source-linked working memory
+
+Working memory is a bounded, encrypted, disposable projection of committed
+conversation and verified retrieval locators. Every release proves current
+principal, workspace, profile and canonical source containment/revision;
+prior statements are dated historical data, never instructions, approval or
+current record truth. Current App reads retain their declared query boundary.
+An inaccessible, stale or ambiguous source must be withheld or resolved
+through fresh authorized work. No per-tenant physical indexes, automatic
+profile biography, raw tool-output replay or authority-bearing memory.
+Verification: `tests/test_working_memory.py` and existing chat, retrieval
+and native voice authority gates.

@@ -86,6 +86,16 @@ async def check_entry_write(
         if key and spec.get("required") and fields.get(key) in (None, "", []):
             fields.setdefault(key, None)
     try:
+        if entry:
+            from app.services.entry_record_readonly import (
+                LOCKED_MESSAGE,
+                entry_is_app_readonly,
+            )
+
+            if await entry_is_app_readonly(
+                workspace_id=track.workspace_id, entry_id=entry.id, principal_id=user_id
+            ):
+                return _refused(LOCKED_MESSAGE)
         validated, _relations = await validate_and_materialize_entry_custom_fields(
             track=track,
             entry_type=entry_type,

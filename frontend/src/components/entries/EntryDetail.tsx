@@ -11,6 +11,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { entryTypesForTrackQueryKey, invalidateFeedCaches, viewsForTrackQueryKey } from '../../queryKeys';
+import { refreshCommittedTrackEntries } from '../../services/graphMutationInvalidation';
 import {
   Edit2,
   X,
@@ -81,6 +82,7 @@ import {
   resolveEntryContribution,
   type EntryContributionSlotHandle,
 } from './EntryContributionSlot';
+import { useDetailRecordEdit } from './useDetailRecordEdit';
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { EntryAgentUndoButton } from './EntryAgentUndoButton';
 import { WatchersControl } from './WatchersControl';
@@ -663,6 +665,9 @@ export function EntryDetail({
     'entry_detail'
   );
 
+  const detailEdit = useDetailRecordEdit(entry, canEdit, setEntry,
+    saved => onUpdateRef.current?.(saved));
+
   const designerTargetView = useMemo((): SavedView | null => {
     return resolveDesignerTargetView(
       trackViewsQuery.data ?? [],
@@ -766,16 +771,12 @@ export function EntryDetail({
     const pendingId = showPendingToast('Deleting…');
     try {
       await entriesApi.delete(entry.id);
+      void refreshCommittedTrackEntries(queryClient, entry.track_id);
       resolveToast(pendingId, 'Entry deleted', 'success');
     } catch {
       resolveToast(pendingId, 'Failed to delete; restoring…', 'error');
       try {
-        await invalidateFeedCaches(queryClient);
-        if (entry.track_id) {
-          await queryClient.invalidateQueries({
-            queryKey: ['track', entry.track_id, 'entries']
-          });
-        }
+        await refreshCommittedTrackEntries(queryClient, entry.track_id);
       } catch {
         /* non-fatal */
       }
@@ -1801,6 +1802,7 @@ export function EntryDetail({
                   entryTypeKey={entry.type}
                   mode="detail"
                   customFields={(entry.custom_fields || {}) as Record<string, unknown>}
+                  detailEdit={detailEdit}
                 />
               </div>
               {!detailOwnsForm ? (

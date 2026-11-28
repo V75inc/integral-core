@@ -1152,6 +1152,36 @@ async def test_retry_after_terminal_event_does_not_repeat_model_request(
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
+async def test_queued_stop_is_excluded_from_model_history_without_assistant_receipt(
+    postgres_graph_context,
+) -> None:
+    from app.agentive.harness.adaptive import recent_public_messages
+    from app.models.nodes import ChatMessage
+
+    item, _ = await _submitted_claimed_turn(claim=False)
+    accepted = item.input_payload["accepted_message_id"]
+    cancelled = await work_items.cancel_work_item(item.work_item_id)
+    assert cancelled.status == "cancelled"
+    thread = await ChatThread.get(item.thread_id)
+    assert await ChatMessage.get(accepted) is not None
+    next_turn = await submit_chat_turn(
+        ChatTurnSubmissionRequest(
+            principal_id=item.principal_id,
+            workspace_id=item.workspace_id,
+            thread_id=item.thread_id,
+            client_request_id=uuid.uuid4().hex,
+            parts=[{"type": "text", "text": "What color is blue plus yellow?"}],
+        )
+    )
+    history = await recent_public_messages(
+        thread, current_message_id=next_turn.message_id
+    )
+    assert [message.id for message in history] == [next_turn.message_id]
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
 @pytest.mark.parametrize("phase", ["before_input", "mid_stream", "final_write"])
 async def test_cancelled_chat_preserves_committed_output_and_releases_admission(
     postgres_graph_context, monkeypatch, phase

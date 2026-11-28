@@ -26,6 +26,7 @@ class ProfileWrite(BaseModel):
     connection_id: str = Field(min_length=1, max_length=200)
     name: str = Field(min_length=1, max_length=80)
     model: str = Field(min_length=1, max_length=128)
+    embedding_only: bool = False
     generation_settings: ModelGenerationSettings = Field(
         default_factory=ModelGenerationSettings
     )

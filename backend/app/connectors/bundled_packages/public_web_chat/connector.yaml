@@ -1,0 +1,14 @@
+schema: integral.connector/v1
+id: public_web_chat
+version: 1.0.0
+publisher: integral
+name: Web Chat
+description: Workspace-owned Web Chat. The package supplies the management channel until a serving host replaces it.
+host_managed: true
+trust:
+  tier: trusted
+binding:
+  scopes: [workspace]
+capabilities:
+  channel:
+    mode: managed-text-v1

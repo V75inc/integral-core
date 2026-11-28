@@ -573,6 +573,18 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
             return _refused(
                 "record_revision_conflict", "Entry has changed since it was read"
             )
+        from app.services.entry_record_readonly import (
+            LOCKED_MESSAGE,
+            entry_is_app_readonly,
+        )
+
+        if await entry_is_app_readonly(
+            workspace_id=workspace_id,
+            entry_id=fresh.id,
+            principal_id=user_id,
+            for_write=True,
+        ):
+            return _refused("app_record_readonly", LOCKED_MESSAGE)
         if evidence:
             sources: dict[str, Entry] = {}
             location = await locate_resource(

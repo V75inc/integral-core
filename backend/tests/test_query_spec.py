@@ -143,6 +143,72 @@ async def test_declared_app_query_scopes_entry_scan_to_active_visible_app(
 
 
 @pytest.mark.asyncio
+async def test_declared_profile_query_intersects_actor_and_audience_before_count_and_delivery(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    app = SimpleNamespace(
+        id="app",
+        workspace_id="ws",
+        lifecycle_state="active",
+        installed_package_slug="example",
+    )
+    monkeypatch.setattr(App, "get", AsyncMock(return_value=app))
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec.permissions.can_view_app",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec._entry_field_catalog",
+        AsyncMock(return_value=[]),
+    )
+
+    def row(key):
+        return Entry(id=key, title=key, workspace_id="ws")
+
+    visibility = {
+        "service": [row("common"), row("private-agent")],
+        "caller": [row("common"), row("private-caller")],
+    }
+    visits = []
+
+    async def read(principal, **kwargs):
+        visits.append(principal)
+        return visibility[principal]
+
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec.get_user_accessible_entries", read
+    )
+
+    async def query():
+        return await execute_query_spec(
+            principal_id="service",
+            audience_principal="caller",
+            workspace_id="ws",
+            declared_app_id="app",
+            spec=QuerySpec(resource="entry", select=["id"], limit=10),
+        )
+
+    result = await query()
+    assert result.items == [{"id": "common"}] and result.total_estimate == 1
+    assert visits == ["service", "caller", "service", "caller"]
+
+    async def revoke(principal, **kwargs):
+        if principal == "caller" and principal in visits:
+            return []
+        return await read(principal, **kwargs)
+
+    visits.clear()
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec.get_user_accessible_entries", revoke
+    )
+    with pytest.raises(QuerySpecError, match="audience access changed"):
+        await query()
+
+
+@pytest.mark.asyncio
 async def test_declared_app_query_rejects_unavailable_app(monkeypatch) -> None:
     app = type(
         "_App",

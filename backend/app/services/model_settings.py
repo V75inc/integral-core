@@ -93,6 +93,8 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
     """Read conservative model capabilities from local LiteLLM metadata."""
     import litellm
 
+    from app.services.model_harness_policy import SPECIALIST_MODELS
+
     adapter = {
         "custom_openai": "openai",
         "ollama_local": "ollama_chat",
@@ -222,7 +224,28 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
             ]
         efforts = [level for level in efforts if level not in {"none", "minimal"}]
         reasoning = True
+    prescribed_vision = model == SPECIALIST_MODELS.get(provider, {}).get("vision")
+    # These reviewed native IDs accept image input on Chat Completions, but
+    # function calling requires Responses (or a particular reasoning setting).
+    # https://developers.openai.com/api/docs/models/gpt-6.1-sol
+    # https://developers.openai.com/api/docs/models/gpt-6-sol
+    prompted_sol = provider == "openai" and model in {"gpt-6-sol", "gpt-6.1-sol"}
+    vision = (
+        True
+        if prescribed_vision or prompted_sol
+        else info.get("supports_vision") if known else None
+    )
+    vision_chat = vision is True and info.get("mode") in {"chat", "responses"}
+    image_descriptions = prescribed_vision or prompted_sol or vision_chat
     return {
+        "requires_responses_for_tools": prompted_sol,
+        "image_descriptions": image_descriptions,
+        "prompted_image_description": prompted_sol
+        or (
+            vision_chat
+            and not prescribed_vision
+            and info.get("supports_function_calling") is not True
+        ),
         "reasoning_efforts": efforts,
         "thinking_enabled": provider in {"ollama", "ollama_local"}
         and not native_efforts,
@@ -263,7 +286,7 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
             if provider in {"ollama", "ollama_local"} and model in _OLLAMA_TOOL_CALLING
             else info.get("supports_function_calling") if known else None
         ),
-        "vision": info.get("supports_vision") if known else None,
+        "vision": vision,
     }
 
 

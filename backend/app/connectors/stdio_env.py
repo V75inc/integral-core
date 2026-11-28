@@ -43,34 +43,48 @@ def spawn_env_from_quickbooks_oauth(
     env_defaults: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
     """Build Intuit MCP process env from an Integral OAuth callback."""
-    from app.config import settings
-
-    env: Dict[str, str] = dict(env_defaults or auth_state.get("env_defaults") or {})
-    client_id = (
-        str(auth_state.get("client_id") or "").strip()
-        or (settings.QUICKBOOKS_CLIENT_ID or os.getenv("QUICKBOOKS_CLIENT_ID") or "")
-    ).strip()
-    client_secret = (
-        str(auth_state.get("client_secret") or "").strip()
-        or (
-            settings.QUICKBOOKS_CLIENT_SECRET
-            or os.getenv("QUICKBOOKS_CLIENT_SECRET")
-            or ""
-        )
-    ).strip()
-    environment = (
-        str(auth_state.get("environment") or "").strip()
-        or (settings.QUICKBOOKS_ENVIRONMENT or "sandbox")
-    ).strip()
-    env.update(
-        {
-            "QUICKBOOKS_CLIENT_ID": client_id,
-            "QUICKBOOKS_CLIENT_SECRET": client_secret,
-            "QUICKBOOKS_REFRESH_TOKEN": (refresh_token or "").strip(),
-            "QUICKBOOKS_REALM_ID": (realm_id or "").strip(),
-            "QUICKBOOKS_ENVIRONMENT": environment,
-        }
+    from app.connectors.package_runtime import (
+        admitted_manifest,
+        admitted_oauth,
+        deployment_setting,
     )
+
+    slug = str(auth_state.get("catalog_slug") or "")
+    manifest = admitted_manifest(slug) or {}
+    env: Dict[str, str] = dict(env_defaults or auth_state.get("env_defaults") or {})
+    client = (admitted_oauth(slug) or {}).get("client") or {}
+    id_names = client.get("id_env") if isinstance(client.get("id_env"), list) else []
+    secret_names = (
+        client.get("secret_env") if isinstance(client.get("secret_env"), list) else []
+    )
+    client_id = str(auth_state.get("client_id") or "").strip() or deployment_setting(
+        [str(name) for name in id_names]
+    )
+    client_secret = str(
+        auth_state.get("client_secret") or ""
+    ).strip() or deployment_setting([str(name) for name in secret_names])
+    environment = str(auth_state.get("environment") or "").strip()
+    if not environment:
+        for field in manifest.get("configuration") or []:
+            if (
+                isinstance(field, dict)
+                and field.get("key") == "environment"
+                and field.get("default") not in (None, {})
+            ):
+                environment = str(field["default"])
+                break
+    generated = ((manifest.get("capabilities") or {}).get("mcp") or {}).get(
+        "generated_env"
+    )
+    declared = {str(key) for key in generated} if isinstance(generated, list) else set()
+    candidates = {
+        "QUICKBOOKS_CLIENT_ID": client_id,
+        "QUICKBOOKS_CLIENT_SECRET": client_secret,
+        "QUICKBOOKS_REFRESH_TOKEN": (refresh_token or "").strip(),
+        "QUICKBOOKS_REALM_ID": (realm_id or "").strip(),
+        "QUICKBOOKS_ENVIRONMENT": environment,
+    }
+    env.update({key: value for key, value in candidates.items() if key in declared})
     for key in _DISABLE_KEYS:
         override = str(auth_state.get(key) or "").strip()
         if override:

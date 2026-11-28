@@ -30,8 +30,8 @@ class ResourceSchemaPreviewWalker(Walker):
     _directory: list[dict] = PrivateAttr(default_factory=lambda: [])
     _directory_incomplete: bool = PrivateAttr(default=False)
     _tracks: dict[str, dict] = PrivateAttr(default_factory=lambda: {})
-    _models: dict[str, str] = PrivateAttr(default_factory=lambda: {})
     _types: dict[str, str] = PrivateAttr(default_factory=lambda: {})
+    _incomplete_tracks: set[str] = PrivateAttr(default_factory=set)
 
     @on_visit(App)
     async def on_app(self, here: App) -> None:
@@ -121,15 +121,58 @@ class ResourceSchemaPreviewWalker(Walker):
         if len(models) > 1:
             raise QueryUnavailableError(message="Ambiguous Track schema")
         for model in models:
-            self._models[model.id] = here.id
-        await self.visit(models)
+            # An App-owned template model is intentionally shared by anchored
+            # sibling Tracks. Select the current Track's materialized types
+            # before applying the page budget; never disclose sibling types.
+            # Visiting the model once as a Walker node would also overwrite
+            # the Track association when two selected Tracks share it.
+            materialization = (model.manifest or {}).get("materialization") or {}
+            shared_template = (
+                isinstance(materialization, dict)
+                and materialization.get("kind") == "space_track_template"
+            )
+            if shared_template:
+                parents = await model.nodes(
+                    edge=[CONTAINS], node=[App], direction="in", limit=2
+                )
+                if (
+                    not context.get("template_id")
+                    or materialization.get("template_key") != context["template_id"]
+                    or materialization.get("app_id") != self.app_id
+                    or model.app_id != self.app_id
+                    or model.workspace_id != self.workspace_id
+                    or [parent.id for parent in parents] != [self.app_id]
+                ):
+                    raise QueryUnavailableError(
+                        message="Track template binding changed"
+                    )
+            await self._queue_types(model, here.id, shared_template=shared_template)
         await self._queue_types(here, here.id)
 
-    async def _queue_types(self, parent, track_id):
+    async def _queue_types(self, parent, track_id, *, shared_template=False):
+        node_filter = (
+            [{EntryType._entity_name(): {"context.track_id": track_id}}]
+            if shared_template
+            else [EntryType]
+        )
         types, cursor = await parent.nodes_page(
-            edge=[CONTAINS], node=[EntryType], limit=7
+            edge=[CONTAINS], node=node_filter, limit=7
         )
         self.incomplete = self.incomplete or bool(cursor) or len(types) > 6
+        if shared_template:
+            # Template blueprints are not materialized, addressable type IDs.
+            # If one has no corresponding local type, the hints are partial.
+            expected = (parent.manifest.get("track") or {}).get("entry_types") or []
+            actual_keys = {
+                (kind.form_schema or {}).get("_manifest_entry_type_key")
+                for kind in types
+            }
+            if any(
+                not isinstance(spec, dict) or spec.get("key") not in actual_keys
+                for spec in expected
+            ):
+                self.incomplete = True
+                self._incomplete_tracks.add(track_id)
         selected = []
         for entry_type in types[:6]:
             previous = self._types.get(entry_type.id)
@@ -141,10 +184,6 @@ class ResourceSchemaPreviewWalker(Walker):
             selected.append(entry_type)
         await self.visit(selected)
 
-    @on_visit(OperationalModel)
-    async def on_model(self, here: OperationalModel) -> None:
-        await self._queue_types(here, self._models[here.id])
-
     @on_visit(EntryType)
     async def on_type(self, here: EntryType) -> None:
         track_id = self._types[here.id]
@@ -155,7 +194,10 @@ class ResourceSchemaPreviewWalker(Walker):
             self.incomplete = True
             return
         data = rows[0]["context"]
-        if data.get("track_id") != track_id:
+        if (
+            rows[0].get("entity") != EntryType._entity_name()
+            or data.get("track_id") != track_id
+        ):
             raise QueryUnavailableError(message="EntryType binding changed")
         form = data.get("form_schema") or {}
         fields = form.get("fields") or []
@@ -258,8 +300,10 @@ async def app_schema_preview(
             if len(json.dumps(hints + [key], ensure_ascii=False).encode()) <= 96:
                 hints.append(key)
         item["schema_keys"] = hints
-        item["schema_keys_incomplete"] = len(hints) < len(keys) or any(
-            kind["fields_incomplete"] for kind in track["entry_types"]
+        item["schema_keys_incomplete"] = (
+            item["id"] in walker._incomplete_tracks
+            or len(hints) < len(keys)
+            or any(kind["fields_incomplete"] for kind in track["entry_types"])
         )
     return {
         "tracks": list(walker._tracks.values()),

@@ -131,7 +131,10 @@ async def recover_routine_proposal(inv: Any, token: str) -> Any:
 
     ctx = inv.work_execution_context
     item = await assert_effect_boundary_allowed(ctx)
-    if item.kind != "routine_turn":
+    resident = item.kind == "chat_turn" and bool(
+        item.input_payload.get("resident_permission_revision")
+    )
+    if not resident and item.kind != "routine_turn":
         return None
     oid = execution_record_id(token)
     row = await get_default_context().database.get("object", oid)
@@ -165,6 +168,8 @@ async def recover_routine_proposal(inv: Any, token: str) -> Any:
         inv.capability_key,
         str(item.input_payload.get("routine_mandate_fingerprint") or ""),
     )
+    if resident and snapshot.get("decision_source") != "resident_permission":
+        return None
     if proof != expected or snapshot.get("origin_proof") != expected:
         raise WorkError(
             "work.non_replayable_effect", "Original proposal origin changed"
@@ -201,5 +206,5 @@ async def recover_routine_proposal(inv: Any, token: str) -> Any:
         "state": "consumed",
         "consumed": True,
         "execute_result": observed,
-        "decision_source": "routine_mandate",
+        "decision_source": "resident_permission" if resident else "routine_mandate",
     }

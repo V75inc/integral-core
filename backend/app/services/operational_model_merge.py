@@ -7,7 +7,7 @@ import copy
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict, List, Optional, Protocol
+from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, Protocol
 
 from jvspatial.api.exceptions import ResourceNotFoundError
 
@@ -55,6 +55,9 @@ from app.services.operational_model_runtime import (
     synchronize_track_view_default_flags,
 )
 from app.services.permissions import get_user_node
+
+if TYPE_CHECKING:
+    from app.services.installed_materialization_origin import MaterializedTrack
 
 logger = logging.getLogger(__name__)
 
@@ -751,6 +754,7 @@ async def merge_library_manifest_into_operational_model(
     _scope_target: Optional[OperationalModel] = None,
     user_id: Optional[str] = None,
     _materialize_shared_track_only: bool = False,
+    _created_entry_type_ids: list[tuple[str, str]] | None = None,
 ) -> None:
     """Apply ``library_cp.manifest`` tier into ``target_cp`` (never mutates library)."""
     local_default_id = None
@@ -1168,6 +1172,8 @@ async def merge_library_manifest_into_operational_model(
             updated_at=now,
         )
         await target_cp.connect(et, edge=CONTAINS, added_at=now)
+        if _created_entry_type_ids is not None:
+            _created_entry_type_ids.append((spec_key, et.id))
 
     if pending_entry_type_updates:
         from app.services.graph_hydration import bulk_save_nodes
@@ -1656,7 +1662,10 @@ async def refresh_all_app_track_template_materializations(app_node: App) -> int:
 
 
 async def apply_space_track_spec_to_track(
-    track: Track, track_spec: Dict[str, Any]
+    track: Track,
+    track_spec: Dict[str, Any],
+    *,
+    _created_entry_type_ids: list[tuple[str, str]] | None = None,
 ) -> None:
     """Materialize manifest tier (entry types, views, taxonomy) onto a real track."""
     from app.services.app_graph import ensure_track_attached_operational_model
@@ -1670,7 +1679,11 @@ async def apply_space_track_spec_to_track(
         )
     shim = _InMemoryLibraryManifest(_track_spec_to_library_manifest_dict(track_spec))
     await merge_library_manifest_into_operational_model(
-        shim, tcp, track, for_space=False
+        shim,
+        tcp,
+        track,
+        for_space=False,
+        _created_entry_type_ids=_created_entry_type_ids,
     )
 
 
@@ -1727,7 +1740,10 @@ async def _previous_track_descriptions(app_node: Any) -> Dict[str, str]:
 
 
 async def provision_prescribed_tracks_from_app_manifest(
-    app_node: App, owner_user_id: str
+    app_node: App,
+    owner_user_id: str,
+    *,
+    _fresh_install_tracks: list[MaterializedTrack] | None = None,
 ) -> None:
     """Serialize package defaults with explicit Track metadata choices."""
     from app.services.membership_write_scope import membership_write_scope
@@ -1736,11 +1752,16 @@ async def provision_prescribed_tracks_from_app_manifest(
         app_node.workspace_id, principal_ids=(owner_user_id,)
     ):
         current = await _current_materialization_app(app_node)
-        await _provision_prescribed_tracks_from_app_manifest(current, owner_user_id)
+        await _provision_prescribed_tracks_from_app_manifest(
+            current, owner_user_id, _fresh_install_tracks=_fresh_install_tracks
+        )
 
 
 async def _provision_prescribed_tracks_from_app_manifest(
-    app_node: App, owner_user_id: str
+    app_node: App,
+    owner_user_id: str,
+    *,
+    _fresh_install_tracks: list[MaterializedTrack] | None = None,
 ) -> None:
     """Create tracks from ``app.tracks`` when package flags allow (app_node apply only)."""
     from app.api.validators import validate_track_visibility_workspace
@@ -1852,7 +1873,12 @@ async def _provision_prescribed_tracks_from_app_manifest(
         if user:
             await user.connect(track, edge=OWNS, role="owner", granted_at=now)
         await catalog_track(track)
-        await apply_space_track_spec_to_track(track, spec)
+        created_types: list[tuple[str, str]] | None = (
+            [] if _fresh_install_tracks is not None else None
+        )
+        await apply_space_track_spec_to_track(
+            track, spec, _created_entry_type_ids=created_types
+        )
 
         # NOTE: a prescribed-track spec may declare ``public_share`` in its
         # source manifest, but ``compile_canonical_manifest`` does not carry
@@ -1876,6 +1902,12 @@ async def _provision_prescribed_tracks_from_app_manifest(
         ctx = await app_node.get_context()
         if not await ctx.find_edges_between(app_node.id, track.id, edge_class=CONTAINS):
             await app_node.connect(track, edge=CONTAINS, added_at=now)
+        if _fresh_install_tracks is not None and created_types is not None:
+            from app.services.installed_materialization_origin import MaterializedTrack
+
+            _fresh_install_tracks.append(
+                MaterializedTrack(key, track.id, tuple(created_types))
+            )
         used_template_keys.add(key)
 
     from app.services.bundle_post_seed import run_bundle_post_seed

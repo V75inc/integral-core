@@ -1,0 +1,32 @@
+schema: integral.connector/v1
+id: example_contacts
+version: 1.0.0
+publisher: integral
+name: Example contacts
+description: Declarative example that pulls contacts into a new package installation.
+trust:
+  tier: declarative
+binding:
+  scopes: [workspace]
+configuration:
+- key: base_url
+  label: Contacts API base URL
+  type: url
+  required: true
+http:
+  base_url: "{{config.base_url}}"
+health:
+  request: {method: GET, path: /contacts}
+capabilities:
+  sync:
+    entry_type: contact
+    interval_seconds: 3600
+    conflict_policy: mirror_only
+    source:
+      request:
+        method: GET
+        path: /contacts
+      items: $.items
+    map:
+      external_id: $.id
+      title: $.name

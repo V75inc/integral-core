@@ -56,6 +56,11 @@ export function ApprovalsPage() {
   // Staged chat changes have no status axis — they are pending or they are
   // gone — so they only belong under the pending filter.
   const showStaged = statusFilter === 'pending';
+  const waitingForQueues = ownership.isPending || (showStaged && !staged.loaded);
+  const loadingEmptyPage = rows.length === 0 && ownershipCount === 0
+    && (!showStaged || stagedCount === 0)
+    && !error && !ownership.isError && !(showStaged && staged.refreshFailed)
+    && (loading || loadedStatus !== statusFilter || waitingForQueues);
 
   return (
     <PageShell>
@@ -124,7 +129,7 @@ export function ApprovalsPage() {
         ) : null}
         <ApprovalsListBody
           rows={rows}
-          loading={loading}
+          loading={loading || loadingEmptyPage}
           error={error}
           onRetry={() => void refetch()}
           onDecide={() => void refetch()}

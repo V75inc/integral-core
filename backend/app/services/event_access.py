@@ -82,6 +82,65 @@ async def event_release_workspace(event: ChangeEventEnvelope) -> str | None:
     return workspace_id
 
 
+async def prepare_track_invalidation(
+    user_id: str,
+    event: ChangeEventEnvelope,
+    *,
+    action: str,
+    evaluate: Evaluator,
+) -> str | None:
+    """Release only a track refresh hint after a committed Entry deletion.
+
+    A missing Entry cannot authorize its former identity, content, actor or
+    historical snapshot. A current Track reader may refresh the Track's own
+    authorized dataset; this separate wire signal contains only its scope.
+    """
+    from app.api.errors import InsufficientPermissionsError
+    from app.services.release_admission import release_admission
+    from app.services.resource_location import locate_resource
+
+    before = event.before
+    scope = event.scope or ""
+    if (
+        event.action != "entry.delete"
+        or str(event.resource_type).casefold() != "entry"
+        or not scope.startswith("track:")
+        or not isinstance(before, dict)
+        or before.get("id") != event.resource_id
+        or before.get("track_id") != scope[6:]
+    ):
+        return None
+    track_id = scope[6:]
+    location = await locate_resource("track", track_id)
+    if not location:
+        return None
+    try:
+        async with release_admission(user_id, location.workspace_id):
+            with isolated_permissions_cache():
+                if await locate_resource("track", track_id) != location:
+                    return None
+                subject = Subject(kind="human", id=user_id)
+                feed = await evaluate(
+                    subject=subject,
+                    action=action,
+                    resource=Resource(
+                        kind="change_event", id=event.id or "", scope=scope
+                    ),
+                    _dry_run=True,
+                )
+                if not feed.allowed:
+                    return None
+                track = await evaluate(
+                    subject=subject,
+                    action="track.read",
+                    resource=Resource(kind="track", id=track_id, scope=scope),
+                    _dry_run=True,
+                )
+                return scope if track.allowed else None
+    except InsufficientPermissionsError:
+        return None
+
+
 async def prepare_event_payload(
     user_id: str,
     event: ChangeEventEnvelope,

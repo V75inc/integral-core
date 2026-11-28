@@ -48,6 +48,7 @@ async def create_thread(
     title: str = "",
     workspace_id: str = "",
     agent_id: str = "",
+    agent_profile_key: str = "",
 ) -> ChatThread:
     """Create a new ChatThread node owned by ``user_id`` inside ``workspace_id``.
 
@@ -69,6 +70,7 @@ async def create_thread(
         workspace_id=workspace_id,
         provider_id=provider_id,
         agent_id=agent_id or "",
+        **({"agent_profile_key": agent_profile_key} if agent_profile_key else {}),
         title=title or "",
         title_source="manual" if title else "",
         archived=False,
@@ -1704,6 +1706,9 @@ async def delete_thread_messages(thread: ChatThread) -> int:
             count += 1
         except Exception:
             continue
+    from app.services.working_memory import forget_deleted_conversation
+
+    await forget_deleted_conversation(thread)
     return count
 
 
@@ -1712,14 +1717,42 @@ async def delete_thread_messages(thread: ChatThread) -> int:
 # ---------------------------------------------------------------------------
 
 
+async def thread_profile_metadata(workspace_id, threads):
+    """Return profile display metadata for the authorized threads."""
+    from app.agentive.services.profile_management import (
+        WORKSPACE_ASSISTANT_KEY,
+        thread_profile_identities,
+    )
+
+    associations = {
+        thread.id: getattr(thread, "agent_profile_key", "") or WORKSPACE_ASSISTANT_KEY
+        for thread in threads
+        if getattr(thread, "provider_id", "") == "integral_native"
+        and getattr(thread, "workspace_id", "") == workspace_id
+    }
+    identities = await thread_profile_identities(
+        workspace_id, set(associations.values())
+    )
+    return {
+        thread_id: identities[key]
+        for thread_id, key in associations.items()
+        if key in identities
+    }
+
+
 def thread_to_dict(
-    thread: ChatThread, message_count: Optional[int] = None
+    thread: ChatThread,
+    message_count: Optional[int] = None,
+    *,
+    agent_profile: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """Serialize a ChatThread for the public ``/api/chat`` wire shape."""
     return {
         "id": thread.id,
         "provider_id": thread.provider_id,
         "agent_id": getattr(thread, "agent_id", "") or "",
+        "agent_profile_key": getattr(thread, "agent_profile_key", "") or "",
+        **({"agent_profile": agent_profile} if agent_profile else {}),
         "workspace_id": getattr(thread, "workspace_id", "") or "",
         # Provider-side session id captured after the first turn (via the
         # `_meta` event the chat router consumes). Surfaced so admin /

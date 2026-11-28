@@ -6,9 +6,20 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { Link, MemoryRouter, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { aiConfigurationApi } from "../../../api/aiConfiguration";
 import { AiConfigurationSection } from "./AiConfigurationSection";
+import { RetrievalConfigSection } from "./RetrievalConfigSection";
+
+vi.mock("../../../api/retrievalConfig", () => ({
+  retrievalConfigApi: {
+    get: vi.fn().mockResolvedValue({
+      embedding_model_eager_load: true, retrieve_k_default: 100,
+      retrieve_top_n_default: 20, embedding_store_backend: "pgvector",
+    }),
+  },
+}));
 
 it("shows model-specific Max effort without inventing intermediate levels", async () => {
   vi.mocked(aiConfigurationApi.capabilities).mockResolvedValue({
@@ -80,6 +91,8 @@ it("shows thinking budgets directly when effort levels are unavailable", async (
   ).not.toBeInTheDocument();
 });
 
+vi.mock("./VoiceInputSection", () => ({ VoiceInputSection: () => <p>Voice input preferences</p> }));
+
 const fixture = vi.hoisted(() => ({
   isPending: false,
   isError: false,
@@ -137,6 +150,7 @@ vi.mock("../hooks/useAIConfiguration", () => ({
 vi.mock("../../../api/aiConfiguration", async (original) => ({
   ...(await original<typeof import("../../../api/aiConfiguration")>()),
   aiConfigurationApi: {
+    saveDeploymentLimits: vi.fn(),
     testConnection: vi.fn(),
     saveConnection: vi.fn(),
     saveProfile: vi.fn(),
@@ -150,18 +164,27 @@ vi.mock("../../../api/modelCredentials", async (original) => ({
 vi.mock("../../../context/ToastContext", () => ({
   useToast: () => ({ showToast: fixture.showToast }),
 }));
-function show({ advanced = true, language = true } = {}) {
+function show({
+  advanced = true, catalog = true, language = true, initialCategory,
+}: {
+  advanced?: boolean; catalog?: boolean; language?: boolean;
+  initialCategory?: "speech-to-text" | "realtime-voice";
+} = {}) {
   const result = render(
     <QueryClientProvider
       client={
         new QueryClient({ defaultOptions: { queries: { retry: false } } })
       }
     >
-      <AiConfigurationSection />
+      <AiConfigurationSection initialCategory={initialCategory} />
     </QueryClientProvider>,
   );
-  if (advanced && screen.queryByRole("button", { name: "Show advanced configuration" })) fireEvent.click(screen.getByRole("button", { name: "Show advanced configuration" }));
-  if (advanced && language && screen.queryByRole("button", { name: "Language & multimodal" })) fireEvent.click(screen.getByRole("button", { name: "Language & multimodal" }));
+  const advancedToggle = screen.queryByRole("button", { name: "Advanced Configuration" });
+  if (advanced && advancedToggle?.getAttribute("aria-expanded") === "false") fireEvent.click(advancedToggle);
+  const catalogToggle = screen.queryByRole("button", { name: "Providers & Models" });
+  if (catalog && catalogToggle?.getAttribute("aria-expanded") === "false") fireEvent.click(catalogToggle);
+  const languageToggle = screen.queryByRole("button", { name: "Language & multimodal" });
+  if (language && languageToggle?.getAttribute("aria-expanded") === "false") fireEvent.click(languageToggle);
   return result;
 }
 beforeEach(() => {
@@ -246,13 +269,8 @@ describe("AI connection and model configuration", () => {
     show();
     expect(screen.getByText("Managed by the workspace owner.")).toBeVisible();
     fireEvent.click(screen.getByRole("tab", { name: /Providers/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Edit provider" }));
-    expect(screen.getByLabelText("Provider")).toBeDisabled();
-    expect(
-      screen.getByLabelText(
-        "Replacement API key (leave blank to keep saved key)",
-      ),
-    ).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Edit provider" })).toBeDisabled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 
@@ -337,8 +355,8 @@ it("supports arrow-key tab navigation", () => {
 it("opens a model override editor while the active configuration comes from ENV", async () => {
   fixture.data.effective.source = "deployment";
   show();
-  expect(screen.getByText("Server default")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Add your own model" }));
+  expect(screen.getByText(/Server default/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Add model" }));
   const dialog = await screen.findByRole("dialog", { name: "Add a model" });
   expect(
     within(dialog).getByRole("textbox", { name: "Profile name" }),
@@ -380,45 +398,178 @@ it("reports provider transport failures through a toast", async () => {
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
-it("groups language, embedding and voice models under Models, apart from Providers", () => {
-  show();
-  expect(screen.getByRole("heading", { name: "Language & multimodal" })).toBeVisible();
-  expect(screen.getByRole("heading", { name: "Embeddings" })).toBeVisible();
-  expect(screen.getByRole("heading", { name: "Voice" })).toBeVisible();
-  fireEvent.click(screen.getByRole("tab", { name: /Providers/ }));
-  expect(screen.queryByRole("heading", { name: "Embeddings" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "Voice" })).not.toBeInTheDocument();
+it("keeps model assignments separate from the providers and models catalog", () => {
+  show({ language: false });
+  const catalog = screen.getByRole("region", { name: "Providers & Models" });
+  const assignments = screen.getByRole("region", { name: "Model assignments" });
+  expect(within(catalog).getByRole("button", { name: "Add model" })).toBeVisible();
+  expect(within(catalog).queryByRole("button", { name: "Language & multimodal" })).not.toBeInTheDocument();
+  expect(within(assignments).getByRole("button", { name: "Embeddings" })).toBeVisible();
+  fireEvent.click(within(catalog).getByRole("tab", { name: /Providers/ }));
+  expect(within(catalog).getByRole("button", { name: "Connect provider" })).toBeVisible();
+  expect(within(assignments).getByRole("button", { name: "Speech to Text" })).toBeVisible();
 });
 
 it("starts categories collapsed and opens one at a time", () => {
   show({ language: false });
   const language = screen.getByRole("button", { name: "Language & multimodal" });
   const embeddings = screen.getByRole("button", { name: "Embeddings" });
-  const voice = screen.getByRole("button", { name: "Voice" });
+  const voice = screen.getByRole("button", { name: "Speech to Text" });
   expect(language).toHaveAttribute("aria-expanded", "false");
   expect(screen.getByRole("tab", { name: "Models 1" })).toBeVisible();
   fireEvent.click(language);
   expect(language).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByLabelText("Main model")).toHaveValue("profile");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   fireEvent.click(embeddings);
   expect(embeddings).toHaveAttribute("aria-expanded", "true");
   expect(language).toHaveAttribute("aria-expanded", "false");
-  expect(screen.getByText(/Powers semantic search/)).toBeVisible();
+  expect(screen.getByRole("region", { name: "Embedding model assignment" })).toBeVisible();
   fireEvent.click(voice);
   expect(embeddings).toHaveAttribute("aria-expanded", "false");
   expect(voice).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByText("Voice input preferences")).toBeVisible();
   fireEvent.click(voice);
   expect(voice).toHaveAttribute("aria-expanded", "false");
 });
 
 
-it("starts with simple provider setup and keeps expert controls out of the default view", () => {
-  show({ advanced: false });
-  expect(screen.getByText("Your AI is connected")).toBeVisible();
+it("keeps Quick Configuration visible while both advanced controls start closed independently", () => {
+  show({ advanced: false, catalog: false, language: false });
+  const advanced = screen.getByRole("button", { name: "Advanced Configuration" });
+  expect(screen.getByRole("heading", { name: "Quick Configuration" })).toBeVisible();
+  expect(advanced).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("button", { name: "Providers & Models" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Model assignments" })).not.toBeInTheDocument();
+
+  fireEvent.click(advanced);
+  const catalog = screen.getByRole("button", { name: "Providers & Models" });
+  const assignments = screen.getByRole("region", { name: "Model assignments" });
+  expect(advanced).toHaveAttribute("aria-expanded", "true");
+  expect(catalog).toHaveAttribute("aria-expanded", "false");
   expect(screen.queryByRole("tablist", { name: "AI configuration" })).not.toBeInTheDocument();
-  expect(screen.queryByText("Deployment limits")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Show advanced configuration" }));
+  expect(catalog.compareDocumentPosition(assignments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(assignments).getByRole("button", { name: "Speech to Text" })).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.click(catalog);
   expect(screen.getByRole("tablist", { name: "AI configuration" })).toBeVisible();
-  expect(screen.getByText("Deployment limits")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Hide advanced configuration" }));
-  expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  fireEvent.click(catalog);
+  expect(screen.queryByRole("tablist", { name: "AI configuration" })).not.toBeInTheDocument();
+  expect(assignments).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Quick Configuration" })).toBeVisible();
+});
+
+it("opens only the relevant assignment when following a legacy settings link", () => {
+  show({ advanced: false, catalog: false, language: false, initialCategory: "speech-to-text" });
+  expect(screen.getByRole("button", { name: "Advanced Configuration" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: "Providers & Models" })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByRole("button", { name: "Speech to Text" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: "Realtime Voice" })).toHaveAttribute("aria-expanded", "false");
+});
+
+it("puts Deployment Limits last and opens it independently of Advanced Configuration", () => {
+  show({ advanced: false, catalog: false, language: false });
+  const advanced = screen.getByRole("button", { name: "Advanced Configuration" });
+  const limits = screen.getByRole("button", { name: "Deployment Limits" });
+  expect(advanced.compareDocumentPosition(limits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(advanced).toHaveClass("min-h-24", "w-full");
+  expect(limits).toHaveClass("min-h-24", "w-full");
+  expect(limits).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.click(limits);
+  const content = screen.getByRole("region", { name: "Deployment Limits" });
+  expect(limits).toHaveAttribute("aria-expanded", "true");
+  expect(advanced).toHaveAttribute("aria-expanded", "false");
+  expect(content).toHaveTextContent("Model requests per turn20");
+  expect(content).toHaveTextContent("Tool calls per turn32");
+  expect(content).toHaveTextContent("Total tokens per turn1,200,000");
+  expect(content).toHaveTextContent("Turn timeout (seconds)900");
+  expect(within(content).queryByRole("button", { name: "Edit deployment limits" })).toBeNull();
+  expect(content).toHaveTextContent("Approval and access checks always apply.");
+  fireEvent.click(limits);
+  expect(screen.queryByRole("region", { name: "Deployment Limits" })).not.toBeInTheDocument();
+});
+
+it("opens Advanced and Embeddings from Search, then scrolls only once mounted on each visit", async () => {
+  const scroll = vi.fn(function (this: HTMLElement) {
+    expect(this).toHaveAttribute("id", "embedding-models-heading");
+    expect(this).toHaveAttribute("aria-expanded", "true");
+    expect(this.closest("[hidden]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Advanced Configuration" })).toHaveAttribute("aria-expanded", "true");
+  });
+  const previous = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
+  function SettingsRouteFixture() {
+    const { hash } = useLocation();
+    if (hash === "#retrieval") return <RetrievalConfigSection embedded />;
+    return <>
+      <Link to="/settings#retrieval">Return to Search</Link>
+      <AiConfigurationSection key={hash} initialCategory={hash === "#embedding-models" ? "embeddings" : undefined} />
+    </>;
+  }
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const page = () => <QueryClientProvider client={client}>
+    <MemoryRouter initialEntries={["/settings#ai-models"]}><SettingsRouteFixture /></MemoryRouter>
+  </QueryClientProvider>;
+  try {
+    const view = render(page());
+    expect(screen.getByRole("button", { name: "Advanced Configuration" })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("link", { name: "Return to Search" }));
+    const link = await screen.findByRole("link", { name: "Manage embedding model" });
+    fixture.isPending = true;
+    fireEvent.click(link);
+    expect(screen.getByText("Loading your models")).toBeVisible();
+    expect(scroll).not.toHaveBeenCalled();
+    fixture.isPending = false;
+    view.rerender(page());
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Embeddings" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Embeddings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Advanced Configuration" }));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("link", { name: "Return to Search" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Manage embedding model" }));
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(2));
+  } finally {
+    if (previous) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", previous);
+    else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  }
+});
+
+it("lets a platform administrator cancel, bound and explicitly save overrides or defaults", async () => {
+  const host = { ...fixture.data.harness_limits, tool_call_limit: 32 };
+  const settings = { revision: 3, host, overrides: { request_limit: 5 }, effective: { ...host, request_limit: 5 } };
+  vi.mocked(aiConfigurationApi.saveDeploymentLimits).mockResolvedValue(settings);
+  Object.assign(fixture.data, { deployment_limit_settings: settings });
+  try {
+    show({ advanced: false, catalog: false, language: false });
+    fireEvent.click(screen.getByRole("button", { name: "Deployment Limits" }));
+    const open = () => fireEvent.click(screen.getByRole("button", { name: "Edit deployment limits" }));
+    open();
+    const input = screen.getByRole("spinbutton", { name: "Model requests per turn" });
+    expect(input).toHaveValue(5);
+    expect(screen.getByRole("checkbox", { name: /whole-answer protection/i })).not.toBeChecked();
+    fireEvent.change(input, { target: { value: "21" } });
+    expect(screen.getByRole("button", { name: "Save limits" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(aiConfigurationApi.saveDeploymentLimits).not.toHaveBeenCalled();
+    open();
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Model requests per turn" }), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save limits" }));
+    await waitFor(() => expect(vi.mocked(aiConfigurationApi.saveDeploymentLimits).mock.calls[0][0]).toEqual({ revision: 3, overrides: { request_limit: 4 } }));
+    await screen.findByRole("button", { name: "Edit deployment limits" });
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "Use host defaults" }));
+    expect(aiConfigurationApi.saveDeploymentLimits).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Save limits" }));
+    await waitFor(() => expect(vi.mocked(aiConfigurationApi.saveDeploymentLimits).mock.calls[1][0]).toEqual({ revision: 3, overrides: {} }));
+    await screen.findByRole("button", { name: "Edit deployment limits" });
+    open();
+    fireEvent.click(screen.getByRole("checkbox", { name: /whole-answer protection/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Save limits" }));
+    await waitFor(() => expect(vi.mocked(aiConfigurationApi.saveDeploymentLimits).mock.calls[2][0]).toEqual({ revision: 3, overrides: { request_limit: 5 }, whole_answer_protection: true }));
+  } finally {
+    Reflect.deleteProperty(fixture.data, "deployment_limit_settings");
+  }
 });

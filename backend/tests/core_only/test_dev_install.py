@@ -106,6 +106,33 @@ def test_bootstrap_env_replaces_placeholders(tmp_path: Path) -> None:
     assert len(decoded) == 32
 
 
+def test_local_bootstrap_adds_serving_password_without_rotating_secrets(
+    tmp_path: Path,
+) -> None:
+    """The local template can safely extend an older environment."""
+    script = REPO / "scripts" / "bootstrap_env.sh"
+    example = REPO / ".env.example"
+    dest = tmp_path / ".env"
+    original = (
+        "JVSPATIAL_JWT_SECRET_KEY=" + "a" * 64 + "\n"
+        "INTEGRAL_CREDENTIAL_ENC_KEY=" + "b" * 64 + "\n"
+    )
+    dest.write_text(original, encoding="utf-8")
+    result = _run(["bash", str(script), str(dest), str(example)], timeout=10)
+    assert result.returncode == 0, result.stderr
+    first = dest.read_text(encoding="utf-8")
+    assert first.startswith(original)
+    password = next(
+        line.split("=", 1)[1]
+        for line in first.splitlines()
+        if line.startswith("INTEGRAL_LOCAL_POSTGRES_RUNTIME_PASSWORD=")
+    )
+    assert len(password) >= 24
+    result = _run(["bash", str(script), str(dest), str(example)], timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert dest.read_text(encoding="utf-8") == first
+
+
 def test_core_no_app_import_check_ok_without_rg(tmp_path: Path) -> None:
     """core_no_app_import_check.sh succeeds via grep when rg is absent."""
     gate = REPO / ".ci" / "core_no_app_import_check.sh"

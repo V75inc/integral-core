@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, get_args
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.agentive import staging_executors
 from app.schemas.policy import PolicyAction
@@ -183,6 +183,18 @@ class HttpSpec(BaseModel):
         return cls(method="SERVICE", path=text)
 
 
+class VoiceQuickReadSpec(BaseModel):
+    """Reviewed, bounded navigation label projection for immediate voice."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    title: str = Field(min_length=1, max_length=80)
+    terms: str = Field(min_length=1, max_length=180)
+    collection: str = Field(pattern=r"^[a-z][a-z_]{0,40}$")
+    label_field: str = Field(pattern=r"^[a-z][a-z_]{0,40}$")
+    page_limit: bool = False
+    mark_current_workspace: bool = False
+
+
 class ToolSpec(BaseModel):
     """A single tool entry from the manifest, typed and ready to bind.
 
@@ -202,6 +214,7 @@ class ToolSpec(BaseModel):
     params: Dict[str, Any] = {}
     returns: Optional[Dict[str, Any]] = None
     privacy: Optional[str] = None
+    voice_quick_read: VoiceQuickReadSpec | None = None
 
     @classmethod
     def from_entry(cls, entry: Dict[str, Any]) -> "ToolSpec":
@@ -218,6 +231,7 @@ class ToolSpec(BaseModel):
             params=entry.get("params") or {},
             returns=entry.get("returns"),
             privacy=entry.get("privacy"),
+            voice_quick_read=entry.get("voice_quick_read"),
         )
 
 

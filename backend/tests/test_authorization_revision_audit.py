@@ -145,6 +145,7 @@ def test_non_bumping_scope_callers_are_only_fences_and_content_writes():
         "services/release_admission.py",  # releases a snapshot under a read fence
         "services/event_access.py",  # notification reference check
         "services/entry_effect_scope.py",  # entry content effects
+        "services/attachment_entry_write.py",  # attachment content effects
         "services/kanban_columns.py",  # board column content
         "services/bundle_cleanup_outbox.py",  # cleanup outbox
         "services/app_operations/history.py",  # operation history

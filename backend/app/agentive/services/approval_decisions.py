@@ -17,7 +17,9 @@ from app.agentive.services.staging_apply import bless_and_execute
 from app.agentive.staging import StagingError, get_token, revoke_token
 
 Decision = Literal["approve", "reject"]
-DecisionSource = Literal["chat", "card", "channel", "inbox"]
+DecisionSource = Literal[
+    "chat", "card", "channel", "inbox", "voice", "resident_permission"
+]
 
 
 class StagedWriteProposal(BaseModel):
@@ -128,9 +130,29 @@ async def decide_staged_write(
         )
 
     proposal = proposal_from_staged(staged)
+    from app.services.voice_approval_contract import (
+        permits_voice_deletion,
+        permits_voice_review,
+    )
+
+    if source == "resident_permission":
+        from app.services.resident_permissions import holds_permission
+
+        if decision != "approve" or not holds_permission(staged):
+            raise StagingError(
+                "strong_confirmation_required", "This change needs review."
+            )
+    if source == "voice" and not permits_voice_review(staged, proposal):
+        raise StagingError(
+            "strong_confirmation_required", "This change needs its approval card."
+        )
     if decision == "approve":
         if proposal.effect_class is ApprovalEffectClass.DESTRUCTIVE_SECURITY and (
-            source != "card" or not strong_confirmation
+            not strong_confirmation
+            or (
+                source != "card"
+                and not (source == "voice" and permits_voice_deletion(staged))
+            )
         ):
             raise StagingError(
                 "strong_confirmation_required",

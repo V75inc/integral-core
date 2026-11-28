@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
@@ -61,7 +62,7 @@ from app.agentive.tooling.list_pagination import (
     expand_agent_list_pages,
     project_agent_list_items,
 )
-from app.agentive.tooling.manifest import load_manifest
+from app.agentive.tooling.manifest import ToolSpec, load_manifest
 from app.agentive.tooling.policy_gate import enforce_tool_policy, sanitize_tool_args
 
 logger = logging.getLogger(__name__)
@@ -215,6 +216,17 @@ def _read_refusal(data: Any) -> Optional[ToolResult]:
         return None
     refusal = data["refused"]
     declared = bool(refusal.get("declared_query_required"))
+    recovery = data.get("recovery") if declared else None
+    recovery_args = recovery.get("arguments") if isinstance(recovery, dict) else None
+    app_id = recovery_args.get("app_id") if isinstance(recovery_args, dict) else None
+    # The service only offers the parent ID after a fresh App admission. Keep
+    # that scoped hint, never infer a parent from an inaccessible Track ID.
+    app_hint = (
+        f" Current admitted App ID: {app_id}. "
+        if isinstance(app_id, str)
+        and re.fullmatch(r"n\.WorkspaceApp\.[A-Za-z0-9_-]{1,200}", app_id)
+        else ""
+    )
     return ToolResult(
         is_error=True,
         error_code=str(refusal.get("code") or "read_refused"),
@@ -222,13 +234,15 @@ def _read_refusal(data: Any) -> Optional[ToolResult]:
             "The read was refused; no records were queried. Do not report an "
             "empty result or a zero count. "
             + (
-                "Call integral_list_workspace_tools to discover this installed "
-                "App's read tools and their input schemas. Use "
-                "integral_call_workspace_tool with the exact returned tool key "
-                "and matching App scope. If no matching read tool is available, "
-                "inspect integral_describe_capabilities for a declared query "
-                "belonging to this App; integral_governed_query in "
-                "declared_capability mode requires a verified matching key. "
+                "Discover this App's current read contracts with "
+                "integral_find_workspace_resources using the specific source "
+                "and information need. Prefer a matching complete read_queries "
+                "contract; integral_governed_query in declared_capability mode "
+                "requires a verified matching key. Use its App ID, catalogue "
+                "generation and input schema. Use integral_call_workspace_tool "
+                "only for an appropriate declared read tool. "
+                + app_hint
+                + "If the resource page is partial, follow next_offset. "
                 "If neither is exposed, explain briefly that the records "
                 "could not be read. A permitted integral_resolve_entry lookup of a known "
                 "record ID remains available; it cannot enumerate unknown records. "
@@ -239,7 +253,7 @@ def _read_refusal(data: Any) -> Optional[ToolResult]:
                 else "Report the refusal without inferring any record count."
             )
         ),
-        next_tool="integral_list_workspace_tools" if declared else "",
+        next_tool="integral_find_workspace_resources" if declared else "",
     )
 
 
@@ -391,6 +405,8 @@ async def dispatch_tool(
     session_id: Optional[str] = None,
     interaction_id: Optional[str] = None,
     skill_tools_required: Optional[list] = None,
+    voice_read_offer: ToolSpec | None = None,
+    voice_read_cursor: str | None = None,
 ) -> ToolResult:
     """Dispatch manifest tool ``name`` under ``principal_id`` + bound ``scope``.
 
@@ -420,6 +436,50 @@ async def dispatch_tool(
     op_class = "unknown"
     result: Optional[ToolResult] = None
     try:
+        if voice_read_cursor is not None and voice_read_offer is None:
+            return ToolResult(
+                is_error=True,
+                error_code="not_available",
+                message="Voice page unavailable.",
+            )
+        if voice_read_offer is not None:
+            # Do not use indefinite resident registry caching when redeeming a
+            # private negotiated read; revalidate the same authority we dispatch.
+            from app.agentive.tooling.catalogue import admits_voice_quick_read
+
+            spec = (await asyncio.to_thread(load_manifest)).get(name)
+            binding = TOOL_BINDINGS.get(name)
+            if (
+                not principal_id
+                or not scope
+                or session_id is not None
+                or interaction_id is not None
+                or args
+                or spec != voice_read_offer
+                or not admits_voice_quick_read(spec, binding)
+            ):
+                return ToolResult(
+                    is_error=True,
+                    error_code="not_available",
+                    message="The requested voice read is unavailable.",
+                )
+            assert spec is not None and spec.voice_quick_read is not None
+            args = {"limit": 20} if spec.voice_quick_read.page_limit else {}
+            # Only the server-held continuation from an admitted list can set
+            # this separate parameter. Model tool args remain disallowed.
+            if voice_read_cursor is not None:
+                if (
+                    "cursor" not in spec.params
+                    or not isinstance(voice_read_cursor, str)
+                    or not 0 < len(voice_read_cursor) <= 2048
+                ):
+                    return ToolResult(
+                        is_error=True,
+                        error_code="not_available",
+                        message="Voice page unavailable.",
+                    )
+                args["cursor"] = voice_read_cursor
+
         if name in {
             "integral_upsert_artifact",
             "integral_prepare_document_attachment",
@@ -556,8 +616,9 @@ async def dispatch_tool(
                 )
                 return result
 
-        spec = (await asyncio.to_thread(_registry)).get(name)
-        binding = TOOL_BINDINGS.get(name)
+        if voice_read_offer is None:
+            spec = (await asyncio.to_thread(_registry)).get(name)
+            binding = TOOL_BINDINGS.get(name)
 
         # Explicit user no-save intent is a host-enforced capability boundary,
         # not an instruction left to the resident prompt. Keep reads available
@@ -765,7 +826,7 @@ async def dispatch_tool(
                     message=data.get("message", ""),
                 )
                 return result
-            if isinstance(data, dict):
+            if isinstance(data, dict) and voice_read_offer is None:
                 data = await expand_agent_list_pages(
                     name,
                     safe_args=safe_args,
@@ -871,7 +932,12 @@ async def _maybe_stage_mcp_write(
     else:
         connector = await Connector.get(connector_id)
     auth_state = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
-    if not await asyncio.to_thread(is_write_tool, spec, auth_state=auth_state):
+    if not await asyncio.to_thread(
+        is_write_tool,
+        spec,
+        auth_state=auth_state,
+        manifest=getattr(connector, "package_manifest", None),
+    ):
         return None
 
     display_name = str(auth_state.get("display_name") or "")
@@ -1622,8 +1688,6 @@ async def _dispatch_propose(
             )
         return ToolResult(data=batched)
 
-    from app.agentive.unstaged_targets import is_unstaged_target
-
     # ADR-006 / I-PC-01 — the one write path that skips the card.
     #
     # An App may declare tracks that accept agent writes unstaged, and the
@@ -1637,7 +1701,13 @@ async def _dispatch_propose(
     # batch asked for one card covering the whole workflow, and honouring that
     # is more useful than exempting some of its ops — an exempt op inside a
     # batch would land early and out of order with the rest.
-    if await is_unstaged_target(
+    from app.agentive.services.proposal_origin import (
+        checking_resident_permission,
+        interactive_resident_proposal,
+    )
+    from app.agentive.unstaged_targets import is_unstaged_target
+
+    if not interactive_resident_proposal() and await is_unstaged_target(
         user_id=principal_id, kind=staged["kind"], payload=staged["payload"]
     ):
         from app.agentive.staging_executors import dispatch as execute_staged
@@ -1678,6 +1748,7 @@ async def _dispatch_propose(
     if (
         session_id is not None
         and (sc.origin_proof or {}).get("requires_deferred_link") is not True
+        and not checking_resident_permission()
     ):
         from app.services.prompt_queue import enqueue_staged_write
 

@@ -1,0 +1,144 @@
+schema: integral.connector/v1
+id: gmail
+version: 1.0.0
+publisher: integral
+name: Gmail
+description: "Mirror selected Gmail labels into Integral. Read-only \u2014 Integral\
+  \ never sends or modifies mail."
+settings_surface: labels
+binding:
+  scopes:
+  - workspace
+  - personal
+trust:
+  tier: trusted
+http:
+  base_url: https://gmail.googleapis.com
+health:
+  request:
+    method: GET
+    path: /gmail/v1/users/me/profile
+capabilities:
+  sync:
+    entry_type: gmail
+    record_type: email_thread
+    child_type: email_message
+    conflict_policy: mirror_only
+    title_prefix: Email thread
+    field_names:
+      subject: subject
+      participants: participant_emails
+      message_count: message_count
+      first_message_at: first_message_at
+      last_message_at: last_message_at
+      gmail_thread_id: gmail_thread_id
+      gmail_labels: gmail_labels
+      _source_system: _source_system
+      _source_version: _source_version
+      _last_synced_at: _last_synced_at
+      unmatched_participants: unmatched_participants
+      from: from
+      to: to
+      cc: cc
+      sent_at: sent_at
+      snippet: snippet
+      body: body
+      attachments_meta: attachments_meta
+      gmail_message_id: gmail_message_id
+    page_size: 100
+    max_pages: 50
+  actions:
+  - name: list_labels
+    description: List the mailbox labels.
+    effect: read
+    input:
+      type: object
+    request:
+      method: GET
+      path: /gmail/v1/users/me/labels
+  - name: list_threads
+    description: List mailbox threads for one label.
+    effect: read
+    input:
+      type: object
+    request:
+      method: GET
+      path: /gmail/v1/users/me/threads
+      query:
+        labelIds: "{{input.label_id}}"
+        pageToken: "{{cursor}}"
+        maxResults: "{{input.page_size}}"
+    output:
+      select: $.threads
+      next: $.nextPageToken
+      id: $.id
+  - name: get_thread
+    description: Read one mailbox thread.
+    effect: read
+    input:
+      type: object
+    request:
+      method: GET
+      path: /gmail/v1/users/me/threads/{{input.thread_id}}
+    output:
+      select: $
+      items: $.messages
+      id: $.id
+      updated_at: $.internalDate
+      version: $.historyId
+      summary: $.snippet
+      title_header: subject
+      from_header: from
+      to_header: to
+      cc_header: cc
+      labels: $.labelIds
+      body_type: text/plain
+      body_key: mimeType
+      content_key: data
+      body_field: body
+      parts_key: parts
+      payload_key: payload
+      headers_key: headers
+      name_key: name
+      value_key: value
+auth:
+  type: oauth2
+  authorize_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  scopes:
+  - https://www.googleapis.com/auth/gmail.readonly
+  extra_authorize_params:
+    access_type: offline
+    prompt: consent
+  redirect_env:
+  - GMAIL_OAUTH_REDIRECT_URI
+  client:
+    source: installer
+    id_field: client_id
+    secret_field: client_secret
+    id_env:
+    - GMAIL_OAUTH_CLIENT_ID
+    - GOOGLE_OAUTH_CLIENT_ID
+    secret_env:
+    - GMAIL_OAUTH_CLIENT_SECRET
+    - GOOGLE_OAUTH_CLIENT_SECRET
+configuration:
+- key: client_id
+  label: Client ID
+  type: string
+- key: client_secret
+  label: Client secret
+  type: secret
+- key: consent_acknowledged
+  label: Allow syncing selected mailbox labels
+  type: boolean
+- key: labels
+  label: Labels
+  type: select
+  multiple: true
+  help: Mailbox labels to mirror. Saved selections stay on the connector.
+  options_from:
+    action: list_labels
+    items: $.labels
+    value: $.id
+    label: $.name

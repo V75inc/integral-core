@@ -10,6 +10,21 @@ _status_sink: ContextVar[asyncio.Queue | None] = ContextVar(
 )
 
 
+async def emit_conversation_preview(*, delta: str | None) -> None:
+    """Apply backpressure until the normal turn consumer has persisted this frame."""
+    sink = _status_sink.get()
+    if sink is None:
+        raise RuntimeError("Conversation preview requires the native turn stream")
+    event = (
+        {"type": "text-delta", "delta": delta}
+        if delta is not None
+        else {"type": "text-replace", "content": ""}
+    )
+    acknowledged = asyncio.get_running_loop().create_future()
+    await sink.put(("event", event, acknowledged))
+    await acknowledged
+
+
 async def emit_model_retry_status(attempt: int, maximum: int) -> None:
     """Show the next physical attempt without exposing provider errors."""
     sink = _status_sink.get()
@@ -29,7 +44,7 @@ async def emit_model_retry_status(attempt: int, maximum: int) -> None:
 
 
 async def stream_with_retry_status(
-    source: AsyncIterator[dict[str, Any]]
+    source: AsyncIterator[dict[str, Any]],
 ) -> AsyncIterator[dict[str, Any]]:
     """Keep one producer task for the whole turn; bound buffering and cancellation."""
     queue: asyncio.Queue = asyncio.Queue(maxsize=32)

@@ -101,11 +101,11 @@ async def test_connector_node_seven_fields_round_trip():
     assert fetched.capabilities == ["filing"]
 
 
-def test_get_chat_connector_unknown_kind_raises():
-    from app.agentive.connectors.registry import get_chat_connector
+def test_get_chat_agent_unknown_kind_raises():
+    from app.agentive.connectors.registry import get_chat_agent
 
     with pytest.raises(ValueError, match="unknown_vendor"):
-        get_chat_connector("unknown_vendor")
+        get_chat_agent("unknown_vendor")
 
 
 @pytest.mark.asyncio
@@ -262,7 +262,7 @@ async def test_chat_message_happy_path_returns_chat_turn_response(
         _mock_get_system,
     )
     monkeypatch.setattr(
-        "app.agentive.api.chat.get_chat_connector",
+        "app.agentive.api.chat.get_chat_agent",
         lambda _t: _FakeConnector(),
     )
 

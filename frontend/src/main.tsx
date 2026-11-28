@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
@@ -39,15 +39,9 @@ const queryClient = new QueryClient({
   },
 });
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      {/* On react-router v7 the `future` prop is gone: v7_startTransition and
-          v7_relativeSplatPath are the default behaviour now, not opt-ins.
-          B-AUTH-05 had already enabled both under v6, so this app has been
-          running v7 routing semantics for a while — the upgrade changes the
-          package version, not how routes resolve. */}
-      <BrowserRouter>
+// The data router supplies a supported navigation blocker (including POP).
+// App still owns the registered workspace routes and their authorization.
+const router = createBrowserRouter([{ path: '*', element: (
         <ThemeProvider>
           <AuthProvider>
             <AuthBootstrappedPlugins />
@@ -55,14 +49,18 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <ConfirmProvider>
                 <CrumbsProvider>
                   <ScopeProvider>
-                    <App />
+                    <App guardVoiceNavigation />
                   </ScopeProvider>
                 </CrumbsProvider>
               </ConfirmProvider>
             </ToastProvider>
           </AuthProvider>
         </ThemeProvider>
-      </BrowserRouter>
+) }]);
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   </React.StrictMode>
 );

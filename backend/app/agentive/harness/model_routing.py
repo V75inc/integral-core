@@ -151,7 +151,10 @@ async def _resolve_turn_routes(
         default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
         **({"profile_id": profile_id} if profile_id else {}),
     )
-    from app.services.model_harness_policy import require_heavy_model
+    from app.services.model_harness_policy import (
+        require_chat_model,
+        require_heavy_model,
+    )
 
     require_heavy_model(heavy.provider, heavy.model)
     source = getattr(heavy, "credential_source", None)
@@ -188,6 +191,7 @@ async def _resolve_turn_routes(
             light = resolve_deployment_model_route(
                 os.getenv("INTEGRAL_NATIVE_LIGHT_MODEL", "").strip()
             )
+            require_chat_model(light.provider, light.model)
             light = light.model_copy(
                 update={
                     "generation_settings": await asyncio.to_thread(
@@ -206,6 +210,7 @@ async def _resolve_turn_routes(
                 default_model="",
                 profile_id=record.light_profile_id,
             )
+            require_chat_model(light.provider, light.model)
             return TurnModelRoutes(heavy, light, "light_heavy", record.updated_at or "")
     return TurnModelRoutes(heavy, heavy)
 
@@ -432,6 +437,7 @@ async def bind_durable_routing(scope, context, plan: TurnModelRoutes, timing) ->
                 remaining = settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS
             saved = {
                 "fingerprint": fingerprint,
+                "budget": dict(timing.budget_settings or {}),
                 "deadline_epoch": time.time() + remaining,
             }
             changed = await get_default_context().database.find_one_and_update(
@@ -450,6 +456,8 @@ async def bind_durable_routing(scope, context, plan: TurnModelRoutes, timing) ->
             await get_default_context()._evict_from_cache(run.id)
         if not isinstance(saved, dict) or saved.get("fingerprint") != fingerprint:
             raise WorkError("work.model_route_stale")
+        if "budget" in saved:
+            timing.freeze_budget(saved["budget"])
         remaining = saved.get("deadline_epoch", 0) - time.time()
         if remaining <= 0:
             raise UsageLimitExceeded("The shared turn deadline is exhausted")

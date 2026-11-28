@@ -168,15 +168,14 @@ export function WorkspaceDetailPage() {
   useEffect(() => {
     const wid = workspace?.id || '';
     if (!wid) return;
-    setScope({ workspaceId: wid });
-  }, [workspaceId, workspace?.id, setScope]);
+    setScope({ workspaceId: wid }, undefined, () => navigate(-1));
+  }, [workspaceId, workspace?.id, setScope, navigate]);
 
   const openAppsInWorkspace = useCallback(() => {
     if (!workspace?.id) return;
     if (scope?.workspaceId !== workspace.id) {
-      setScope({ workspaceId: workspace.id });
-    }
-    navigate('/apps');
+      setScope({ workspaceId: workspace.id }, () => navigate('/apps'));
+    } else navigate('/apps');
   }, [workspace?.id, scope?.workspaceId, setScope, navigate]);
 
   const openEditModal = useCallback(() => {

@@ -8,6 +8,7 @@ import pytest
 from app.services.model_harness_policy import (
     assess_model,
     model_policy_catalog,
+    require_chat_model,
     require_heavy_model,
 )
 
@@ -39,7 +40,6 @@ def test_evidence_and_provider_boundaries():
     assert assess_model("openai", "gpt-6.1-sol")["evidence"] == "observed"
     assert assess_model("openrouter", "openai/gpt-6.1-sol")["evidence"] == "candidate"
     assert assess_model("custom_openai", "gpt-6.1-sol")["tier"] == "unverified"
-    assert assess_model("openai", "gpt-4o-mini-transcribe")["tier"] == "unverified"
     assert assess_model("anthropic", "claude-opus-5-5")["evidence"] == "candidate"
     assert assess_model("openrouter", "anthropic/claude-opus-5.5")["recommended"]
     assert (
@@ -151,3 +151,31 @@ async def test_active_heavy_edit_rejected_before_profile_mutation(monkeypatch):
         )
     assert profile.model == "gpt-6.1-sol"
     save.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "provider,model,tier",
+    [
+        ("openai", "gpt-4o-mini-transcribe", "voice"),
+        ("openai", "gpt-4o-transcribe", "voice"),
+        ("openai", "whisper-1", "voice"),
+        ("openai", "gpt-realtime", "voice"),
+        ("openai", "gpt-realtime-mini", "voice"),
+        ("openai", "gpt-realtime-2.1-mini", "voice"),
+        ("openai", "gpt-realtime-2.1", "voice"),
+        ("openai", "gpt-realtime-2", "voice"),
+        ("openai", "gpt-realtime-1.5", "voice"),
+        ("openai", "gpt-live-1.1", "voice"),
+        ("openai", "gpt-live-1", "voice"),
+        ("openai", "gpt-4o-mini-transcribe-2025-12-15", "voice"),
+        ("openrouter", "openai/gpt-4o-realtime-preview", "voice"),
+        ("openai", "text-embedding-3-small", "embedding"),
+        ("openai", "text-embedding-ada-002", "embedding"),
+    ],
+)
+def test_non_chat_catalog_choices_are_not_chat_routes(provider, model, tier):
+    assert assess_model(provider, model)["tier"] == tier
+    with pytest.raises(ValueError, match="cannot be used for chat"):
+        require_chat_model(provider, model)
+    with pytest.raises(ValueError, match="cannot be used for chat"):
+        require_heavy_model(provider, model)

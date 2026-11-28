@@ -6,6 +6,8 @@ Guidance for coding agents working in this repository.
 
 Integral = **AI-native knowledge platform** — singular, conformable substrate of domain knowledge humans and AI agents read, write, schema, coordinate over under one access model. Mission: remove fundamental impediment to AI-first operation — agents have no canonical place to read from or write to. Integral collapses fragmented domain knowledge into one graph, flexible Operational Model schema layer, first-class agentive layer.
 
+**Build Core for many apps.** When a custom app exposes a gap, first trace it through the shared contract. Put reusable behavior in Core and express app-specific fields, vocabulary and policy through Operational Models, manifests, skills or hooks. If a shared contract cannot express a generally useful capability, extend it while preserving its authorization, staging and compatibility guarantees. Verify a foundation change with distinct app schemas or configurations so a fix for one app also works for the next.
+
 Monorepo:
 
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS (port 9006)
@@ -16,6 +18,41 @@ Backend uses jvspatial graph-based data model — all entities are Nodes with ex
 **Harness engineering principle:** Prefer the supported facilities and public extension points of the pinned Pydantic AI Harness and Pydantic AI for agent runtime behavior. Before adding or extending custom harness behavior, examine those libraries for an appropriate facility and use it when it meets Integral's requirements. Custom code is justified for Integral substrate integration or when the libraries do not furnish a suitable facility; document the gap and preserve current authorization, tenancy, staging, receipts and recovery. Review existing custom behavior for replacement where practical, and verify semantic and security parity before removing it. See [docs/product/RESIDENT_HARNESS.md](docs/product/RESIDENT_HARNESS.md).
 
 **Current jvspatial security compatibility:** package metadata pins `jvspatial==0.2.10` and `pydantic-ai-harness[skills]==0.59.0`. Runtime dependencies resolve from PyPI; no alternate resident or Git source override remains. Use `uv sync --frozen --extra dev --extra test` and the clean wheel and full release gates before release. Integral's `RATE_LIMIT_DISABLED=1` bypasses jvspatial's auth-entrypoint cap only under pytest or `DEBUG`; production keeps that cap. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret manager. See [backend/README.md](backend/README.md#jvspatial-security-compatibility) and [docs/ops/DEPLOY.md](docs/ops/DEPLOY.md#jvspatial-compatibility-release-gate).
+
+### Physical PostgreSQL indexing (MANDATORY)
+
+**I-RUNTIME-01 — Governed indexes.** Uncontrolled automatic index creation has
+caused database bloat and severe write-performance degradation in Integral.
+Keep the physical index inventory deliberate, bounded and shared across Apps.
+The canonical contract is [governed PostgreSQL storage](docs/backend/governed-indexes.md).
+
+- Managed PostgreSQL serving uses `JVSPATIAL_POSTGRES_INDEX_CREATION=managed`
+  and `JVSPATIAL_AUTO_CREATE_INDEXES=false`. Keep automatic creation disabled
+  in API, worker and launcher configurations. Required catalog verification
+  must still run before serving, with a restricted DML-only role. A missing
+  integrity constraint or unready catalog blocks startup.
+- Provision fresh storage using the release-reviewed catalog in a separate
+  maintenance process before starting the API. Existing databases require a
+  reviewed `integral indexes plan` / `status` / `apply` lifecycle with explicit
+  budgets, backup and an approved plan hash. Keep migration credentials out of
+  serving processes. Never enable automatic creation or switch to transitional
+  constraints mode as a workaround for missing catalog entries.
+- Treat model index annotations and App `storage_index_requests` as
+  requirements or proposals, subject to catalog review. Agents must not issue
+  ad hoc CREATE, DROP or REINDEX operations from startup hooks, requests,
+  worker loops, App tools, or data-volume thresholds. Reuse approved shared
+  access paths; avoid new indexes per record, workspace, or App instance.
+- Before proposing an additional index, identify the actual query and existing
+  access paths. Measure query latency, plans, index count and size, and write
+  overhead on a representative populated PostgreSQL fixture. Qualify the
+  reviewed fingerprint and resource budget. Preserve existing required
+  uniqueness and authorization semantics. Retirement of an existing index
+  needs separate reviewed evidence; a zero scan count alone is insufficient.
+- Verify that startup, ordinary reads/writes, worker execution, and repeated
+  restarts do not grow the physical index inventory or change its definitions.
+  Test missing-catalog failure and migration recovery against disposable
+  PostgreSQL. Semantic indexing of content follows the separate retrieval
+  contract below; it does not authorize opportunistic physical index creation.
 
 When repairing legacy `UserModelCredential` duplicates, read through `GraphContext.find` so the unique index is not created before deduplication. Validate the migration against a PostgreSQL schema containing actual duplicate rows, then verify the index rejects a new duplicate.
 
@@ -137,6 +174,16 @@ Bypass with `--no-verify` only for documented exceptions. See `.githooks/README.
 
 These rules bind any AI agent working in this repo. They are not optional.
 
+**I-GIT-ATTRIBUTION-01 — Human contributor attribution.** Never include
+coding-agent author, committer, coauthor or sign-off identities, generated-by
+footers, or similar agent credit in commits, pull request titles, descriptions,
+comments, or merge messages. Use the authorized human contributor's Git
+identity and preserve genuine human contributor credit. Product references,
+licenses and required notices remain intact. Audit the complete proposed history
+and PR text with `scripts/commit_attribution.py` before publishing. Existing
+attributed history requires the reviewed cleanup procedure in
+[Contributor attribution policy](docs/ops/CONTRIBUTOR_ATTRIBUTION.md).
+
 1. **NEVER push without explicit user consent.** Committing is fine at any
    time; `git push` (and opening/updating PRs) requires the user to explicitly
    say to push in this session. Do not push "to be helpful," to back up work,
@@ -177,6 +224,49 @@ do not advertise an unqualified platform or imply data can be reset to upgrade.
 Stale or materially unverified release instructions block promotion. Keep Core
 contracts generic and document One/Business product behavior in their own repos.
 See [RELEASING.md](RELEASING.md) for the documentation acceptance checklist.
+
+### Extending Core through connectors
+
+Before adding or changing a connector, read the
+[Connector Standard v1](docs/backend/connector-extension-standard-v1.md),
+[connector architecture](docs/backend/connectors.md), and
+[reference managed-channel wheel](examples/reference-managed-text-channel/README.md).
+Keep provider behavior, routes and lifecycle in the connector. Use Core's
+typed registry and Settings contracts; do not add connector-name branches
+to Core startup or Settings to make an extension work.
+
+- **Choose the supported contract.** Connector kind (channel, API, MCP or
+  native sync) is separate from install binding (Workspace, Personal or both).
+  Managed text v1 is a Workspace singleton; it is not a general provider SDK.
+  Use the actual adapter contract and show only the scope choices it supports
+  and the caller is authorized to select. Do not invent a scope-switch control
+  or move credentials or grants across scopes. An adapter without a reviewed
+  transition requires a new explicitly authorized installation.
+- **Keep registration, installation and serving separate.** For a managed v1
+  wheel, use the pinned, reviewed `integral.managed_channels.v1` entry point
+  and a complete `ChannelPackage`. Discovery has no lifecycle side effects.
+  Add installs disabled; saving configuration must not enable, publish or
+  issue a link.
+  Revalidate the authenticated principal, scope, exact provision and revision
+  at the relevant read and effect boundaries. Unknown readiness fails closed;
+  preserve safe disable/remove, installed identity and legacy access.
+- **Show the shared row controls.** A connected host-managed row uses the
+  shared switch and remove control from the managed channel projection,
+  including when the owner is in their personal workspace. Do not add a
+  second enable/disable inside Configure. Prove the row in a personal
+  workspace, not only an organization workspace.
+- **Use the trusted runtime boundary.** Connector-owned routes go through
+  explicit host startup admission, not import-time mounts or a UI request.
+  The deployment supplies approved origins, proxy/TLS and admission controls.
+  Separate staff from visitor traffic. Bind public execution to the exact
+  published profile's current service identity; do not borrow staff access
+  or default grants. Keep secrets out of settings projections, links and logs.
+- **Prove the contract, not just the UI.** Exercise a separately built
+  connector without editing Core, including install/configure/enable/disable/
+  remove as applicable. Test wrong scope, stale revisions, readiness loss
+  and revocation. For public routes, prove distinct staff/visitor boundaries;
+  distinguish isolated tests from real browser/provider checks and deployment.
+  Update the canonical connector docs when an extension contract changes.
 
 ### Chat identity and first-time guidance
 

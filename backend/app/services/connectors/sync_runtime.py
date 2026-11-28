@@ -41,10 +41,12 @@ from app.services.connectors.conflict_records import create_conflict_record
 from app.services.connectors.registry import get_sync_connector
 from app.services.connectors.sync_lease import (
     LEASE_SECONDS,
+    SyncLeaseLost,
     claim_sync,
     current_sync_lease,
     release_sync,
     renew_sync,
+    require_current_package_sync,
     save_connector_changes,
     sync_effect,
 )
@@ -275,6 +277,34 @@ async def _run_connector_hooks(
     )
 
 
+def adapter_for_connector(connector):
+    """Use the manifest captured at Add when it declares a sync source."""
+    slug = str(getattr(connector, "subclass_slug", "") or "").strip()
+    stored = getattr(connector, "package_manifest", None)
+    if getattr(connector, "mapping_profile", "") == "package" and isinstance(
+        stored, dict
+    ):
+        from app.connectors.package_runtime import package_sync_adapter
+
+        adapter = package_sync_adapter(stored, slug)
+        if adapter is not None:
+            return adapter
+    return adapter_for_slug(slug)
+
+
+def adapter_for_slug(slug: str):
+    """Use the package sync source when it declares one, otherwise the registered adapter."""
+    from app.connectors.package_runtime import declarative_sync_adapter
+
+    declared = declarative_sync_adapter(slug)
+    if declared is not None:
+        return declared
+    try:
+        return get_sync_connector(slug)
+    except ValueError:
+        return None
+
+
 async def _sync_owned(connector, lease) -> Dict[str, int]:
     """Pull external records, dedupe via idempotency_key, materialize/update Entries.
 
@@ -312,9 +342,8 @@ async def _sync_owned(connector, lease) -> Dict[str, int]:
         )
         return stats
 
-    try:
-        sub = get_sync_connector(slug)
-    except ValueError:
+    sub = adapter_for_connector(connector)
+    if sub is None:
         logger.warning(
             "sync_one_connector: no SyncConnector registered for slug %r "
             "(connector=%s); skipping",
@@ -381,6 +410,11 @@ async def _sync_owned(connector, lease) -> Dict[str, int]:
                 from app.middleware.permissions_cache import reset_permissions_cache
 
                 reset_permissions_cache()
+                from app.agentive.nodes import Connector
+
+                require_current_package_sync(
+                    connector, await Connector.get(connector.id)
+                )
                 upstream_key = sub.idempotency_key_for(record)
                 materialized = sub.to_entry(record)
                 entry_type_key = str(materialized.entry_type_key or "").strip()
@@ -446,7 +480,23 @@ async def _sync_owned(connector, lease) -> Dict[str, int]:
                     local_edit = _local_edited_after_sync(
                         entry, connector.last_synced_at
                     )
-                    if sub.conflict_policy == "manual_resolve" and local_edit:
+                    stored = getattr(connector, "package_manifest", None)
+                    slug = str(
+                        getattr(connector, "subclass_slug", "")
+                        or getattr(sub, "slug", "")
+                        or ""
+                    )
+                    try:
+                        from app.connectors.package_runtime import (
+                            package_conflict_policy,
+                        )
+
+                        policy = package_conflict_policy(
+                            stored if isinstance(stored, dict) else None, slug
+                        )
+                    except ValueError:
+                        policy = getattr(sub, "conflict_policy", "mirror_only")
+                    if policy == "manual_resolve" and local_edit:
                         await create_conflict_record(
                             connector_id=connector.id,
                             entry=entry,
@@ -454,7 +504,7 @@ async def _sync_owned(connector, lease) -> Dict[str, int]:
                         )
                         outcome = "conflict"
                     else:
-                        if sub.conflict_policy == "last_write_wins" and local_edit:
+                        if policy == "last_write_wins" and local_edit:
                             logger.warning(
                                 "connector sync: overwriting local edit on entry %s (connector=%s)",
                                 entry.id,
@@ -563,10 +613,23 @@ async def _sync_owned(connector, lease) -> Dict[str, int]:
 async def sync_one_connector(connector) -> Dict[str, int]:
     """Manual and scheduled entry point share one durable exclusive owner."""
     stats = {"created": 0, "updated": 0, "conflict": 0, "skipped": 0, "failed": 0}
-    slug = str(getattr(connector, "subclass_slug", "") or "").strip()
-    try:
-        get_sync_connector(slug)
-    except ValueError:
+    if (
+        getattr(connector, "legacy_sync_paused", False)
+        and getattr(connector, "mapping_profile", "") != "package"
+    ):
+        stats["skipped"] = 1
+        return stats
+    if getattr(connector, "mapping_profile", "") == "package":
+        from app.agentive.services.connector_packages import installation_package_id
+        from app.connectors.package_discovery import current_admission
+
+        if (
+            not getattr(connector, "enabled", False)
+            or installation_package_id(connector) not in current_admission().packages
+        ):
+            stats["skipped"] = 1
+            return stats
+    if adapter_for_connector(connector) is None:
         return stats
     if await _resolve_bound_track(connector) is None:
         await _mark_unbound(connector)
@@ -586,7 +649,13 @@ async def sync_one_connector(connector) -> Dict[str, int]:
     async def execute():
         token = current_sync_lease.set(lease)
         try:
+            from app.agentive.nodes import Connector
+
+            require_current_package_sync(connector, await Connector.get(connector.id))
             return await _sync_owned(connector, lease)
+        except SyncLeaseLost:
+            stats["skipped"] = 1
+            return stats
         finally:
             current_sync_lease.reset(token)
 

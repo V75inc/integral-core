@@ -1,8 +1,16 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   aiConfigurationApi,
   AI_CONFIGURATION_QUERY_KEY,
+  ATTACHMENT_ANALYSIS_QUERY_KEY,
+  attachmentAnalysisApi,
+  REALTIME_VOICE_QUERY_KEY,
+  VOICE_CONFIGURATION_QUERY_KEY,
+  EMBEDDING_CONFIGURATION_QUERY_KEY,
+  realtimeVoiceConfigurationApi,
+  voiceConfigurationApi,
+  embeddingConfigurationApi,
   type ConnectionWrite,
   type GenerationSettings,
   type ModelConnection,
@@ -17,15 +25,22 @@ import {
 import { defaultModel, RECOMMENDED_MODELS } from "../../../api/modelPresets";
 import { errorMessageFromAxios } from "../../../api/helpers";
 import { profileSummary } from "./modelSettingsSummary";
+import { DeploymentLimits } from "./DeploymentLimits";
 import { QuickProviderSetup } from "./QuickProviderSetup";
 import { ModelCategory } from "./ModelCategory";
+import { RealtimeVoiceConfiguration } from "./RealtimeVoiceConfiguration";
+import { VoiceInputSection } from "./VoiceInputSection";
 import { VoiceConfiguration } from "./VoiceConfiguration";
 import { EmbeddingConfiguration } from "./EmbeddingConfiguration";
 import { AttachmentAnalysisConfiguration } from "./AttachmentAnalysisConfiguration";
 import { ModelRoutingSection } from "./ModelRoutingSection";
 import { useToast } from "../../../context/ToastContext";
+import { useAuthOptional } from "../../../context/AuthContext";
+import { useScopeOptional } from "../../../context/ScopeContext";
+import { isChatProfile, isRealtimeVoiceModel, specializedModel } from "../../../api/modelProfileKinds";
 import { useAIConfiguration } from "../hooks/useAIConfiguration";
 import {
+  AudioLines,
   Brain,
   Database,
   Mic,
@@ -38,11 +53,30 @@ import {
   Trash2,
   Pencil,
   Image,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Modal, Badge } from "../../../components/ui";
 import { LINE_ICON_STROKE } from "../../../components/ui/IconWell";
 import { Button } from "../../../components/ui/Button";
 import { Input, Select, Stack, Surface, Text } from "../../../ui";
+
+const SPECIALTY_MODELS: Partial<Record<ModelProvider, { id: string; label: string }[]>> = {
+  openai: [
+    { id: "gpt-4o-mini-transcribe", label: "GPT-4o mini transcribe (Speech to Text)" },
+    { id: "gpt-4o-transcribe", label: "GPT-4o transcribe (Speech to Text)" },
+    { id: "whisper-1", label: "Whisper (Speech to Text)" },
+    { id: "gpt-realtime-2.1-mini", label: "GPT-Realtime 2.1 mini (Realtime Voice)" },
+    { id: "gpt-realtime-2.1", label: "GPT-Realtime 2.1 (Realtime Voice)" },
+    { id: "gpt-realtime-2", label: "GPT-Realtime 2 (Realtime Voice)" },
+    { id: "gpt-realtime-1.5", label: "GPT-Realtime 1.5 (Realtime Voice)" },
+    { id: "gpt-realtime", label: "GPT-Realtime (Realtime Voice)" },
+    { id: "gpt-realtime-mini", label: "GPT-Realtime mini (Realtime Voice)" },
+    { id: "text-embedding-3-small", label: "Text embedding 3 small (Embeddings)" },
+    { id: "text-embedding-3-large", label: "Text embedding 3 large (Embeddings)" },
+  ],
+  openrouter: [{ id: "openai/text-embedding-3-small", label: "Text embedding 3 small (Embeddings)" }],
+  ollama_local: [{ id: "embeddinggemma", label: "EmbeddingGemma (Embeddings)" }],
+};
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -66,19 +100,73 @@ const freshProfile = (): ProfileWrite => ({
 });
 
 export function AiConfigurationSection({
-  navigateToSection,
-}: { navigateToSection?: (id: string) => void } = {}) {
+  initialCategory,
+}: { initialCategory?: "embeddings" | "speech-to-text" | "realtime-voice" } = {}) {
   const { showToast } = useToast();
   const query = useAIConfiguration();
+  const userId = useAuthOptional()?.user?.id;
+  const workspaceId = useScopeOptional()?.scope?.workspaceId;
+  const scoped = { headers: { "X-Integral-Scope": `ws:${workspaceId}` } };
+  const hasScope = Boolean(userId && workspaceId);
+  const speech = useQuery({
+    queryKey: [...VOICE_CONFIGURATION_QUERY_KEY, userId, workspaceId],
+    queryFn: () => voiceConfigurationApi.get(scoped), enabled: hasScope,
+  });
+  const realtime = useQuery({
+    queryKey: [...REALTIME_VOICE_QUERY_KEY, userId, workspaceId],
+    queryFn: () => realtimeVoiceConfigurationApi.get(scoped), enabled: hasScope,
+  });
+  const images = useQuery({
+    queryKey: [...ATTACHMENT_ANALYSIS_QUERY_KEY, userId, workspaceId],
+    queryFn: () => attachmentAnalysisApi.get(scoped), enabled: hasScope,
+  });
+  const embeddings = useQuery({
+    queryKey: [...EMBEDDING_CONFIGURATION_QUERY_KEY, userId, workspaceId],
+    queryFn: () => embeddingConfigurationApi.get(scoped), enabled: hasScope,
+  });
   const qc = useQueryClient();
-  const [advanced, setAdvanced] = useState(false);
   const [quickPending, setQuickPending] = useState(false);
   const [connection, setConnection] = useState<ConnectionWrite | null>(null);
   const [customModel, setCustomModel] = useState(false);
   const [profile, setProfile] = useState<ProfileWrite | null>(null);
   const [tab, setTab] = useState<"models" | "connections">("models");
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(Boolean(initialCategory));
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [limitsOpen, setLimitsOpen] = useState(false);
+  const [category, setCategory] = useState<string | null>(initialCategory ?? null);
+  useEffect(() => {
+    if (!initialCategory) return;
+    setAdvancedOpen(true);
+    setCategory(initialCategory);
+  }, [initialCategory]);
+  const revealEmbeddingPending = useRef(true);
+  const configurationReady = Boolean(query.data && !query.isPending && !query.isError);
+  useEffect(() => {
+    if (initialCategory !== "embeddings") {
+      revealEmbeddingPending.current = true;
+      return;
+    }
+    if (!configurationReady || !advancedOpen || category !== "embeddings" ||
+        !revealEmbeddingPending.current) return;
+
+    // The Settings route and its data can both resolve asynchronously.
+    // Wait until the disclosed controls are mounted, then let layout settle.
+    let scrollFrame = 0;
+    const layoutFrame = window.requestAnimationFrame(() => {
+      scrollFrame = window.requestAnimationFrame(() => {
+        const target = document.getElementById("embedding-models-heading");
+        if (!target || target.closest("[hidden]")) return;
+        revealEmbeddingPending.current = false;
+        target.focus({ preventScroll: true });
+        target.scrollIntoView?.({ block: "start", inline: "nearest" });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(layoutFrame);
+      window.cancelAnimationFrame(scrollFrame);
+    };
+  }, [initialCategory, configurationReady, advancedOpen, category]);
   const toggleCategory = (name: string) =>
     setCategory((current) => (current === name ? null : name));
   const [removeTarget, setRemoveTarget] = useState<{
@@ -89,6 +177,13 @@ export function AiConfigurationSection({
   const notifySuccess = (message: string) => showToast(message, "success");
   const notifyError = (message: string) => showToast(message, "error");
   const [capModel, setCapModel] = useState("");
+  function modelOptions(provider: ModelProvider) {
+    const options = [...RECOMMENDED_MODELS[provider], ...(SPECIALTY_MODELS[provider] ?? [])];
+    for (const [role, id] of Object.entries(query.data?.model_policy?.specialists?.[provider] ?? {})) {
+      if (!options.some(option => option.id === id)) options.push({ id, label: `${id} (${role})` });
+    }
+    return options;
+  }
   const selectedConnection = query.data?.connections.find(
     (c) => c.id === profile?.connection_id,
   );
@@ -99,11 +194,13 @@ export function AiConfigurationSection({
     );
     return () => clearTimeout(timer);
   }, [profile?.model]);
+  const specialty = profile?.embedding_only ? "Embeddings" : profile?.model && specializedModel(profile.model, realtime.data?.supported_models);
+  const nonChat = Boolean(specialty);
   const caps = useQuery({
     queryKey: ["model-capabilities", selectedConnection?.provider, capModel],
     queryFn: () =>
       aiConfigurationApi.capabilities(selectedConnection!.provider, capModel),
-    enabled: !!selectedConnection && !!capModel,
+    enabled: !!selectedConnection && !!capModel && !nonChat,
     staleTime: 300000,
   });
   const mutation = useMutation({
@@ -112,6 +209,7 @@ export function AiConfigurationSection({
       await Promise.all([
         qc.invalidateQueries({ queryKey: AI_CONFIGURATION_QUERY_KEY }),
         qc.invalidateQueries({ queryKey: MODEL_CREDENTIALS_QUERY_KEY }),
+        qc.invalidateQueries({ queryKey: ATTACHMENT_ANALYSIS_QUERY_KEY }),
         qc.invalidateQueries({ queryKey: ["agentive", "status"] }),
       ]);
     },
@@ -152,12 +250,13 @@ export function AiConfigurationSection({
     );
     setCustomModel(
       !source ||
-        !RECOMMENDED_MODELS[source.provider].some((m) => m.id === item.model),
+        !modelOptions(source.provider).some((m) => m.id === item.model),
     );
     setProfile({
       id: item.id,
       name: item.name,
       connection_id: item.connection_id,
+      embedding_only: item.embedding_only,
       model: item.model,
       generation_settings: { ...item.generation_settings },
     });
@@ -171,6 +270,7 @@ export function AiConfigurationSection({
         p && {
           ...p,
           connection_id: id,
+          embedding_only: false,
           model: source ? defaultModel(source.provider) : "",
           generation_settings: {},
         },
@@ -211,8 +311,30 @@ export function AiConfigurationSection({
       </Feedback>
     );
   const data = query.data;
-  const disabled = mutation.isPending || quickPending || data.key_policy === "platform_only";
+  const disabled = mutation.isPending || quickPending || data.key_policy === "platform_only" || !data.effective.editable;
+  const mainProfile = data.profiles.find(p => p.id === data.default_profile_id);
+  const mainConnection = data.connections.find(c => c.id === mainProfile?.connection_id);
+  const embeddingPreset = mainConnection && data.model_policy?.specialists?.[mainConnection.provider]?.embedding;
+  const recommendedEmbedding = data.profiles.find(p => p.connection_id === mainConnection?.id && p.model === embeddingPreset);
+  const chatProfiles = data.profiles.filter(isChatProfile);
   const needle = search.trim().toLowerCase();
+  const roleChoices = [
+    ["Speech to Text", speech.data?.configuration],
+    ["Realtime Voice", realtime.data?.configuration],
+    ["Embeddings", embeddings.data?.configuration],
+  ] as const;
+  const assignments = roleChoices.flatMap(([role, choice]) => choice?.mode === "provider" &&
+    choice.model && choice.connection_id ? [{ role, model: choice.model, connectionId: choice.connection_id }] : []);
+  const legacyAssignments = assignments.filter(a => !data.profiles.some(p => p.model === a.model && p.connection_id === a.connectionId));
+  const shownLegacy = legacyAssignments.filter(a => `${a.role} ${a.model}`.toLowerCase().includes(needle));
+  const roleFor = (p: ModelProfile) => assignments.find(a => a.model === p.model && a.connectionId === p.connection_id)?.role;
+  const catalogStatus = (p: ModelProfile) => {
+    const roles: string[] = assignments.filter(a => a.model === p.model && a.connectionId === p.connection_id).map(a => a.role);
+    if (p.id === data.default_profile_id) roles.unshift(data.routing?.mode === "light_heavy" ? "Heavy model" : "Main model");
+    if (data.routing?.mode === "light_heavy" && p.id === data.routing.light_profile_id) roles.push("Light model");
+    if (p.id === (images.data?.configuration.profile_id || images.data?.recommended_profile_id)) roles.push("Vision");
+    return roles.length ? roles.join(" · ") + " · Assigned" : p.embedding_only ? "Embeddings" : specializedModel(p.model, realtime.data?.supported_models);
+  };
   const profiles = data.profiles.filter((p) =>
     `${p.name} ${p.model}`.toLowerCase().includes(needle),
   );
@@ -234,16 +356,30 @@ export function AiConfigurationSection({
   };
   return (
     <Stack gap="lg">
-      <QuickProviderSetup key={data.effective.workspace_id} data={data} disabled={mutation.isPending} onBusyChange={setQuickPending} />
-      <div>
-        <Button variant="ghost" aria-expanded={advanced} aria-controls={advanced ? "advanced-ai-configuration" : undefined} disabled={quickPending}
-          icon={<ChevronDown size={16} className={advanced ? "rotate-180" : ""} aria-hidden />} onClick={() => setAdvanced(value => !value)}>
-          {advanced ? "Hide advanced configuration" : "Show advanced configuration"}
-        </Button>
-        {!advanced && <Text as="p" variant="meta" tone="muted" className="mt-1">More control over models and other AI features.</Text>}
-      </div>
-      {advanced && <div id="advanced-ai-configuration" className="space-y-6">
-      <section aria-label="Your AI configuration">
+      <QuickProviderSetup key={data.effective.workspace_id} data={data} disabled={mutation.isPending} onBusyChange={setQuickPending}
+        assignments={{
+          speech: speech.isError ? null : speech.data, realtime: realtime.isError ? null : realtime.data,
+          images: images.isError ? null : images.data, embeddings: embeddings.isError ? null : embeddings.data,
+        }} />
+      <ModelCategory
+        id="advanced-ai-configuration"
+        title="Advanced Configuration"
+        description="Manage providers, register models, and choose where to use them."
+        icon={SlidersHorizontal}
+        open={advancedOpen}
+        onToggle={() => setAdvancedOpen(value => !value)}
+        prominent
+      >
+      <div className="space-y-5">
+      <ModelCategory
+        id="ai-provider-model-catalog"
+        title="Providers & Models"
+        description="Connect providers and register models to use in your workspace."
+        icon={KeyRound}
+        heading="h4"
+        open={catalogOpen}
+        onToggle={() => setCatalogOpen(value => !value)}
+      >
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-3">
           <div
             role="tablist"
@@ -284,11 +420,11 @@ export function AiConfigurationSection({
                 }}
               >
                 {t === "models" ? "Models" : "Providers"}{" "}
-                <Badge>{t === "models" ? data.profiles.length : data.connections.length}</Badge>
+                <Badge>{t === "models" ? data.profiles.length + legacyAssignments.length : data.connections.length}</Badge>
               </Button>
             ))}
           </div>
-          {tab === "connections" && (
+          {(data.effective.editable) && (
             <Button
               icon={<Plus size={16} />}
               disabled={disabled}
@@ -313,47 +449,8 @@ export function AiConfigurationSection({
         >
           {tab === "models" ? (
             <div className="space-y-3">
-              <ModelCategory
-                id="language-models"
-                title="Language & multimodal"
-                description={`${data.profiles.length} saved ${data.profiles.length === 1 ? "model" : "models"} · Conversation, reasoning and images`}
-                icon={Brain}
-                open={category === "language"}
-                onToggle={() => toggleCategory("language")}
-              >
-                <div className="space-y-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <Text as="p" variant="body-sm" tone="muted">
-                      Choose the models Integral uses to respond and work with
-                      you.
-                    </Text>
-                    <Button
-                      icon={<Plus size={16} />}
-                      disabled={disabled}
-                      onClick={() =>
-                        data.connections.length
-                          ? addProfile()
-                          : showConnection()
-                      }
-                    >
-                      {data.connections.length
-                        ? "Add model"
-                        : "Connect provider"}
-                    </Button>
-                  </div>
-                  <ModelRoutingSection
-                    data={data}
-                    profileEditorOpen={!!profile || mutation.isPending}
-                    onAddModel={() => {
-                      if (data.connections.length) addProfile();
-                      else showConnection();
-                    }}
-                    onEdit={(p) => {
-                      editProfile(p);
-                    }}
-                  />
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-4">
-                    <Text weight="medium">Saved language models</Text>
+                    <Text weight="medium">Available models</Text>
                     {data.profiles.length > 3 && (
                       <Input
                         type="search"
@@ -380,9 +477,7 @@ export function AiConfigurationSection({
                               <Text weight="medium" className="break-words">
                                 {p.name}
                               </Text>
-                              {p.id === data.default_profile_id && (
-                                <Badge>Default</Badge>
-                              )}
+                              {catalogStatus(p) && <Badge>{catalogStatus(p)}</Badge>}
                             </div>
                             <Text
                               as="p"
@@ -398,36 +493,21 @@ export function AiConfigurationSection({
                               tone="muted"
                               className="break-words"
                             >
-                              {profileSummary(p.generation_settings)}
-                              {p.harness_policy && !p.harness_policy.recommended && (p.harness_policy.tier !== "light" || p.id === data.default_profile_id) && ` · ${p.harness_policy.message}`}
+                              {isChatProfile(p)
+                                ? profileSummary(p.generation_settings)
+                                : data.connections.find(c => c.id === p.connection_id)?.name ?? "Saved provider"}
+                              {isChatProfile(p) && p.harness_policy && !p.harness_policy.recommended && (p.harness_policy.tier !== "light" || p.id === data.default_profile_id) && ` · ${p.harness_policy.message}`}
                             </Text>
                           </Stack>
                         </div>
                         <div className="flex flex-wrap items-center gap-1">
-                          {p.id !== data.default_profile_id && (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="min-h-11 sm:min-h-9"
-                              disabled={disabled || p.harness_policy?.tier === "light"}
-                              onClick={() =>
-                                run(async () => {
-                                  await aiConfigurationApi.activateProfile(
-                                    p.id,
-                                  );
-                                  notifySuccess("Default model updated.");
-                                })
-                              }
-                            >
-                              Use as default
-                            </Button>
-                          )}
                           <Button
                             variant="ghost"
                             size="sm"
                             className="min-h-11 sm:min-h-9"
                             icon={<Pencil size={14} />}
-                            disabled={disabled}
+                            disabled={disabled || !!roleFor(p)}
+                            title={roleFor(p) ? "Change the assignment before editing this model" : undefined}
                             onClick={() => {
                               editProfile(p);
                             }}
@@ -442,12 +522,13 @@ export function AiConfigurationSection({
                             title={
                               p.id === data.default_profile_id
                                 ? "Choose another default before removing this model"
+                                : roleFor(p) ? "Change the assignment before removing this model"
                                 : p.id === data.routing?.light_profile_id
                                   ? "Reassign or clear the light model before removing it"
                                   : "Remove model"
                             }
                             disabled={
-                              disabled ||
+                              disabled || !!roleFor(p) ||
                               p.id === data.default_profile_id ||
                               p.id === data.routing?.light_profile_id
                             }
@@ -464,7 +545,21 @@ export function AiConfigurationSection({
                         </div>
                       </div>
                     ))}
-                    {!profiles.length && (
+                    {shownLegacy.map(a => (
+                      <div key={`${a.role}:${a.connectionId}:${a.model}`} className="flex items-start gap-3 py-5 first:pt-2">
+                        <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-input)] border border-[var(--border-subtle)]">
+                          <Brain size={17} strokeWidth={LINE_ICON_STROKE} />
+                        </span>
+                        <Stack gap="xs" className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Text weight="medium" className="break-words">{a.model}</Text>
+                            <Badge>{a.role} · Assigned</Badge>
+                          </div>
+                          <Text variant="body-sm" tone="muted">{data.connections.find(c => c.id === a.connectionId)?.name ?? "Saved provider"}</Text>
+                        </Stack>
+                      </div>
+                    ))}
+                    {!profiles.length && !shownLegacy.length && (
                       <EmptyState
                         icon={<Brain size={25} />}
                         title={
@@ -476,50 +571,12 @@ export function AiConfigurationSection({
                           needle
                             ? "Try a different name or model ID."
                             : data.connections.length
-                              ? "Add a model to one of your providers, choose its settings, then make it your default."
+                              ? "Add a model from a connected provider, then assign it below."
                               : "Connect a provider to start. You can use a local model or bring your own API key."
                         }
                       />
                     )}
                   </div>
-                </div>
-              </ModelCategory>
-              <ModelCategory
-                id="embedding-models"
-                title="Embeddings"
-                description="Help search find related information"
-                icon={Database}
-                open={category === "embeddings"}
-                onToggle={() => toggleCategory("embeddings")}
-              >
-                <EmbeddingConfiguration
-                  connections={data.connections}
-                  embedded
-                />
-              </ModelCategory>
-              <ModelCategory
-                id="voice-models"
-                title="Voice"
-                description="Turn speech into text"
-                icon={Mic}
-                open={category === "voice"}
-                onToggle={() => toggleCategory("voice")}
-              >
-                <VoiceConfiguration
-                  connections={data.connections}
-                  navigateToSection={navigateToSection}
-                  embedded
-                />
-              </ModelCategory>
-              <ModelCategory id="attachment-models" title="Images and documents"
-                description="Make attachments searchable" icon={Image}
-                open={category === "attachments"} onToggle={() => toggleCategory("attachments")}>
-                <AttachmentAnalysisConfiguration />
-              </ModelCategory>
-              <Text as="p" variant="meta" tone="muted" className="px-1 pt-1">
-                Add providers once under Providers, then choose a model in each
-                category.
-              </Text>
             </div>
           ) : (
             <div>
@@ -668,32 +725,83 @@ export function AiConfigurationSection({
             </div>
           )}
         </div>
-      </section>
-      <details className="group border-t border-[var(--border-subtle)] pt-4">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--radius-input)] py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]">
-          <span className="flex items-center gap-3">
-            <ShieldCheck size={18} strokeWidth={LINE_ICON_STROKE} />
-            <Text weight="medium">Deployment limits</Text>
-          </span>
-          <ChevronDown
-            size={16}
-            className="transition-transform group-open:rotate-180"
+      </ModelCategory>
+      <section aria-label="Model assignments" className="space-y-3">
+        <Text as="h4" variant="heading-sm">Model assignments</Text>
+        <Text as="p" variant="body-sm" tone="muted">Choose which saved model each part of Integral uses.</Text>
+        <ModelCategory
+          id="language-models" heading="h5"
+          title="Language & multimodal"
+          description="Choose the models for chat, reasoning, and image understanding"
+          icon={Brain}
+          open={category === "language"}
+          onToggle={() => toggleCategory("language")}
+        >
+          <ModelRoutingSection
+            key={data.effective.workspace_id}
+            inline
+            data={{...data, profiles: chatProfiles}}
+            profileEditorOpen={!!profile || mutation.isPending}
+            busy={quickPending}
+            onEdit={editProfile}
           />
-        </summary>
-        <div className="pt-4">
-          <Text as="p" variant="body-sm" tone="muted">
-            Up to {data.harness_limits.request_limit} model requests, 32 tool
-            calls, {data.harness_limits.token_limit.toLocaleString()} total
-            tokens and {Math.round(data.harness_limits.run_seconds / 60)}{" "}
-            minutes per turn. Model profiles can use lower limits. Approval and
-            access checks always apply.
-          </Text>
-        </div>
-      </details>
-      </div>}
+        </ModelCategory>
+              <ModelCategory
+                id="embedding-models" heading="h5"
+                title="Embeddings"
+                description="Help search find related information"
+                icon={Database}
+                open={category === "embeddings"}
+                onToggle={() => toggleCategory("embeddings")}
+              >
+                <EmbeddingConfiguration
+                  connections={data.connections}
+                  profiles={data.profiles}
+                  recommendedProfile={recommendedEmbedding}
+                  embedded
+                />
+              </ModelCategory>
+              <ModelCategory
+                id="speech-to-text-models" heading="h5"
+                title="Speech to Text"
+                description="Choose the model that turns speech into text"
+                icon={Mic}
+                open={category === "speech-to-text"}
+                onToggle={() => toggleCategory("speech-to-text")}
+              >
+                <VoiceConfiguration
+                  connections={data.connections}
+                  profiles={data.profiles}
+                  embedded
+                  secondaryAction={<VoiceInputSection embedded />}
+                />
+              </ModelCategory>
+              <ModelCategory id="realtime-voice-models" heading="h5" title="Realtime Voice"
+                description="Two-way voice calls with an assistant" icon={AudioLines}
+                open={category === "realtime-voice"} onToggle={() => toggleCategory("realtime-voice")}>
+                <RealtimeVoiceConfiguration connections={data.connections} profiles={data.profiles} />
+              </ModelCategory>
+              <ModelCategory id="attachment-models" heading="h5" title="Images and documents"
+                description="Read images and recognize visible text" icon={Image}
+                open={category === "attachments"} onToggle={() => toggleCategory("attachments")}>
+                <AttachmentAnalysisConfiguration key={JSON.stringify([userId, workspaceId])} profiles={data.profiles} connections={data.connections} />
+              </ModelCategory>
+          </section>
+      </div>
+      </ModelCategory>
+      <ModelCategory
+        id="ai-deployment-limits"
+        title="Deployment Limits"
+        description="Installation-wide limits for native chat turns."
+        icon={ShieldCheck}
+        open={limitsOpen}
+        onToggle={() => setLimitsOpen(value => !value)}
+        prominent
+      >
+        <DeploymentLimits key={JSON.stringify([userId, workspaceId])} data={data} />
+      </ModelCategory>
       <Modal
         open={!!connection}
-        placement="right"
         title={connection?.id ? "Edit provider" : "Connect a provider"}
         titleIcon={<KeyRound size={19} />}
         onClose={() => {
@@ -825,7 +933,6 @@ export function AiConfigurationSection({
       </Modal>
       <Modal
         open={!!profile}
-        placement="right"
         title={profile?.id ? "Model settings" : "Add a model"}
         titleIcon={<Brain size={19} strokeWidth={LINE_ICON_STROKE} />}
         onClose={() => {
@@ -845,7 +952,7 @@ export function AiConfigurationSection({
                 notifySuccess(
                   profile.id === data.default_profile_id
                     ? "Default profile updated. Changes apply to the next turn."
-                    : "Profile saved. Select Use as default when you want to switch models.",
+                    : "Model saved. Assign it in the matching category below.",
                 );
               });
             }}
@@ -885,11 +992,12 @@ export function AiConfigurationSection({
                         setProfile({
                           ...profile,
                           model: custom ? "" : e.target.value,
+                          embedding_only: false,
                           generation_settings: {},
                         });
                       }}
                     >
-                      {RECOMMENDED_MODELS[selectedConnection.provider].map(
+                      {modelOptions(selectedConnection.provider).map(
                         (m) => (
                           <option key={m.id} value={m.id}>
                             {m.label}
@@ -916,6 +1024,17 @@ export function AiConfigurationSection({
                     />
                   </Field>
                 )}
+                {customModel && selectedConnection && selectedConnection.provider !== "anthropic" && (!specializedModel(profile.model, realtime.data?.supported_models) || profile.embedding_only) && (
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={!!profile.embedding_only}
+                      onChange={e => setProfile({ ...profile, embedding_only: e.target.checked, generation_settings: {} })} />
+                    <Text as="span" variant="body-sm">Use as an embedding encoder</Text>
+                  </label>
+                )}
+                {nonChat && <Text variant="body-sm" tone="muted">{specialty === "Realtime Voice" && !isRealtimeVoiceModel(profile.model, realtime.data?.supported_models)
+                  ? "This voice model is not assignable through the currently supported Realtime session protocol."
+                  : `Assign this model under ${specialty}.`}</Text>}
+                {!nonChat && <>
                 {caps.isError && (
                   <Text as="p" variant="body-sm" tone="warn">
                     Model capabilities are unavailable. Keep provider defaults
@@ -1084,6 +1203,7 @@ export function AiConfigurationSection({
                     />
                   </Stack>
                 </details>
+                </>}
               </Stack>
             </Modal.Body>
             <Modal.Footer>
@@ -1099,8 +1219,8 @@ export function AiConfigurationSection({
                 type="submit"
                 disabled={
                   disabled ||
-                  caps.isFetching ||
-                  capModel !== profile.model.trim()
+                  !profile.model.trim() ||
+                  (!nonChat && (caps.isFetching || capModel !== profile.model.trim()))
                 }
               >
                 Save profile

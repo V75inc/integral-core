@@ -1,3 +1,4 @@
+import { guardAppDeparture } from "../../features/ai-chat/useVoiceDepartureGuard";
 /**
  * AppErrorBoundary — the app had none.
  *
@@ -125,7 +126,7 @@ export class AppErrorBoundary extends Component<Props, State> {
           : 'Reload to finish updating.',
         dismissible: true,
         actions: [
-          { label: 'Reload', onClick: () => window.location.reload() },
+          { label: 'Reload', onClick: () => guardAppDeparture(() => window.location.reload()) },
         ],
       });
     } else {
@@ -170,7 +171,7 @@ export class AppErrorBoundary extends Component<Props, State> {
           {stale ? (
             <Button
               type="button"
-              onClick={() => window.location.reload()}
+              onClick={() => guardAppDeparture(() => window.location.reload())}
             >
               Reload
             </Button>

@@ -27,7 +27,7 @@ Do not put credential values in reports or command examples.
 
 Hosts must supervise this command beside the API with the same Core artifact
 and configured stores. A local-source overlay must select matching source and
-image builds for both processes. Starting only the API leaves events durably queued.
+image builds for both processes. Starting only the API leaves events durably queued. The default `docker compose up --build` stack includes an `event-worker` with the same runtime role and storage configuration. The native `integral up` launcher also supervises its worker. A historical stack configured for SQLite logging cannot run this PostgreSQL worker until its logging storage is deliberately migrated; do not silently discard or redirect its audit history.
 The API's recovery loop retains entry and bundle cleanup, not audit delivery.
 
 ## Durability and ordering
@@ -64,7 +64,7 @@ local sockets. Each client has a 100-event queue, fresh send-time permission
 checks and bounded authorization/send waits. Overflow or stalled clients
 reconnect and catch up through the authorized polling API. Relays do not send
 an unauthorized resource's frame: an explicit admission denial withholds only
-that event and leaves the subscription available for later authorized events.
+that event and leaves the subscription available for later authorized events. For a committed Entry deletion, a separately authorized current Track reader can receive a `scope_invalidated` hint containing only the Track scope. Opt-in polling (`include_invalidations`) returns the equivalent scope-only hints, bound to the cursor. Neither is an audit event or grants access to the deleted record. The view refetches through its normal authorized query.
 Authorization/store failures still fail closed and require reconnect. The UI's
 safety poll reads permission-filtered history for its selected workspace, without
 an own-user resource filter that would omit App and Track mutations. Its protected

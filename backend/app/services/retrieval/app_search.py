@@ -277,6 +277,9 @@ async def search_app_entries(
         return _response(
             requested, available=False, reason="search_failed", warnings=warnings
         )
+    from app.services.working_memory import capture_retrieved_evidence
+
+    capture_retrieved_evidence(context, results, query=text)
     if degraded:
         warnings.append("semantic_unavailable")
     capped = capped or examined >= k or len(results) >= top_n

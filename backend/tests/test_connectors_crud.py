@@ -396,3 +396,99 @@ def test_no_new_policy_action_literal_members():
         f"Phase 8 Plan 08-02 ZERO-LITERAL invariant violated — new Literal "
         f"members leaked: {leaks}"
     )
+
+
+def test_connector_response_redacts_oauth_material_for_every_slug():
+    """Gmail and QuickBooks use the same redactor as every other connector."""
+    from types import SimpleNamespace
+
+    from app.agentive.api.connectors import _to_response
+
+    connector = SimpleNamespace(
+        id="n.Connector.1",
+        kind="custom",
+        owner="u",
+        subclass_slug="gmail",
+        auth_state={
+            "access_token": "secret",
+            "refresh_token": "secret",
+            "access_token_expires_at": "soon",
+            "client_secret": "secret",
+            "email": "a@b.c",
+        },
+        sync_cursor=None,
+        mapping_profile=None,
+        permissions=[],
+        capabilities=[],
+        sync_interval_seconds=300,
+        last_synced_at=None,
+        connection_mode="per_user",
+        label="Mail",
+        workspace_id=None,
+        health_status=None,
+        last_error=None,
+        last_health_at=None,
+        created_at=None,
+        updated_at=None,
+    )
+    shown = _to_response(connector)
+    assert shown.auth_state == {"email": "a@b.c"}
+    assert shown.settings_surface == "labels"
+    connector.subclass_slug = "quickbooks"
+    connector.auth_state = {
+        "access_token": "secret",
+        "refresh_token_expires_at": "later",
+        "realm_id": "123",
+    }
+    quickbooks = _to_response(connector)
+    assert quickbooks.auth_state == {"realm_id": "123"}
+    assert quickbooks.settings_surface == "sync_interval"
+
+
+def test_settings_surface_comes_from_the_stored_package(monkeypatch):
+    """A stored settings surface wins. An older snapshot uses the package."""
+    from types import SimpleNamespace
+
+    from app.agentive.api.connectors import _to_response
+
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: (
+            {"settings_surface": "labels"} if package_id == "gmail" else None
+        ),
+    )
+    connector = SimpleNamespace(
+        id="n.Connector.1",
+        kind="custom",
+        owner="u",
+        subclass_slug="gmail",
+        auth_state={"access_token": "secret", "email": "a@b.c"},
+        sync_cursor="cursor-1",
+        mapping_profile=None,
+        permissions=[],
+        capabilities=[],
+        sync_interval_seconds=300,
+        last_synced_at=None,
+        connection_mode="per_user",
+        label="",
+        workspace_id=None,
+        health_status=None,
+        last_error=None,
+        last_health_at=None,
+        created_at=None,
+        updated_at=None,
+        package_manifest={"id": "acme_mail", "settings_surface": "sync_interval"},
+    )
+    shown = _to_response(connector)
+    assert shown.settings_surface == "sync_interval"
+    assert connector.subclass_slug == "gmail"
+    assert connector.auth_state["access_token"] == "secret"
+    assert connector.sync_cursor == "cursor-1"
+    connector.package_manifest = {"capabilities": {"sync": {}}}
+    assert _to_response(connector).settings_surface == "labels"
+    connector.package_manifest = {"id": "acme_mail", "settings_surface": "dashboard"}
+    with pytest.raises(ValueError, match="does not declare a settings surface"):
+        _to_response(connector)
+    connector.subclass_slug = "acme_mail"
+    connector.package_manifest = {"settings_surface": "labels"}
+    assert _to_response(connector).settings_surface == "labels"

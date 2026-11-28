@@ -2872,6 +2872,17 @@ async def _stage_call_workspace_tool(args: Dict[str, Any]) -> Dict[str, Any]:
     await require_workspace_tool_access(
         user_id=_bound_propose_principal(), workspace_id=workspace_id, spec=spec
     )
+    if spec.get("_package_installation_id"):
+        if batched:
+            raise ValueError("Package actions take a single input.")
+        output = await invoke_workspace_tool(
+            user_id=_bound_propose_principal(),
+            workspace_id=workspace_id,
+            tool_key=tool_key,
+            payload=inputs[0],
+            agent=True,
+        )
+        return {"_no_stage": True, "data": {"tool_key": tool_key, "output": output}}
     if batched:
         schema = spec.get("parameters_schema") or spec.get("input_schema") or {}
         # Validate the complete literal set before creating a proposal. Single
@@ -3289,6 +3300,16 @@ async def _stage_update_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
         validated.model_dump(mode="json", exclude_none=True, exclude_unset=True)
     )
     principal = _propose_principal.get()
+    if principal:
+        from app.services.dashboard_service import get_dashboard
+
+        dashboard = await get_dashboard(
+            user_id=principal, app_id=app_id, dashboard_id=dashboard_id
+        )
+        if dashboard is None:
+            raise ValueError("Dashboard not found")
+        if dashboard.updated_at:
+            payload["expected_dashboard_updated_at"] = dashboard.updated_at
     if principal and "widgets" in payload:
         from app.services.dashboard_service import validate_dashboard_field_bindings
 
@@ -3916,6 +3937,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         ),
         service_param_map=_pick(),
     ),
+    "integral_recall_prior_conversation": ToolBinding(
+        service_ref=_h("app.services.working_memory", "recall_for_dispatch"),
+        service_param_map=_pick("query"),
+    ),
     "integral_get_page_context": ToolBinding(
         service_ref=_h(
             "app.services.chat_page_context", "get_page_context_for_dispatch"
@@ -3927,7 +3952,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         service_param_map=_pick("target_kind", "target_id", "view_id"),
     ),
     "integral_list_workspaces": ToolBinding(
-        _h("app.api.workspaces", "list_workspaces")
+        _h("app.api.workspaces", "list_workspaces"), _pick("limit")
     ),
     "integral_list_apps": ToolBinding(
         _h("app.api.apps", "list_apps"), _pick("cursor", "limit")

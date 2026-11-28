@@ -222,3 +222,15 @@ class HarnessProactiveDeliveryRecord(Object):
     message_id: str = ""
     intent_digest: str = ""
     created_at: str = ""
+
+
+class WorkingMemoryIndex(Object):
+    """Disposable encrypted source locators, queried only by primary key.
+
+    No indexed attributes: the governed shared Object primary key is the
+    complete access path. Transcript and resource nodes remain authoritative.
+    """
+
+    scope_key: str = ""
+    revision: int = 0
+    payload_ciphertext: str = ""

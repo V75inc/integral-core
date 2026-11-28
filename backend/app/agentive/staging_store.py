@@ -72,6 +72,52 @@ class StagingDecisionRecord(Object):
     # Private immutable-intent proof; never included in public decision readback.
     intent_fingerprint: str = ""
     superseded_by: Optional[str] = None
+    workspace_id: str = ""
+    conversation_id: str = ""
+    conversation_proof: Dict[str, Any] = Field(default_factory=dict)
+
+
+def decision_conversation_fields(data):
+    """Retain private correlation with the existing terminal receipt."""
+    origin = data.get("origin_proof") or {}
+    if (
+        any(
+            not isinstance(data.get(key), str) or not data[key]
+            for key in ("user_id", "workspace_id", "session_id")
+        )
+        or origin.get("version") != "work-proposal-v1"
+        or origin.get("principal_id") != data.get("user_id")
+        or origin.get("workspace_id") != data.get("workspace_id")
+        or origin.get("thread_id") != data.get("session_id")
+        or not origin.get("work_item_id")
+        or not origin.get("run_id")
+    ):
+        return {}
+    proof = {
+        "kind": data["kind"],
+        "intent": decision_intent_fingerprint(data),
+        "request_hash": hashlib.sha256(
+            json.dumps(
+                data["payload"], sort_keys=True, separators=(",", ":"), allow_nan=False
+            ).encode()
+        ).hexdigest(),
+        "origin": {
+            key: origin[key]
+            for key in (
+                "version",
+                "principal_id",
+                "workspace_id",
+                "thread_id",
+                "work_item_id",
+                "run_id",
+            )
+        },
+    }
+    return {
+        "workspace_id": data["workspace_id"],
+        "conversation_id": data["session_id"],
+        "conversation_proof": proof,
+    }
 
 
 def _decision_record_id(token: str) -> str:
@@ -143,6 +189,7 @@ async def persist_decision(sc: "StagedChange") -> None:
             user_id=sc.user_id,
             state=sc.state,
             kind=sc.kind,
+            **decision_conversation_fields(_sc_to_fields(sc)),
             intent_fingerprint=decision_intent_fingerprint(_sc_to_fields(sc)),
             superseded_by=sc.superseded_by,
             created_at=sc.created_at.isoformat(),

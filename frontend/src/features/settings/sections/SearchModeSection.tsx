@@ -1,4 +1,3 @@
-import { Button } from '../../../components/ui/Button';
 import { PageMeta } from '../../../components/ui';
 import {
   SettingsField,
@@ -16,13 +15,10 @@ interface Props {
   update: (
     next: SettingsSnapshot | ((prev: SettingsSnapshot) => SettingsSnapshot),
   ) => void;
-  // Accepted for SettingsPage render-ctx spread compatibility; this
-  // section doesn't use it today.
-  navigateToSection?: (id: string) => void;
 }
 
 /** Search preference for Feed and Track lists on this browser. */
-export function SearchModeSection({ settings, update, navigateToSection }: Props) {
+export function SearchModeSection({ settings, update }: Props) {
   const mode = settings.retrieval.mode;
 
   const setMode = (next: RetrievalModeSetting) => {
@@ -39,7 +35,6 @@ export function SearchModeSection({ settings, update, navigateToSection }: Props
         <PageMeta as="p">
           Choose how searches in Feed and Tracks find entries.
         </PageMeta>
-        {navigateToSection && <Button variant="ghost" size="sm" onClick={() => navigateToSection('ai-models')}>Manage embedding model in AI Models</Button>}
       </div>
 
       <SettingsSection

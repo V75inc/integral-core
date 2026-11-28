@@ -16,10 +16,11 @@ import pytest
 
 from app.agentive.tooling import bindings
 from app.models.edges import CONTAINS, HAS_ATTACHMENT
-from app.models.nodes import Entry, Track
+from app.models.nodes import Entry
 from app.services import chat_threads as chat_store
 from app.services.attachment_agent import attach_image_bytes_to_entry
 from app.services.chat_threads import find_uploaded_image
+from tests.test_entry_create_type_id import _bootstrap_track_with_type
 
 # A real 1x1 transparent PNG — the attachment-storage validator sniffs the
 # MIME from the content bytes, so the fixture must be a genuine PNG (chat
@@ -43,10 +44,14 @@ def _async(value):
 
 
 async def _seed_entry():
-    track = await Track.create(title="Files", visibility="private")
-    entry = await Entry.create(title="Target entry", track_id=track.id)
+    user, track, entry_type = await _bootstrap_track_with_type(
+        "image-files@example.com"
+    )
+    entry = await Entry.create(
+        title="Target entry", track_id=track.id, type_id=entry_type.id
+    )
     await track.connect(entry, edge=CONTAINS)
-    return entry
+    return user, entry
 
 
 async def _seed_thread_with_image(user_id: str, image_id: str = "img1"):
@@ -92,10 +97,10 @@ async def test_attach_image_bytes_wires_entry_edge(monkeypatch):
     from app.services import attachment_agent
 
     monkeypatch.setattr(attachment_agent, "policy_evaluate", _async(_Allow()))
-    entry = await _seed_entry()
+    user, entry = await _seed_entry()
 
     result = await attach_image_bytes_to_entry(
-        user_id="u1",
+        user_id=user,
         entry_id=entry.id,
         filename="pasted-image-imgA.png",
         mime_type="image/png",
@@ -108,14 +113,14 @@ async def test_attach_image_bytes_wires_entry_edge(monkeypatch):
         edge=[HAS_ATTACHMENT], node=["Attachment"], direction="out"
     )
     assert any(a.id == att_id for a in linked)
-    assert att_id in entry.attachment_ids
+    assert att_id in (await Entry.find_one({"id": entry.id})).attachment_ids
 
 
 @pytest.mark.asyncio
 async def test_attach_image_bytes_rejects_empty():
-    entry = await _seed_entry()
+    user, entry = await _seed_entry()
     result = await attach_image_bytes_to_entry(
-        user_id="u1",
+        user_id=user,
         entry_id=entry.id,
         filename="x.png",
         mime_type="image/png",

@@ -2,6 +2,7 @@
 
 from urllib.parse import urlsplit, urlunsplit
 
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 OLLAMA_CLOUD_API_BASE = "https://ollama.com"
 OLLAMA_LOCAL_DEFAULT_API_BASE = "http://localhost:11434"
 

@@ -15,6 +15,7 @@ import {
 import { MODEL_CREDENTIALS_QUERY_KEY } from "../../../api/modelCredentials";
 import { errorMessageFromAxios } from "../../../api/helpers";
 import { useToast } from "../../../context/ToastContext";
+import { ModelAssignmentField, profileAssignmentLabel } from "./ModelAssignmentField";
 import { LINE_ICON_STROKE } from "../../../components/ui/IconWell";
 
 function ModelRoleReadout({
@@ -127,11 +128,15 @@ export function ModelRoutingSection({
   onEdit,
   onAddModel,
   profileEditorOpen = false,
+  inline = false,
+  busy = false,
 }: {
   data: AIConfiguration;
   onEdit: (profile: ModelProfile) => void;
   onAddModel?: () => void;
   profileEditorOpen?: boolean;
+  inline?: boolean;
+  busy?: boolean;
 }) {
   const [draft, setDraft] = useState<ModelRouting | null>(null);
   const { showToast } = useToast();
@@ -144,7 +149,9 @@ export function ModelRoutingSection({
     heavy: string;
   } | null>(null);
   const save = useMutation({
-    mutationFn: aiConfigurationApi.saveRouting,
+    mutationFn: (body: Parameters<typeof aiConfigurationApi.saveRouting>[0]) => inline
+      ? aiConfigurationApi.saveRouting(body, { headers: { "X-Integral-Scope": `ws:${data.effective.workspace_id}` } })
+      : aiConfigurationApi.saveRouting(body),
     onSuccess: () => {
       setDraft(null);
       showToast(
@@ -207,7 +214,7 @@ export function ModelRoutingSection({
   const effective = data.effective.routing;
   const dual = effective?.mode === "light_heavy";
   const disabled =
-    data.key_policy === "platform_only" || !data.effective.editable;
+    busy || data.key_policy === "platform_only" || !data.effective.editable;
   const selected = (id: string) => data.profiles.find((p) => p.id === id);
   const brief = (p: ModelProfile) =>
     `${data.connections.find((c) => c.id === p.connection_id)?.name ? `${data.connections.find((c) => c.id === p.connection_id)!.name} · ` : ""}${p.model} · ${p.generation_settings.reasoning_effort ? `${p.generation_settings.reasoning_effort} reasoning` : "Default reasoning"}${p.generation_settings.max_tokens ? ` · ${p.generation_settings.max_tokens.toLocaleString()} output tokens` : ""}`;
@@ -247,6 +254,78 @@ export function ModelRoutingSection({
       ceiling,
       ...effectiveSettings.map((settings) => settings[key] ?? ceiling),
     );
+  const choice = draft ?? routing;
+  const changed = !!draft && (
+    draft.mode !== routing.mode || draft.heavy_profile_id !== routing.heavy_profile_id ||
+    draft.light_profile_id !== routing.light_profile_id
+  );
+  if (inline) return (
+    <form onSubmit={event => {
+      event.preventDefault();
+      if (!disabled && changed && selected(choice.heavy_profile_id) &&
+          selected(choice.heavy_profile_id)?.harness_policy?.tier !== "light" &&
+          (choice.mode === "single" || selected(choice.light_profile_id))) save.mutate(choice);
+    }}>
+      <Stack gap="md">
+        <fieldset disabled={disabled || save.isPending} className="grid min-w-0 gap-3">
+          <ModelAssignmentField
+            label="Routing mode"
+            value={choice.mode}
+            onChange={value => {
+              const mode = value as ModelRouting["mode"];
+              const connection = data.connections.find(c => c.id === selected(choice.heavy_profile_id)?.connection_id);
+              const preset = connection && data.model_policy?.specialists?.[connection.provider]?.light;
+              const suggested = preset && data.profiles.find(p => p.connection_id === connection?.id && p.model === preset);
+              setDraft({ ...choice, mode, light_profile_id: choice.light_profile_id || (mode === "light_heavy" && suggested ? suggested.id : "") });
+            }}
+            options={<>
+              <option value="single">Single model</option>
+              <option value="light_heavy">Light + Heavy</option>
+            </>}
+          />
+          {(choice.mode === "light_heavy" ? ["heavy", "light"] : ["heavy"]).map(role => {
+            const key = role === "light" ? "light_profile_id" : "heavy_profile_id";
+            const chosenProfile = selected(choice[key]);
+            const activeModel = role === "light"
+              ? (dual && effective.light_model) || "No model assigned"
+              : `${effective?.heavy_model || data.effective.model || "No model assigned"}${data.effective.source === "deployment" ? " · Server default" : ""}`;
+            return (
+              <ModelAssignmentField
+                key={role}
+                label={role === "light" ? "Light model" : choice.mode === "single" ? "Main model" : "Heavy model"}
+                active={activeModel}
+                value={selected(choice[key]) ? choice[key] : ""}
+                onChange={id => setDraft({ ...choice, [key]: id })}
+                options={<>
+                  <option value="" disabled>{role === "heavy" && data.effective.model ? `Current: ${data.effective.model}` : "Choose a saved model"}</option>
+                  {data.profiles.map(p => <option key={p.id} value={p.id} disabled={role === "heavy" && p.harness_policy?.tier === "light"}>
+                    {profileAssignmentLabel(p, data.connections)}
+                  </option>)}
+                </>}
+                secondary={chosenProfile && !disabled && (role === "light" || changed || data.effective.source === "workspace_owner") && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => editFromRouting(chosenProfile)}>
+                    {role === "light" ? "Light model settings" : dual ? "Heavy model settings" : "Model settings"}
+                  </Button>
+                )}
+              />
+            );
+          })}
+        </fieldset>
+        {!data.effective.editable && <Text variant="meta" tone="muted">Managed by the workspace owner.</Text>}
+        {!data.profiles.length && !disabled && (
+          <Text variant="meta" tone="muted">Add a compatible model under Providers &amp; Models first.</Text>
+        )}
+        {changed && (
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" disabled={save.isPending} onClick={() => setDraft(null)}>Cancel</Button>
+            <Button type="submit" disabled={disabled || save.isPending || !selected(choice.heavy_profile_id) ||
+              selected(choice.heavy_profile_id)?.harness_policy?.tier === "light" ||
+              (choice.mode === "light_heavy" && !selected(choice.light_profile_id))}>Save model assignment</Button>
+          </div>
+        )}
+      </Stack>
+    </form>
+  );
   return (
     <>
       <Stack gap="md" className="border-b border-[var(--border-subtle)] pb-5">
@@ -328,7 +407,7 @@ export function ModelRoutingSection({
               "model_request_limit",
               data.harness_limits.request_limit,
             )}{" "}
-            requests · {effectiveMinimum("tool_call_limit", 32)} tool calls ·{" "}
+            requests · {effectiveMinimum("tool_call_limit", data.harness_limits.tool_call_limit ?? 32)} tool calls ·{" "}
             {effectiveMinimum(
               "turn_token_limit",
               data.harness_limits.token_limit,
@@ -500,7 +579,7 @@ export function ModelRoutingSection({
                       "model_request_limit",
                       data.harness_limits.request_limit,
                     )}{" "}
-                    requests, {minimum("tool_call_limit", 32)} tool calls,{" "}
+                    requests, {minimum("tool_call_limit", data.harness_limits.tool_call_limit ?? 32)} tool calls,{" "}
                     {minimum(
                       "turn_token_limit",
                       data.harness_limits.token_limit,

@@ -4,6 +4,7 @@ export const MODEL_CREDENTIALS_QUERY_KEY = ['model-credentials', 'me'] as const;
 
 export type ModelProvider =
   | 'openai'
+  | 'gemini'
   | 'anthropic'
   | 'openrouter'
   | 'ollama'
@@ -88,6 +89,7 @@ export const modelCredentialsApi = {
 
 export const PROVIDER_CONSOLE_URLS: Partial<Record<ModelProvider, string>> = {
   openai: 'https://platform.openai.com/api-keys',
+  gemini: 'https://aistudio.google.com/apikey',
   anthropic: 'https://console.anthropic.com/settings/keys',
   openrouter: 'https://openrouter.ai/keys',
   ollama: 'https://ollama.com/settings/keys',
@@ -95,6 +97,7 @@ export const PROVIDER_CONSOLE_URLS: Partial<Record<ModelProvider, string>> = {
 
 export const PROVIDER_LABELS: Record<ModelProvider, string> = {
   openai: 'OpenAI',
+  gemini: 'Google (Gemini)',
   anthropic: 'Anthropic',
   openrouter: 'OpenRouter',
   ollama: 'Ollama Cloud',

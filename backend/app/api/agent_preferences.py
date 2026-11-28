@@ -11,6 +11,7 @@ is refreshed on every set.
 """
 
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import Request
 from jvspatial.api import endpoint
@@ -22,6 +23,7 @@ from app.models.nodes import Workspace
 from app.schemas.agent_preferences import (
     AgentPreferenceResponse,
     AgentPreferenceValue,
+    ResidentPermissionValue,
 )
 from app.services.chat_providers import get_registry
 from app.services.edge_upsert import ensure_edge
@@ -126,4 +128,49 @@ async def put_agent_preference(
 
     return AgentPreferenceResponse(
         preference=AgentPreferenceValue(provider_id=provider_id, agent_id=agent_id)
+    )
+
+
+@endpoint(
+    "/workspaces/{workspace_id}/resident-permission",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def get_resident_permission(
+    request: Request, workspace_id: str
+) -> ResidentPermissionValue:
+    """Return the signed-in user’s resident confirmation policy in this workspace."""
+    from app.services.resident_permissions import read_permission
+
+    await _load_user_and_workspace(request, workspace_id)
+    return await read_permission(resolve_principal_id(request), workspace_id)
+
+
+@endpoint(
+    "/workspaces/{workspace_id}/resident-permission",
+    methods=["PUT"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def put_resident_permission(
+    request: Request,
+    workspace_id: str,
+    revision: str,
+    track_id: Optional[str] = None,
+    track_ids: Optional[list[str]] = None,
+    app_ids: Optional[list[str]] = None,
+    mode: Optional[str] = None,
+) -> ResidentPermissionValue:
+    """Save the caller’s workspace confirmation policy against its current revision."""
+    from app.services.resident_permissions import set_permission
+
+    return await set_permission(
+        resolve_principal_id(request),
+        workspace_id,
+        track_id,
+        revision,
+        track_ids=track_ids,
+        app_ids=app_ids,
+        mode=mode,
     )

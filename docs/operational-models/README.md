@@ -17,6 +17,25 @@ Use sibling Tracks when collections have independent lifecycles. Use anchors whe
 
 Current package YAML uses `integral_operational_model_version: 3`; compiled manifests use `operational_model_schema_version: 2`. An Operational Model is not the entire installed App authority: the immutable active ApplicationDefinition also governs its capability contract.
 
+## Lifecycle-based read-only records
+
+A trusted or audited App can declare `readonly_when` under `app.protected_state` for a named Entry type. The condition compares a saved text or single-select field to an exact string. It can follow one single-valued relation to a declared type in the same installed App.
+
+```yaml
+app:
+  protected_state:
+    review:
+      readonly_when: {field: phase, equals: closed}
+    review_summary:
+      readonly_when: {relation: review, related_entry_type: review, field: phase, equals: closed}
+```
+
+The typed Entry writer checks the rule on updates, retyping and individual deletion. The operation that moves an editable record into its terminal state can finish. The rule applies to standard fields such as title and body as well as custom fields. A missing state or unavailable related record keeps the Entry read-only. Existing permissions still govern access, including read access to the related record. The Entry detail and write responses expose `app_record_readonly` when the restriction applies. The UI refreshes that status when it reads the Entry.
+
+Standard attachment writes, including App tool attachment saves, honor the same Entry policy. Files are prepared outside the graph transaction. Before linking a file, Core rechecks the current Entry, the caller’s write access and the App rule. A rejected upload discards its prepared bytes. Existing attachments remain available under their normal read permissions. Action bar file downloads remain available and skip the optional save to a read-only Entry. Apps still define when an export is available and whether it writes other records.
+
+The restriction is part of the installed App definition and adds no operation grant. Qualify an upgrade against existing records before using a new rule in an installed App. Protected App restore requirements also apply to this declaration. [App portability](../platform/resource-portability.md)
+
 ## Reading path
 
 - [App settings UI contract](../platform/app-settings-ui.md): one standard dialog

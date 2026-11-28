@@ -25,7 +25,7 @@ const STATUS_ANNOUNCEMENT: Record<DictationStatus, string> = {
 
 export function ComposerMicButton() {
   const dictation = useComposerDictation();
-  if (!dictation || !dictation.available) return null;
+  if (!dictation?.available || dictation.voiceInputBlocked) return null;
 
   const { status, level, error, hotkeyLabel, toggle } = dictation;
   const listening = status === 'listening';
@@ -65,7 +65,7 @@ export function ComposerMicButton() {
 /** ` · ⇧⌘Space dictate` for the composer's shortcut hint, when available. */
 export function ComposerDictationHint() {
   const dictation = useComposerDictation();
-  if (!dictation?.available) return null;
+  if (!dictation?.available || dictation.voiceInputBlocked) return null;
   return (
     <>
       {' · '}

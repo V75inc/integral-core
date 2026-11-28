@@ -253,12 +253,7 @@ async def test_applicant_a_cannot_mutate_b_entry_or_replace_either_file(
     from app.api import attachments
     from app.services import email_service
 
-    persist = AsyncMock(
-        side_effect=[
-            {"attachment": {"id": "n.Attachment.synthetic-resume-b"}},
-            {"attachment": {"id": "n.Attachment.synthetic-cover-b"}},
-        ]
-    )
+    persist = AsyncMock(wraps=attachments._persist_uploaded_file)
     send_email = AsyncMock()
     monkeypatch.setattr(attachments, "_persist_uploaded_file", persist)
     monkeypatch.setattr(email_service, "send_email", send_email)
@@ -306,19 +301,21 @@ async def test_applicant_a_cannot_mutate_b_entry_or_replace_either_file(
         persist.assert_not_awaited()
         send_email.assert_not_awaited()
 
+        issued_ids = {}
         for field in ("resume", "cover_letter"):
             owner_upload = await authenticated_client.post(
                 f"/api/public-share/track/{token}/entries/{entry_b.id}/attachments?field_key={field}",
                 files={
                     "file": (
-                        f"{field}.pdf",
-                        b"synthetic applicant B",
-                        "application/pdf",
+                        f"{field}.txt",
+                        f"Synthetic document for {field}".encode(),
+                        "text/plain",
                     )
                 },
                 headers={"X-Entry-Capability": capability_b},
             )
             assert owner_upload.status_code == 200, owner_upload.text
+            issued_ids[field] = owner_upload.json()["attachment"]["id"]
         owner_update = await authenticated_client.patch(
             f"/api/public-share/track/{token}/entries/{entry_b.id}",
             json={"title": "Applicant B updated own record"},
@@ -327,8 +324,8 @@ async def test_applicant_a_cannot_mutate_b_entry_or_replace_either_file(
         assert owner_update.status_code == 200, owner_update.text
         updated = await Entry.get(entry_b.id)
         assert updated.title == "Applicant B updated own record"
-        assert updated.custom_fields["resume"] == "n.Attachment.synthetic-resume-b"
-        assert updated.custom_fields["cover_letter"] == "n.Attachment.synthetic-cover-b"
+        assert updated.custom_fields["resume"] == issued_ids["resume"]
+        assert updated.custom_fields["cover_letter"] == issued_ids["cover_letter"]
         assert (
             updated.custom_fields[PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD] is True
         )

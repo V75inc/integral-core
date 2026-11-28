@@ -53,6 +53,7 @@ class ModelKeyRequiredError(Exception):
 # ``custom_openai`` routes as ``openai/`` with a per-credential ``api_base``.
 _LITELLM_PROVIDER_ROUTES = {
     "openai": "openai",
+    "gemini": "gemini",
     "anthropic": "anthropic",
     "openrouter": "openrouter",
     "ollama": "ollama",
@@ -184,6 +185,21 @@ async def resolve_native_model_override(
         record = await profile_credential(
             record.user_id, profile_id or record.active_profile_id, record
         )
+    override = _native_override(record, mode, include_credential_identity)
+    if override is None:
+        return None
+    try:
+        await touch_credential_last_used(record)
+    except Exception:
+        logger.exception("touch_credential_last_used failed")
+
+    return override
+
+
+def _native_override(
+    record: UserModelCredential, mode: str, include_credential_identity: bool
+):
+    """Translate an already owner-checked credential, including its rotation identity."""
     default_provider = record.provider
     default_key = decrypt_credential_api_key(record)
     if (
@@ -234,11 +250,6 @@ async def resolve_native_model_override(
         override["credential_ref"] = (
             "user-model-generation:" + hashlib.sha256(identity.encode()).hexdigest()
         )
-
-    try:
-        await touch_credential_last_used(record)
-    except Exception:
-        logger.exception("touch_credential_last_used failed")
 
     return override
 

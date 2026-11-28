@@ -909,51 +909,77 @@ async def upload_public_track_entry_attachment(
     if not files:
         raise BadRequestError(message="Multipart form must include a 'file' part.")
 
+    from contextlib import asynccontextmanager
+
+    from app.services.attachment_entry_write import attachment_entry_write
+    from app.services.public_entry_effect import public_entry_write_scope
+
+    permission = "update_entries" if _perms.get("update_entries") else "create_entries"
+    field_key = str(request.query_params.get("field_key") or "").strip()
+
+    @asynccontextmanager
+    async def commit_public_upload(target, attachment):
+        async with public_entry_write_scope(token, permission):
+            current_link, current_track, _, _ = await _public_share_form_entry(
+                token, target.id
+            )
+            async with attachment_entry_write(target, "public") as current:
+                await _require_public_entry_capability(
+                    request, link=current_link, track=current_track, entry=current
+                )
+                await _bind_public_attachment_field(
+                    current, current_track, field_key, attachment.id
+                )
+                yield current
+
     result = await _persist_uploaded_file(
         entry=entry,
         user_id="public",
         file=files[0],
+        commit_scope=commit_public_upload,
     )
-    attachment = result.get("attachment") or {}
-    attachment_id = str(attachment.get("id") or "")
-    field_key = str(request.query_params.get("field_key") or "").strip()
-    if field_key and attachment_id:
-        entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
-        if entry_type:
-            _, runtime_tier, _ = await resolve_track_runtime_profile(track)
-            capability_required = (entry.custom_fields or {}).get(
-                PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD
-            )
-            merged_cfs = {
-                **{
-                    key: value
-                    for key, value in (entry.custom_fields or {}).items()
-                    if key != PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD
-                },
-                field_key: attachment_id,
-            }
-            validated_cfs, relation_refs = (
-                await validate_and_materialize_entry_custom_fields(
-                    track=track,
-                    entry_type=entry_type,
-                    custom_fields=merged_cfs,
-                    runtime_tier=runtime_tier,
-                    entry=entry,
-                    actor_user_id="public",
-                    actor_kind="human",
-                    source_entry_title=entry.title,
-                )
-            )
-            if capability_required:
-                validated_cfs[PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD] = True
-            entry.custom_fields = validated_cfs
-            entry.updated_at = utc_now_iso()
-            await entry.save()
-            from app.services.operational_model_runtime import sync_relation_edges
-
-            await sync_relation_edges(source_entry=entry, relation_refs=relation_refs)
-
     return {**result, "message": "Attachment uploaded successfully"}
+
+
+async def _bind_public_attachment_field(
+    entry: Entry, track: Track, field_key: str, attachment_id: str
+) -> None:
+    """Validate the form field inside the same graph write as its attachment."""
+    if not field_key or not entry.type_id:
+        return
+    entry_type = await EntryType.get(entry.type_id)
+    if entry_type is None:
+        return
+    _, runtime_tier, _ = await resolve_track_runtime_profile(track)
+    capability_required = (entry.custom_fields or {}).get(
+        PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD
+    )
+    merged_cfs = {
+        **{
+            key: value
+            for key, value in (entry.custom_fields or {}).items()
+            if key != PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD
+        },
+        field_key: attachment_id,
+    }
+    validated_cfs, relation_refs = await validate_and_materialize_entry_custom_fields(
+        track=track,
+        entry_type=entry_type,
+        custom_fields=merged_cfs,
+        runtime_tier=runtime_tier,
+        entry=entry,
+        actor_user_id="public",
+        actor_kind="human",
+        source_entry_title=entry.title,
+    )
+    if capability_required:
+        validated_cfs[PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD] = True
+    entry.custom_fields = validated_cfs
+    entry.updated_at = utc_now_iso()
+    # The attachment link saves these fields on this same current Entry.
+    from app.services.operational_model_runtime import sync_relation_edges
+
+    await sync_relation_edges(source_entry=entry, relation_refs=relation_refs)
 
 
 @endpoint(

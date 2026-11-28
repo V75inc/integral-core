@@ -12,7 +12,7 @@ import hashlib
 import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 from app.agentive import staging, staging_store
 from app.agentive.staging import StagedChange, StagingError
@@ -334,7 +334,12 @@ async def _replace_prompt(database: Any, old: StagedChange, new: StagedChange) -
 
 
 async def revise_entry_proposal(
-    *, token: str, user_id: str, workspace_id: str, request: ReviseEntryProposalRequest
+    *,
+    token: str,
+    user_id: str,
+    workspace_id: str,
+    request: ReviseEntryProposalRequest,
+    decision_source: Literal["card", "voice"] = "card",
 ) -> StagedChange:
     """One winner against approval/revision; publish no executable cache on rollback."""
     from app.agentive.services import work_approvals
@@ -566,7 +571,7 @@ async def revise_entry_proposal(
             updates={
                 "state": "revoked",
                 "resolved_at": now.isoformat(),
-                "decision_source": "card",
+                "decision_source": decision_source,
                 "superseded_by": new.token,
             },
             expires=sc.expires_at,

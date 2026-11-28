@@ -37,6 +37,7 @@ export function ResourceTransferDialog({ open, kind, workspaceId, appId, onClose
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [includeData, setIncludeData] = useState(false);
   const [preview, setPreview] = useState<TransferSummary | null>(null);
   const [filter, setFilter] = useState('');
   const generation = useRef(0);
@@ -86,9 +87,10 @@ export function ResourceTransferDialog({ open, kind, workspaceId, appId, onClose
         const result = await portableApi.preview(file);
         if (generation.current !== current) return;
         if (result.kind !== kind) throw new Error(`This archive contains ${result.kind === 'app' ? 'Apps' : 'Tracks'}. Import it from Manage ${result.kind === 'app' ? 'Apps' : 'Tracks'}.`);
+        setIncludeData(false);
         setPreview(result);
       } else if (file) {
-        const result = await portableApi.import(file, appId);
+        const result = await portableApi.import(file, appId, includeData);
         if (generation.current !== current) return;
         const skipped = result.skipped_entry_count || 0;
         showToast(
@@ -164,9 +166,17 @@ export function ResourceTransferDialog({ open, kind, workspaceId, appId, onClose
       </Text>
       <input aria-label="Integral archive" type="file" accept=".zip" disabled={busy} onChange={event => { setFile(event.target.files?.[0] || null); setPreview(null); }} />
       {preview && <Surface padding="md" tone="panel-2" className="space-y-3">
-        <Text>{preview.mode === 'full' ? 'Configuration and data' : 'Configuration only'}</Text>
+        <Text weight="medium">Archive contents</Text>
         <ul className="max-h-40 list-inside list-disc overflow-y-auto">{preview.names.map((name, index) => <li key={index}>{name}</li>)}</ul>
         <Text variant="body-sm">{countLabel(preview.apps, 'App')} · {countLabel(preview.tracks, 'Track')} · {countLabel(preview.entries, 'record')} · {countLabel(preview.attachments, 'attachment')}</Text>
+        {preview.mode === 'full' && preview.entries > 0 && <label className="flex cursor-pointer items-center gap-3">
+          <input type="checkbox" className="h-4 w-4 shrink-0 accent-[var(--brand-accent)]" checked={includeData} disabled={busy}
+            onChange={event => setIncludeData(event.target.checked)} />
+          <Text variant="body-sm" weight="medium">Include records and attachments</Text>
+        </label>}
+        <Text as="p" variant="body-sm" tone="muted" role="status">{includeData
+          ? `Importing configuration, ${countLabel(preview.entries, 'record')} and ${countLabel(preview.attachments, 'attachment')}.`
+          : 'Importing configuration only.'}</Text>
         {previewPackages.length === 1 && <Text variant="body-sm">Uses admitted package <Text as="span" weight="medium">{previewPackages[0].slug}{previewPackages[0].version ? ` ${previewPackages[0].version}` : ''}</Text> to create new Apps. The destination must already have the matching packages.</Text>}
         {previewPackages.length > 1 && <Text variant="body-sm">Uses admitted packages <Text as="span" weight="medium">{previewPackages.map(pkg => `${pkg.slug}${pkg.version ? ` ${pkg.version}` : ''}`).join(', ')}</Text> to create new Apps. The destination must already have the matching packages.</Text>}
         <Text variant="body-sm" tone="muted">Existing content stays in place. Sharing permissions, credentials and activity history are not imported.</Text>

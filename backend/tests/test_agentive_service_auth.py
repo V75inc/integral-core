@@ -341,7 +341,7 @@ async def test_custom_connector_round_trip_through_signed_path(
         uplink_registry_mod.uplink_registry, "get_system_agent", _mock_get_system
     )
     monkeypatch.setattr(
-        "app.agentive.api.chat.get_chat_connector",
+        "app.agentive.api.chat.get_chat_agent",
         lambda _t: _FakeConnector(),
     )
 

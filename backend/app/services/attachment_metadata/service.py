@@ -21,6 +21,8 @@ import asyncio
 import logging
 import os
 import tempfile
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager, nullcontext
 from typing import Optional
 
 from app.config import settings
@@ -33,6 +35,8 @@ from app.services.attachment_metadata.extractors import BUILTIN_EXTRACTORS
 from app.services.attachment_storage import get_attachment_storage_service
 
 logger = logging.getLogger(__name__)
+
+WriteAdmission = Callable[[], AbstractAsyncContextManager]
 
 
 def _write_extraction_input(blob: bytes, suffix: str) -> str:
@@ -102,6 +106,7 @@ class MetadataExtractionService:
         *,
         force_analysis: bool = False,
         analysis_principal_id: str | None = None,
+        write_admission: WriteAdmission | None = None,
     ) -> Attachment:
         """Join overlapping extraction; a later explicit reprocess still runs anew."""
         existing = self._in_flight.get(attachment_id)
@@ -117,6 +122,7 @@ class MetadataExtractionService:
             future,
             force_analysis=force_analysis,
             analysis_principal_id=analysis_principal_id,
+            write_admission=write_admission,
         )
 
     async def _complete_extraction(
@@ -126,17 +132,22 @@ class MetadataExtractionService:
         *,
         force_analysis: bool = False,
         analysis_principal_id: str | None = None,
+        write_admission: WriteAdmission | None = None,
     ) -> Attachment:
         try:
             async with self._slots:
-                result = await self._run_extraction(attachment_id)
+                if write_admission is None:
+                    result = await self._run_extraction(attachment_id)
+                else:
+                    result = await self._run_extraction(attachment_id, write_admission)
             from .analysis import enqueue_analysis
 
             # One completed extraction schedules one transform. The explicit
             # reprocess path must not also enqueue an automatic duplicate.
-            await enqueue_analysis(
-                result, force=force_analysis, principal_id=analysis_principal_id
-            )
+            async with write_admission() if write_admission else nullcontext():
+                await enqueue_analysis(
+                    result, force=force_analysis, principal_id=analysis_principal_id
+                )
             future.set_result(result)
             return result
         except asyncio.CancelledError:
@@ -261,13 +272,21 @@ class MetadataExtractionService:
             async with entry_write_scope(attachment.id):
                 await persist()
 
-    async def _run_extraction(self, attachment_id: str) -> Attachment:
+    async def _run_extraction(
+        self, attachment_id: str, write_admission: WriteAdmission | None = None
+    ) -> Attachment:
         attachment = await Attachment.find_one({"id": attachment_id})
         if not attachment:
             raise ValueError(f"Attachment {attachment_id} not found")
         # Keep the extraction's file identity independent of any entity instance
         # another task obtains through the graph cache during the parser await.
         attachment = attachment.model_copy()
+
+        async def save() -> None:
+            # Scope only graph effects. Parser and blob I/O can take seconds.
+            async with write_admission() if write_admission else nullcontext():
+                await self._save_metadata(attachment)
+
         if attachment.scan_status == "blocked":
             return attachment
 
@@ -278,12 +297,12 @@ class MetadataExtractionService:
             attachment.metadata_extractor_version = (
                 settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
             )
-            await self._save_metadata(attachment)
+            await save()
             return attachment
 
         attachment.metadata_status = "processing"
         attachment.metadata_error = ""
-        await self._save_metadata(attachment)
+        await save()
 
         extractor = self._pick_extractor(attachment.mime_type)
         if (
@@ -299,7 +318,7 @@ class MetadataExtractionService:
             attachment.metadata_extractor_version = (
                 settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
             )
-            await self._save_metadata(attachment)
+            await save()
             return attachment
 
         storage = get_attachment_storage_service()
@@ -307,7 +326,7 @@ class MetadataExtractionService:
         if blob is None:
             attachment.metadata_status = "failed"
             attachment.metadata_error = "Attachment bytes not found in storage."
-            await self._save_metadata(attachment)
+            await save()
             return attachment
 
         # Write blob to a temp file so extractors that prefer disk
@@ -343,7 +362,7 @@ class MetadataExtractionService:
                 attachment.metadata_extractor_version = (
                     settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
                 )
-                await self._save_metadata(attachment)
+                await save()
                 return attachment
         finally:
             try:
@@ -379,7 +398,7 @@ class MetadataExtractionService:
         attachment.metadata_extractor_version = (
             settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
         )
-        await self._save_metadata(attachment)
+        await save()
         return attachment
 
 

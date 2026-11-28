@@ -15,9 +15,9 @@ compromised server would simply mark `delete_everything` read-only.
 
 So the trust order is:
 
-1. The connector's **catalog entry** (`read_only_tools:` in
-   ``app/connectors/catalog/*.yaml``) — written by us, reviewed in-repo. This
-   is the only source that can classify a tool read-only.
+1. The admitted package's ``read_only_tools`` list, or the catalog entry
+   when the package does not declare one. This is the only source that can
+   classify a tool read-only.
 2. Everything else — registry mounts, free-form mounts, catalog entries that
    declare nothing, and any tool the catalog does not name — is a write.
 
@@ -33,9 +33,34 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 
-def _catalog_read_only_tools(catalog_slug: str) -> frozenset[str]:
-    """Remote tool names the vetted catalog entry declares read-only."""
+def _declared_read_only_tools(source: Any) -> Optional[list]:
+    """Return a package read-only list, or None when that package omits it."""
+    if not isinstance(source, dict):
+        return None
+    capabilities = source.get("capabilities")
+    if not isinstance(capabilities, dict) or "mcp" not in capabilities:
+        return None
+    mcp = capabilities.get("mcp")
+    if not isinstance(mcp, dict) or "read_only_tools" not in mcp:
+        return None
+    declared = mcp.get("read_only_tools")
+    if not isinstance(declared, list):
+        raise ValueError("package does not declare read-only tools")
+    return declared
+
+
+def _catalog_read_only_tools(
+    catalog_slug: str, manifest: Optional[dict] = None
+) -> frozenset[str]:
+    """Remote tool names the snapshot, admitted package, or catalog declares read-only."""
+    found = _declared_read_only_tools(manifest)
     slug = (catalog_slug or "").strip()
+    if found is None:
+        from app.connectors.package_runtime import admitted_manifest
+
+        found = _declared_read_only_tools(admitted_manifest(slug) if slug else None)
+    if found is not None:
+        return frozenset(str(name).strip() for name in found if str(name).strip())
     if not slug:
         return frozenset()
     from app.connectors.catalog_loader import get_catalog_entry
@@ -59,7 +84,12 @@ def remote_says_read_only(spec: Dict[str, Any]) -> bool:
     return False
 
 
-def is_write_tool(spec: Dict[str, Any], *, auth_state: Optional[Dict] = None) -> bool:
+def is_write_tool(
+    spec: Dict[str, Any],
+    *,
+    auth_state: Optional[Dict] = None,
+    manifest: Optional[dict] = None,
+) -> bool:
     """True when invoking this mounted MCP tool requires a human bless.
 
     ``spec`` is a workspace tool-registry entry (it carries ``_mcp_connector_id``
@@ -71,10 +101,14 @@ def is_write_tool(spec: Dict[str, Any], *, auth_state: Optional[Dict] = None) ->
         # Cannot identify the tool -> cannot vouch for it.
         return True
     catalog_slug = str((auth_state or {}).get("catalog_slug") or "").strip()
-    if not catalog_slug:
+    if not catalog_slug and manifest is None:
         # Registry / free-form mounts have no vetted manifest to consult.
         return True
-    return remote_name not in _catalog_read_only_tools(catalog_slug)
+    if manifest is None:
+        allowed = _catalog_read_only_tools(catalog_slug)
+    else:
+        allowed = _catalog_read_only_tools(catalog_slug, manifest)
+    return remote_name not in allowed
 
 
 def describe_tool_call(

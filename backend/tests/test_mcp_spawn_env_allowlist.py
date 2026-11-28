@@ -89,20 +89,13 @@ def test_undeclared_keys_are_dropped_even_when_harmless():
     assert "SOME_UNDECLARED_KEY" not in env
 
 
-def test_unknown_catalog_slug_contributes_nothing_but_server_keys():
-    """A forged slug cannot widen the allowlist."""
+def test_unknown_catalog_slug_contributes_nothing():
+    """A forged slug cannot widen the allowlist or inherit another package's keys."""
     allowed = _allowed_spawn_env_keys(
         {"transport": "stdio", "catalog_slug": "not-a-real-slug"}
     )
-    assert "PATH" not in allowed
-    assert allowed <= {
-        "QUICKBOOKS_CLIENT_ID",
-        "QUICKBOOKS_CLIENT_SECRET",
-        "QUICKBOOKS_REFRESH_TOKEN",
-        "QUICKBOOKS_REALM_ID",
-        "QUICKBOOKS_TOKEN_STORE_PATH",
-        "QUICKBOOKS_ENVIRONMENT",
-    }
+    assert allowed == set()
+    assert "QUICKBOOKS_REFRESH_TOKEN" not in allowed
 
 
 def test_never_from_connector_wins_over_a_catalog_declaration():
@@ -113,3 +106,51 @@ def test_never_from_connector_wins_over_a_catalog_declaration():
     assert "PATH" not in _allowed_spawn_env_keys(
         {"transport": "stdio", "catalog_slug": "quickbooks_mcp"}
     )
+
+
+def test_stored_spawn_env_wins(monkeypatch):
+    """A stored spawn env wins. An older snapshot uses the admitted package."""
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: (
+            {
+                "capabilities": {
+                    "mcp": {
+                        "env": {"OTHER": {"value": "1"}},
+                        "generated_env": [],
+                    }
+                }
+            }
+            if package_id == "google_drive"
+            else None
+        ),
+    )
+    stored = {
+        "id": "acme_stdio",
+        "capabilities": {
+            "mcp": {
+                "env": {
+                    "ACME_REGION": {"value": "eu"},
+                    "PATH": {"value": "/tmp/evil"},
+                },
+                "generated_env": ["ACME_TOKEN"],
+            }
+        },
+    }
+    auth = {
+        "catalog_slug": "google_drive",
+        "access_token": "tok",
+        "env": {"ACME_TOKEN": "secret"},
+    }
+    env = _build_spawn_env(auth, manifest=stored)
+    assert env["ACME_REGION"] == "eu"
+    assert env["ACME_TOKEN"] == "secret"
+    assert "OTHER" not in env
+    assert env.get("PATH") != "/tmp/evil"
+    assert auth["access_token"] == "tok"
+    older = {"capabilities": {"mcp": {"transport": "stdio"}}}
+    allowed = _allowed_spawn_env_keys(auth, older)
+    assert "OTHER" in allowed
+    assert "ACME_REGION" not in allowed
+    with pytest.raises(ValueError, match="does not declare spawn env"):
+        _build_spawn_env(auth, manifest={"capabilities": {"mcp": {"env": ["nope"]}}})

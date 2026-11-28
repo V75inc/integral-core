@@ -21,6 +21,21 @@ and enforce authenticated document access. Core renders plain text and safe link
 Apps migrate historical installed schemas and stored states before removal of compatibility
 logic. App contract review actions and document APIs are not provided by Core.
 
+## First materialization provenance
+
+A fresh package install can record a versioned historical receipt on its
+initial Application Definition. This receipt records exact Track and EntryType
+IDs from the creation branches, after checking their graph containment and
+the initial definition's canonical keys. It excludes generic creation,
+template clones, reused or upgraded Apps, and legacy name-based adoption.
+Absence is unknown, not evidence that a Track is unmanaged.
+
+The receipt describes the original materialization and grants nothing. It
+does not qualify an installed store or supply current public policy. Before
+using it for policy, qualify current bindings, define how moves, detachments
+and definition revisions invalidate them, and separately reconcile older Apps.
+Public routes still use their existing contracts.
+
 ## Schema-selected templates
 
 Template selection is an App-registered field plugin, not a Core builtin. Explicit field type or `config.renderer` selects an installed plugin while preserving storage/relation schema. Missing configured renderers fail closed. App-authored

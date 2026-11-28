@@ -51,6 +51,10 @@ the old generated all-skills instruction. Owner-edited tasks and cancelled
 tasks remain unchanged; repairs preserve status, cadence, run budgets and
 write grants. Previously queued work with the old mandate must fail admission.
 An unavailable schedule lookup never causes a replacement routine to be created.
+Installing an App does not open a chat for its bundled schedule. Core binds the
+routine to a dedicated owned chat on its first eligible dispatch, then reuses
+that chat for later runs. Existing routine chat links and explicit chats are
+unchanged.
 The lightweight saved-reminder path is only for fixed text, such as a personal
 nudge; reminder delivery does not call a model or execute task instructions.
 
@@ -112,6 +116,24 @@ committed-message visibility across API sessions. It does not mirror another
 session's token stream or remote busy indicator. Existing persisted-state
 recovery remains available when a live notification is missed. No stored-data
 migration or model/provider call is introduced by this relay.
+
+The native voice adapter can subscribe to the same committed invalidations and
+read a bounded conversation snapshot; it does not execute another chat turn or
+poll the thread independently for new messages. The wake contains no content or
+authority. A read checks current identity, workspace membership, the exact
+rooted thread and selected profile. The snapshot uses a scope-bound transcript
+watermark, collapses duplicate invalidations, and reports a gap rather than
+claiming complete catch-up if the bounded history no longer overlaps.
+
+Voice may use a short recent visible text excerpt as untrusted data for an
+explicit readout. Automatic peer-interface notices require a durable typed
+submission proof: an accepted user message for that owner and thread, or the
+deterministic persisted reply to that submission. Unknown/legacy origins
+cannot prove a typed update. An attachment count means a file or image was
+attached to an accepted message; it does not affirm extraction, indexing,
+tool access, or current availability. The projection releases no attachment
+names, IDs, bytes, or extracted text, no internal tool parts or approvals,
+and no unsaved composer state or interface-only alerts.
 
 ## Image input
 
@@ -262,6 +284,8 @@ successful turn. History, recovered work, canceled/failed turns, other threads,
 changed workspaces/routes, and a nonempty composer do not trigger navigation.
 The browser uses the ordinary router and keeps the conversation available in the
 companion panel. Opening a page does not prove that a mutation succeeded.
+
+For live voice with the workspace assistant, `open_integral_page` submits a read-only native turn. A name goes directly to the resident for resolution. A spoken number refers to the last numbered directory page in that call. Integral checks the page order, expiry and current access before binding that exact destination to the request, then checks the destination again at delivery. The voice browsing tool can still select a location for later questions without moving the browser. Selected profiles use their existing resident delegation and permissions.
 
 Local candidate evidence for images, approvals, navigation and their validation
 limits is recorded in the native image-input tests under `backend/tests/native_harness/`.
@@ -479,8 +503,8 @@ host visibility override remains authoritative.
 Model routing coalesces workspace-owner credential reads only for one route
 resolution. Each physical request and its final readiness check resolve current
 authority again; no route, decrypted key or permission decision survives that
-boundary. Automatic Light routing has one transport attempt and a total eight-second
-deadline (`INTEGRAL_NATIVE_LIGHT_ROUTING_TIMEOUT_SECONDS`), including framework
+boundary. In dual-model mode each Light request has one transport attempt.
+The routing pass shares a total eight-second deadline (`INTEGRAL_NATIVE_LIGHT_ROUTING_TIMEOUT_SECONDS`), including framework
 schema retries. A known transient timeout requests Heavy context through its
 normal admission; cancellation and authority denials never become fallbacks.
 Single-model and Heavy request timeouts/retries retain their configured bounds.
@@ -502,6 +526,8 @@ request still validates endpoint authority, outbound policy and DNS pinning.
 Redirects and environment proxies stay disabled. Standard provider routes keep
 LiteLLM's existing provider connection reuse; the in-process bridge client is
 not a new network connection to a LiteLLM proxy.
+
+History summarization may use one model inference per admitted run. Later tool-result clearing and accounting changes must not trigger another summary of already-completed history in that run. The per-request context budget and retrieval authorization still apply. A new turn may summarize again when needed.
 
 Content-free server diagnostics report `routeResolution`, `modelAdmission`,
 `dispatchReceipt`, `providerStart`, `routingDiscovery`, `workspaceProfile`,
@@ -540,14 +566,15 @@ Catalogue definitions are encoded without submitting one concurrent task per
 definition to the bounded encoder queue. A single large catalogue must not
 overload its own search admission. Encoder outages still permit an explicit
 lexical fallback; ranking never grants capability or record authority.
-Activating a skill exposes up to eight Core read schemas, in its standard
-`allowed-tools` declaration order, within a 16,000-byte definition budget.
-Authors should list the usual starting reads first. Larger and remaining read
-schemas remain searchable through native deferred tools; a broad skill does
-not disclose its whole catalogue. Existing foundational navigation tools remain
-available independently. Procedure-dependent write tools retain their existing
-skill and approval requirements. The model may load an advertised native skill
-directly rather than searching again for a procedure it can already identify.
+Activating a skill exposes a starter set of up to eight Core tool schemas
+within a 16,000-byte definition budget. Reads and proposed changes share this
+budget in the skill’s `allowed-tools` order. List the usual starting operations
+first. Foundational navigation and saved approval continuations have their own
+availability rules. Pydantic AI’s `load_capability` loads the procedure. When
+another schema is needed, `search_capabilities` can reveal it by exact name
+through Pydantic AI’s `ToolReturn.tools`. For a protected operation, search
+checks the owning skill against the current run context even on a cached match.
+The broker checks scope, permission and approval again at invocation.
 
 `integral_list_workspace_tools` defaults to 20 results for resident/MCP calls.
 It accepts an accessible `app_id`, exact `tool_key`, `read_only`, `limit` (up to
@@ -580,8 +607,7 @@ Activity distinguishes queue delay, preparation, first provider output, first
 requested/started/received tool, first operational tool, first answer text and
 completion. Discovery is not an operational tool. Browser receipt timings include
 transport and replay delay; they are separate from server/provider timings.
-Validated answer buffering remains in place. A fast provider first token is not
-a guarantee of equally fast displayed answer text.
+A provider may spend time reasoning before producing any displayable answer. Measure first visible words separately from completion and compare cold and warm calls on the same assigned model.
 
 The activity table reports each physical call and an aggregate total across
 calls; that total is not one request's context size. Tool cards expose safe
@@ -599,6 +625,40 @@ passes the live broker. Missing, mismatched or denied pointers are not exposed.
 
 #### Sharing discovery with the Light pass
 
+Light chooses its route from the information and effects the current request
+requires. It can use general knowledge, supplied text, prior conversation and
+the authenticated account clock. Account-local time, date, weekday and zone
+are supplied on every turn, independent of the language or wording of the
+question. Clarification belongs in conversation when the goal is ambiguous.
+A mixed request that also needs workspace or external state takes the
+operational route. Thread-only recall stays conversational. Saving a record
+requires the governed workflow.
+
+The routing model sees at most six complete exchanges and 12,000 characters
+before the accepted message. The assistant receipt identifies its parent.
+Failed, cancelled, unpaired and later queued input cannot become earlier tasks
+to answer. For a previous operational turn, the user’s request and its handoff
+supply a referent. The governed checkpoint owns the actual results. For models
+using prompted JSON, completed replies are presented in that same format, so
+prior transcript prose does not demonstrate an invalid output protocol.
+The visible transcript remains in ordinary language.
+
+Platform administrators can enable **Whole-answer protection** in **Settings → AI Models → Deployment Limits → Edit deployment limits**. The worker reads the installation setting when starting a native turn. Off is the default, including for older revisions. With protection on, chat waits for the validated answer. With it off, ordinary conversation can show provisional words and replace them if final validation or steering changes the answer. Once displayed, early words cannot be recalled from a reader or an earlier stream frame.
+
+The light pass uses Pydantic AI's `Agent.run` event handler on the existing model request. Only the answer text from the conversational route is eligible. Interleaved thoughts, routing fields and tool arguments do not enter the text projection. Turns with private personas or injected host context, published profiles, operational work, approvals, attachment-backed turns and voice delegation retain their existing release boundaries. The event reader and worker still check scope and execution authority. The stored assistant message contains the settled text once. Local worker and reader notifications reduce polling delay. Cross-process consumers resume from the same durable cursor by polling.
+Routing logs record a validated operational handoff without recording model text.
+
+Light uses Pydantic AI output tools when the model profile supports required
+tool choice. Otherwise it uses Pydantic AI’s validated `PromptedOutput`.
+The pinned LiteLLM Ollama chat adapter discards forced tool choice across its
+models, so its bridge declares that limitation through the Pydantic model
+profile. The prompted route checks decoded text for instruction disclosure.
+A malformed routing response can receive one Pydantic output-validation retry
+within the remaining turn budget and routing deadline. If validation still
+fails, the turn reports an error. A formatting failure alone cannot trigger
+workspace tools. A successful corrected handoff charges both model calls to
+the same turn. Configured transient-provider failover is independent.
+
 Automatic routing may nominate one exact skill from current,
 authorization-filtered public metadata candidates. This is a model choice in the
 existing Light request, not a host keyword router or execution authority. The
@@ -609,10 +669,15 @@ discovery. Initial activation and native `load_capability` use the same context
 admission budget. Do not impose a smaller body-length cutoff on the Light
 handoff: that forces the Heavy model to rediscover and load the identical body.
 The preparation log records the nominated and activated procedure IDs.
-Light receives a bounded Core procedure index (up to 24 descriptions) alongside
-up to eight ranked App procedures, each description capped at 500 characters.
-Generic Core skills remain eligible even when domain wording has no keyword
-overlap. The model chooses a fitting procedure or leaves the choice unset; this
+Light receives up to 24 Core procedure IDs and eight ranked App procedure
+IDs. Only the eight highest-ranked matches carry descriptions (up to 320
+characters each). Core IDs remain selectable without keyword overlap.
+The operational pass uses the pinned harness’s `Skills` and `load_capability`
+for procedure bodies. Pydantic AI manages deferred tool availability. Integral
+supplies the catalog filtered for the caller and checks each tool invocation.
+The pinned harness ignores the `allowed-tools` field when loading instructions.
+Integral reads that field and enforces the tool bindings at its broker boundary.
+The model chooses a fitting procedure or leaves the choice unset; this
 metadata cannot authorize any tool or bypass the live skill resolver. Other
 workflows stay deferred and remain discoverable.
 Social replies do not compose operational skill bodies or advance the operational
@@ -642,3 +707,37 @@ Long-term tombstone retention, accounting coordinated with all upload paths,
 older approval migration, and provider-specific storage immutability remain
 qualification work. The scanner's `skipped` status is not a claim that malware
 scanning occurred.
+
+## Personal WhatsApp text connector
+
+The WhatsApp settings section binds a personal workspace to a jvconnect line.
+Webhook admission verifies the configured HMAC, resolves the verified linked
+channel identity (new links require the one-time code issued to the signed-in
+account), and checks current workspace access before creating or reusing
+a dedicated native thread. Text enters the existing durable turn submission
+path. An explicit single-proposal approval uses the shared approval decision
+service; delivery sends committed assistant text. Non-text messages receive a
+text-only notice. API keys and webhook secrets remain server-side.
+
+This integration is text-only. It does not provide public catalogue access,
+public CRM access, staff authorization inferred from phone numbers, or realtime
+voice. The separate connection-profile pilot is not registered on this webhook.
+Local qualification uses mocked transports and synthetic identities; operational
+activation still requires delivery/retry and durable ingress qualification.
+
+Native voice barge-in interrupts audio delivery, not an accepted durable
+workspace chat turn. Hanging up or reaching the call's bounded wait detaches
+the voice observer; a submitted turn remains in the same chat with ordinary
+worker authorization and approval. The caller can explicitly stop that turn
+in chat. A wait timeout reports acceptance only after the durable receipt
+was observed, never that an unverified operation completed.
+
+After a voice delegation is durably accepted, the call's tool exchange closes
+without waiting for Heavy. The conversation stays open for small talk. A
+barge-in prevents a late result from taking over playback; it does not cancel
+the chat job. The durable result remains in chat. While an earlier request is
+being checked, a second workspace tool call gets a clear response and no
+implicit queued job. Explicit rerun targets only the last verified voice
+request in this call if it was cancelled before dispatch. An active, stopping,
+parked, or potentially partially executed request is not replayed. An allowed
+rerun is a new admitted chat turn, with no prior approval carried forward.

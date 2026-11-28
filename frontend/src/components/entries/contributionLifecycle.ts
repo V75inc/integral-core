@@ -8,6 +8,7 @@
 
 import { createContext, useContext } from 'react';
 import type {EntryFieldMetadata} from '@integral/sdk-react';
+import type { Entry } from '../../types';
 
 export type ContributionValidateResult = {
   ok: boolean;
@@ -28,6 +29,14 @@ export type ContributionLifecycleHandle = {
   requestSubmit: (entryId?: string | null) => Promise<ContributionSubmitResult>;
 };
 
+/** Lets a detail-mode region offer explicit-save edits on a record the viewer may change. */
+export type ContributionDetailEdit = {
+  /** Fields projected at read time; never writable. */
+  readOnlyKeys: string[];
+  /** ``current`` is false when the save began in a record session since left. */
+  onSaved: (entry: Entry, session: { current: boolean }) => void;
+};
+
 export type ContributionLifecycleApi = {
   mode: 'create' | 'edit' | 'detail';
   placement: 'entry_compose' | 'entry_detail';
@@ -39,6 +48,7 @@ export type ContributionLifecycleApi = {
   related?: unknown;
   fields?: EntryFieldMetadata[];
   fieldErrors?: Record<string, string>;
+  detailEdit?: ContributionDetailEdit;
   onDraftPatch?: (patch: {
     custom_fields?: Record<string, unknown>;
     related?: unknown;

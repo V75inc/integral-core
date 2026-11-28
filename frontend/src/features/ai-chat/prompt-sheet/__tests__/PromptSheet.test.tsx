@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { presentCallReview, clearCallReview } from "../../voiceReviewPresentation";
 import { PromptSheetHost } from '../PromptSheet';
 import { usePromptQueue } from '../usePromptQueue';
 import type { PromptStagedWriteItem } from '../types';
@@ -16,6 +17,7 @@ const approveWrite = vi.fn(async () => undefined);
 
 function renderPendingWrite(failed = false, extra: Partial<PromptStagedWriteItem> = {}, busy = false, error: string | null = null) {
   vi.mocked(usePromptQueue).mockReturnValue({
+    threadId: "thread-1",
     open: true,
     current: {
       id: 'write-1',
@@ -166,4 +168,36 @@ it('keeps a local failure visible before a durable failure arrives', () => {
   expect(screen.getAllByRole('alert')).toHaveLength(1);
   expect(screen.getByRole('alert')).toHaveTextContent('Approval failed.');
   expect(screen.queryByText('Allow this change?')).toBeNull();
+});
+
+it("keeps a same-thread spoken review compact, allowing optional details and ordinary review after hangup", () => {
+  const owner = Symbol();
+  renderPendingWrite();
+  try {
+    act(() => presentCallReview(owner, "other", "token-1"));
+    expect(screen.getByRole("dialog", { name: "Approve a change" })).toBeVisible();
+    act(() => presentCallReview(owner, "thread-1", "token-1"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("Awaiting your voice decision");
+    fireEvent.click(screen.getByRole("button", { name: "Review details" }));
+    expect(screen.getByRole("dialog", { name: "Approve a change" })).toBeVisible();
+    expect(approveWrite).not.toHaveBeenCalled();
+  } finally {
+    act(() => clearCallReview(owner));
+  }
+});
+
+it("keeps visual-only safety fallback compact during a call until explicitly opened", () => {
+  const owner = Symbol();
+  renderPendingWrite();
+  try {
+    act(() => presentCallReview(owner, "thread-1", "token-1", true));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("Visual review required for this change");
+    fireEvent.click(screen.getByRole("button", { name: "Review details" }));
+    expect(screen.getByRole("dialog", { name: "Approve a change" })).toBeVisible();
+    expect(approveWrite).not.toHaveBeenCalled();
+  } finally {
+    act(() => clearCallReview(owner));
+  }
 });

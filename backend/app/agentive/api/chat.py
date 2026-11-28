@@ -9,7 +9,7 @@ from fastapi import Request
 from jvspatial.api import endpoint
 
 from app.agentive.connectors import ChatTurnContext
-from app.agentive.connectors.registry import get_chat_connector
+from app.agentive.connectors.registry import get_chat_agent
 from app.agentive.services.uplink_registry import uplink_registry
 from app.agentive.types import AgentType
 from app.api.errors import (
@@ -66,7 +66,7 @@ async def post_agentive_chat_message(
 
     The authenticated user's **email** is the agent-facing user_id; client-supplied
     user identifiers are ignored. Optional ``session_id`` continues a thread.
-    Vendor-neutral dispatch via get_chat_connector(conn.agent_type) — no agent runtime
+    Vendor-neutral dispatch via get_chat_agent(conn.agent_type) — no agent runtime
     type-narrowing (D-11).
     """
     # Pydantic-equivalent domain validation runs BEFORE service-availability
@@ -156,7 +156,7 @@ async def post_agentive_chat_message(
 
     # Vendor-neutral connector lookup (D-11) — no agent runtime type-narrowing.
     try:
-        connector = get_chat_connector(conn.agent_type)
+        connector = get_chat_agent(conn.agent_type)
     except ValueError as e:
         raise NotImplementedAPIError(message=str(e)) from e
 

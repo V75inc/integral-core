@@ -95,7 +95,7 @@ export function CustomMcpMountModal({
       setPending(false);
       if (data.ok && data.connector) {
         const sharedNote =
-          data.connection_mode === 'shared' ? ' (shared connection)' : '';
+          data.connection_mode === 'shared' ? ' (workspace connection)' : '';
         toast.showToast(`Custom MCP server connected${sharedNote}`, 'success');
         reset();
         onMounted(data.connector);
@@ -155,7 +155,7 @@ export function CustomMcpMountModal({
         return;
       }
       const sharedNote =
-        effectiveMode === 'shared' ? ' (shared connection)' : '';
+        effectiveMode === 'shared' ? ' (workspace connection)' : '';
       toast.showToast(`Custom MCP server connected${sharedNote}`, 'success');
       const created = result.connector;
       reset();
@@ -217,8 +217,8 @@ export function CustomMcpMountModal({
               },
               {
                 value: 'shared',
-                title: 'Shared',
-                body: 'Everyone uses these credentials (workspace admins only). Actions show this single account as the author.',
+                title: 'Workspace',
+                body: 'Eligible workspace members use the connected account. Workspace admins and owners can set it up.',
               },
             ] as const
           ).map(opt => {

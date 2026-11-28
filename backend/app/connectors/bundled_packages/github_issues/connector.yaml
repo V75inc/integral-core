@@ -1,0 +1,74 @@
+schema: integral.connector/v1
+id: github_issues
+version: 1.0.0
+publisher: integral
+name: GitHub Issues
+description: Mirror issues from a GitHub repository into an Integral track. Optional
+  GITHUB_TOKEN env raises the API rate limit.
+binding:
+  scopes:
+  - workspace
+  - personal
+trust:
+  tier: trusted
+http:
+  base_url: https://api.github.com
+health:
+  request:
+    method: GET
+    path: /repos/{{config.owner}}/{{config.repo}}
+capabilities:
+  sync:
+    entry_type: github_issues
+    record_type: github_issue
+    field_names:
+      number: issue_number
+      status: state
+      actor: reporter
+      assignee: assignee
+      url: github_url
+    conflict_policy: last_write_wins
+    max_pages: 10
+  actions:
+  - name: list_issues
+    description: List issues in the configured repository.
+    effect: read
+    input:
+      type: object
+    request:
+      method: GET
+      path: /repos/{{config.owner}}/{{config.repo}}/issues
+      query:
+        state: all
+        per_page: "100"
+        since: "{{cursor}}"
+      headers:
+        Accept: application/vnd.github+json
+    output:
+      select: $
+      id: $.id
+      updated_at: $.updated_at
+      next_header: Link
+      next_rel: next
+      exclude: pull_request
+      title: $.title
+      body: $.body
+      status: $.state
+      number: $.number
+      url: $.html_url
+      actor: $.user.login
+      assignee: $.assignee.login
+      tags: $.labels.name
+auth:
+  type: operator
+  env: GITHUB_TOKEN
+  inject: {in: header, name: Authorization, prefix: "Bearer "}
+configuration:
+- key: owner
+  label: Repository owner
+  type: string
+  required: true
+- key: repo
+  label: Repository name
+  type: string
+  required: true

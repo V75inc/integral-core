@@ -1,0 +1,35 @@
+schema: integral.connector/v1
+id: serper_web_search
+version: 1.0.0
+publisher: integral
+name: Serper Web Search
+description: Search the public web with Serper and return concise, source-linked results
+  to Integral agents.
+binding:
+  scopes:
+  - workspace
+  - personal
+trust:
+  tier: trusted
+capabilities:
+  mcp:
+    transport: stdio
+    command:
+    - python
+    - -m
+    - app.connectors.serper_mcp_server
+    env:
+      SERPER_API_KEY:
+        secret: serper_api_key
+      SERPER_REGION:
+        value: us
+    read_only_tools:
+    - search_web
+    - fetch_web_page
+configuration:
+- key: serper_api_key
+  label: Serper API key
+  type: secret
+  required: false
+auth:
+  type: none

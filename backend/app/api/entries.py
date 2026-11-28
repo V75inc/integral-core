@@ -23,7 +23,6 @@ from app.api.utils import (
 )
 from app.models.edges import (
     CONTAINS,
-    MENTIONS,
     WATCHES,
 )
 from app.models.nodes import Entry, EntryType, Track
@@ -59,7 +58,7 @@ from app.services.entry_listing import (
     selected_entry_ids,
     tag_filter_clauses,
 )
-from app.services.mentions import resolve_mentions
+from app.services.mentions import link_mentions
 from app.services.notification_paths import entry_path
 from app.services.operational_model_derived_fields import (
     resolve_derived_fields_for_entry,
@@ -138,19 +137,16 @@ async def _dispatch_entry_mentions(
             or getattr(actor_user, "email", "")
             or actor_user_id
         )
-    try:
-        mentioned_users = await resolve_mentions(
-            text or "",
-            exclude_user_id=actor_user_id,
-            track_id=getattr(track, "id", None) or None,
-        )
-    except Exception:
-        return
+    mentioned_users = await link_mentions(
+        Entry,
+        entry.id,
+        text or "",
+        actor_id=actor_user_id,
+        track_id=track.id,
+        entry_id=entry.id,
+        mentioned_at=now,
+    )
     for mentioned in mentioned_users:
-        try:
-            await entry.connect(mentioned, edge=MENTIONS, mentioned_at=now)
-        except Exception:
-            pass
         try:
             await notification_router.dispatch(
                 user_id=mentioned.user_id or mentioned.id,
@@ -501,6 +497,7 @@ async def create_entry(
     await _project_entry_computed(entry, entry_data)
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry, track=track)
+    await _attach_app_record_readonly(entry_data, user_id)
     entry_data["comment_count"] = 0
 
     user = await get_user_node(user_id)
@@ -541,6 +538,18 @@ async def create_entry(
     return {"entry": entry_data, "message": "Entry created successfully"}
 
 
+async def _attach_app_record_readonly(entry_data: Dict[str, Any], user_id: str) -> None:
+    if app := entry_data.get("app"):
+        from app.services.entry_record_readonly import entry_is_app_readonly
+
+        if await entry_is_app_readonly(
+            workspace_id=app["workspace_id"],
+            entry_id=entry_data["id"],
+            principal_id=user_id,
+        ):
+            entry_data["app_record_readonly"] = True
+
+
 @endpoint("/entries/{entry_id}", methods=["GET"], auth=True, tags=["Entries"])
 async def get_entry(request: Request, entry_id: str) -> Dict[str, Any]:
     """Get a specific entry by ID."""
@@ -576,6 +585,7 @@ async def get_entry(request: Request, entry_id: str) -> Dict[str, Any]:
         entry_data["read_time_fields"] = live_fields
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry)
+    await _attach_app_record_readonly(entry_data, user_id)
     await attach_comment_count(entry_data, entry)
     # Standard backlinks: anchor source entry + incoming REFERENCES. Always
     # present (None / [] when absent) so the frontend can rely on a stable
@@ -852,7 +862,19 @@ async def update_entry(
                     if _connector is not None and _slug:
                         # I-CON-02 — subclass dispatch via subclass_slug.
                         _sub = _get_sync_connector(_slug.strip())
-                        if getattr(_sub, "conflict_policy", "") == "mirror_only":
+                        _stored = getattr(_connector, "package_manifest", None)
+                        try:
+                            from app.connectors.package_runtime import (
+                                package_conflict_policy,
+                            )
+
+                            _policy = package_conflict_policy(
+                                _stored if isinstance(_stored, dict) else None,
+                                _slug.strip(),
+                            )
+                        except ValueError:
+                            _policy = getattr(_sub, "conflict_policy", "")
+                        if _policy == "mirror_only":
                             raise InsufficientPermissionsError(
                                 message=(
                                     "Entry is sourced from a mirror_only "
@@ -938,6 +960,7 @@ async def update_entry(
     await _project_entry_computed(entry, entry_data)
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry)
+    await _attach_app_record_readonly(entry_data, user_id)
     await attach_comment_count(entry_data, entry)
 
     # Phase 9 NOTIF-02 — fan out @mention notifications on update too.

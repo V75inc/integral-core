@@ -238,9 +238,17 @@ async def _proxy_http(request: Request, prefix: str, path: str) -> Response:
 
 
 async def _proxy_websocket(websocket: WebSocket, target: str) -> None:
+    # The API checks the browser's Origin. Preserve missing/null origins too:
+    # the proxy's own address must never stand in for a caller's origin.
+    origins = websocket.headers.getlist("origin")
+    if len(origins) > 1:
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     try:
-        async with websockets.connect(target) as upstream:
+        async with websockets.connect(
+            target, origin=origins[0] if origins else None
+        ) as upstream:
             incoming = asyncio.create_task(_client_to_upstream(websocket, upstream))
             outgoing = asyncio.create_task(_upstream_to_client(websocket, upstream))
             done, pending = await asyncio.wait(

@@ -26,8 +26,9 @@ import { EmptyState } from "../../../components/ui/EmptyState";
 import { Skeleton } from "../../../components/ui/Skeleton";
 import { SkillEditorModal } from "../../../components/skills/SkillEditorModal";
 import { Modal } from "../../../components/ui/Modal";
-import { Section } from "../../../patterns";
 import { Input, Select, Stack, Surface, Text } from "../../../ui";
+import { SettingsPagePanel } from "../components/SettingsPageHeader";
+import { SETTINGS_PANEL_BORDER } from "../components/settingsPanelBorder";
 import {
   SkillPagination,
   SkillContextInspector,
@@ -138,8 +139,9 @@ function SkillsBrowser({
   const busy = pageQuery.isFetching || search.trim() !== filters.search;
 
   return (
-    <Section
-      title="AI Skills"
+    <SettingsPagePanel
+      outlined
+      title="Agent Skills"
       description="Skills guide how Integral handles tasks in this workspace."
       actions={
         <div className="flex flex-wrap items-center gap-2">
@@ -263,9 +265,9 @@ function SkillsBrowser({
             </div>
             {data.skills.length ? (
               <Surface
-                border="subtle"
+                border="none"
                 radius="card"
-                className="overflow-hidden"
+                className={`overflow-hidden ${SETTINGS_PANEL_BORDER}`}
               >
                 <ul
                   aria-label="Skills"
@@ -402,6 +404,6 @@ function SkillsBrowser({
         onClose={closeEditor}
         onSaved={savedSkill}
       />
-    </Section>
+    </SettingsPagePanel>
   );
 }

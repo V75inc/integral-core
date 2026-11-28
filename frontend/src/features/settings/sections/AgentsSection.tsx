@@ -163,7 +163,7 @@ function ConnectedAgentsBlock() {
 
   return (
     <SettingsSection
-      title="Connected agents"
+      title="MCP connections"
       description="Connect an assistant such as Claude Desktop or Cursor using the address below. You can review and remove its access here."
     >
       <Stack gap="md">
@@ -198,13 +198,13 @@ function ConnectedAgentsBlock() {
           emptyFallback={
             <EmptyState
               icon={<Plug size={24} className="text-[var(--text-subtle)]" />}
-              title="No connected agents yet"
+              title="No external agents connected"
               description="Assistants appear here after you connect them and approve access."
             />
           }
           errorFallback={(err) => (
             <Text variant="body" tone="danger" as="p">
-              Failed to load connected agents: {err.message}
+              Failed to load external agents: {err.message}
             </Text>
           )}
         >
@@ -276,7 +276,7 @@ export function AgentsSection({ navigateToSection }: AgentsSectionProps = {}) {
     <div className="flex flex-col gap-5">
       <div>
         <Text variant="heading-md" weight="semibold" as="h2">
-          Connected agents
+          External Agents
         </Text>
         <PageMeta as="p">
           Manage assistants that connect to Integral through MCP. Your built-in

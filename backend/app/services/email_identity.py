@@ -5,15 +5,18 @@ from __future__ import annotations
 import secrets
 from typing import Optional
 
+from jvspatial.api.auth.models import User as AuthUser
 from jvspatial.core.context import get_default_context
 
-from app.exceptions import AuthorizationUnavailableError
+from app.exceptions import AuthorizationUnavailableError, BadRequestError
 from app.models.nodes import User
 from app.services.authority_facts import (
     primary_auth_record,
     primary_node_record,
     required_node_text,
 )
+
+_ROSTER_BATCH = 500
 
 
 async def current_account_email(user: User) -> Optional[str]:
@@ -26,6 +29,44 @@ async def current_account_email(user: User) -> Optional[str]:
     if row is None or row["context"].get("is_active") is not True:
         return None
     return validate_email(required_node_text(row, "email"))
+
+
+async def roster_account_emails(users: list[User]) -> dict[str, str]:
+    """Display addresses for active accounts, keyed by identity id.
+
+    Reads the primary store in bounded batches. An account that is missing,
+    inactive or holds no usable address is simply left out; a datastore failure
+    or a duplicated identity still fails closed.
+    """
+    from app.api.validators_common import validate_email
+
+    database = get_default_context().database
+    wanted = sorted({user.user_id for user in users if user.user_id})
+    emails: dict[str, str] = {}
+    for start in range(0, len(wanted), _ROSTER_BATCH):
+        batch = wanted[start : start + _ROSTER_BATCH]
+        try:
+            rows = await database.find(
+                "object",
+                {"id": {"$in": batch}, "entity": AuthUser._entity_name()},
+                limit=len(batch) + 1,
+            )
+        except Exception as exc:
+            raise AuthorizationUnavailableError() from exc
+        ids = [row.get("id") for row in rows]
+        if len(set(ids)) != len(ids) or not set(ids) <= set(batch):
+            raise AuthorizationUnavailableError()
+        for row in rows:
+            context = row.get("context")
+            if row.get("entity") != AuthUser._entity_name():
+                raise AuthorizationUnavailableError()
+            if not isinstance(context, dict) or context.get("is_active") is not True:
+                continue
+            try:
+                emails[row["id"]] = validate_email(required_node_text(row, "email"))
+            except (AuthorizationUnavailableError, BadRequestError):
+                continue
+    return emails
 
 
 def email_proof_matches(user: User, email: str) -> bool:

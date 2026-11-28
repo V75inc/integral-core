@@ -90,6 +90,25 @@ async def enforce_protected_field_write(
         if current_state is not None:
             body = current_state.get(entry_type_key, {})
             protected = set(body.get("fields", []))
+            rule = body.get("readonly_when")
+            if entry_id and rule:
+                from app.services.entry_record_readonly import (
+                    LOCKED_MESSAGE,
+                    record_matches_readonly_rule,
+                )
+
+                if await record_matches_readonly_rule(
+                    workspace_id=workspace_id,
+                    entry_id=entry_id,
+                    principal_id=principal_id,
+                    rule=rule,
+                    for_write=True,
+                    entry_type_key=entry_type_key,
+                ):
+                    raise BadRequestError(
+                        message=LOCKED_MESSAGE,
+                        details={"error_code": "app_record_readonly"},
+                    )
     details = [
         bucket.get(entry_type_key, {})
         for bucket in (_PROTECTED_DETAILS.get(workspace_id) or {}).values()
@@ -269,6 +288,10 @@ async def _canonical_protected_state_uncached(
                 raise AuthorizationUnavailableError()
             if "deny_delete" in body and type(body["deny_delete"]) is not bool:
                 raise AuthorizationUnavailableError()
+            if "readonly_when" in body:
+                from app.services.entry_record_readonly import normalize_readonly_rule
+
+                normalize_readonly_rule(body["readonly_when"])
         return state
     except AuthorizationUnavailableError:
         raise

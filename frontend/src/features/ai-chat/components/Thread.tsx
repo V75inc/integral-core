@@ -88,6 +88,8 @@ import { ToolFallback } from "./ToolFallback";
 import { LogoMark } from "../../../components/ui/Logo";
 import { MessageUndoActions } from "./MessageUndoActions";
 import { ComposerAttachmentErrorToast } from "./ComposerAttachmentErrorToast";
+import { ResidentPermissions } from "./ResidentPermissions";
+import { NativeVoiceCall } from "./NativeVoiceCall";
 import { ComposerMicButton } from "./ComposerMicButton";
 import { ComposerDictationProvider } from "../../speech/ComposerDictationContext";
 import { friendlyChatFailure, hasAssistantDebugPayload, isContextLimitFailure, isModelSetupFailure } from "./assistantMessagePresentation";
@@ -110,8 +112,9 @@ export interface AIChatThreadProps {
  * thought grouping for reasoning + tool calls.
  */
 export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadProps) {
-  const { activeProviderId, activeThreadId } = useChatActivity();
+  const { activeProviderId, activeThreadId, profileFilter, voiceAwareComposerKey } = useChatActivity();
   const { scope: mandateScope } = useScope();
+  const voiceStartedThread = Boolean(activeThreadId && voiceAwareComposerKey?.startsWith("fresh:"));
   // Stray keystrokes anywhere on this surface land in the composer. The
   // composer autoFocuses on mount, but any click on a message, a scroll
   // region or a dismissed popover moves focus off it and typing then went
@@ -178,7 +181,9 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
             which reads as clipped when the transcript is scrolled to top. */}
         <div className="mx-auto flex w-full max-w-[var(--thread-max-width)] flex-1 flex-col px-4 pt-10">
           <AuiIf condition={(s) => s.thread.isEmpty}>
-            <ThreadWelcome />
+            {voiceStartedThread
+              ? <Text as="p" variant="body-sm" tone="muted" className="my-auto text-center">Voice conversation</Text>
+              : <ThreadWelcome />}
           </AuiIf>
 
           <div className="mb-10 flex flex-col gap-y-8 empty:hidden">
@@ -204,6 +209,7 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
                   {sheet}
                   <ChatFollowUps locked={composerLocked} />
                   <Composer
+                    key={voiceAwareComposerKey ?? activeThreadId ?? `fresh:${profileFilter ?? ""}`}
                     locked={
                       composerLocked &&
                       !(activeProviderId === 'integral_native' && canReplyInChat)
@@ -1315,10 +1321,14 @@ function ComposerHostAccessory() {
 
 export function Composer({ locked = false, home = false, onSendAttempt }: { locked?: boolean; home?: boolean; onSendAttempt?: () => void }) {
   const { blockedReason } = useAgentiveCapability();
-  const { composerReady = true } = useChatActivity();
+  const { composerReady = true, needsDraftAgent, profileChoices } = useChatActivity();
 
   if (!composerReady) {
     return <div role="status" className="px-3 py-3 text-sm text-[var(--text-muted)]">Loading conversation…</div>;
+  }
+
+  if (needsDraftAgent) {
+    return <div role="status" className="px-3 py-3 text-sm text-[var(--text-muted)]">{profileChoices?.length ? "Choose an assistant to start a conversation." : "Start a new conversation to use your workspace assistant."}</div>;
   }
 
   if (isModelSetupFailure(blockedReason)) {
@@ -1499,13 +1509,15 @@ function ComposerAction({ home = false }: { home?: boolean }) {
   const hasAttachments = useAuiState(s => s.composer.attachments.length > 0);
   const actionRef = useRef<HTMLDivElement>(null);
   return (
-    <div ref={actionRef} className="relative flex min-w-0 items-center gap-2" role="group" aria-label="Message actions">
-      <div className="flex min-w-0 flex-1 items-center gap-1">
-        <HoverTooltip label="Attach an image or file" placement="top"><ComposerPrimitive.AddAttachment asChild>
+    <div ref={actionRef} className="composer-toolbar relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" role="group" aria-label="Message actions">
+      {!home && steeringRunning && hasAttachments && (
+        <Text variant="meta" tone="subtle" className="basis-full">Send attachments after this reply.</Text>
+      )}
+      <div className="composer-tools flex max-w-full flex-wrap items-center gap-1">
+        <HoverTooltip label="Attach an image or file" placement="top-start"><ComposerPrimitive.AddAttachment asChild>
           <button
             type="button"
             aria-label="Attach a file"
-            title="Attach an image or file"
             className="
               flex h-10 w-10 shrink-0 items-center justify-center rounded-full
               text-[var(--text-subtle)]
@@ -1526,11 +1538,10 @@ function ComposerAction({ home = false }: { home?: boolean }) {
         }))} /></HoverTooltip>
         <ConversationModelPicker />
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {!home && steeringRunning && hasAttachments && (
-          <Text variant="meta" tone="subtle">Send attachments after this reply.</Text>
-        )}
+      <div className="composer-controls ml-auto flex max-w-full flex-wrap items-center justify-end gap-1">
+        <ResidentPermissions />
         <ComposerMicButton />
+        <NativeVoiceCall home={home} />
         <AuiIf condition={(s) => !s.thread.isRunning || (!home && steeringRunning)}>
           <ComposerSendWithRefs
             aria-label={home ? "Ask Integral" : steeringRunning ? "Queue message" : "Send message"}

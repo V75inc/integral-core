@@ -267,7 +267,9 @@ async def _call_adapter(inv: CapabilityInvocation, cap: Dict[str, Any]) -> Any:
                     inv.capability_key,
                     str(item.input_payload.get("routine_mandate_fingerprint") or ""),
                 )
-                with bind_proposal_origin(proof):
+                with bind_proposal_origin(
+                    proof, interactive_chat=item.kind == "chat_turn"
+                ):
                     data = await dispatch_capability(inv, cap)
                 return await apply_routine_proposal(inv, data, proof)
 
@@ -278,8 +280,50 @@ async def _call_adapter(inv: CapabilityInvocation, cap: Dict[str, Any]) -> Any:
             inv.capability_key,
             str(item.input_payload.get("routine_mandate_fingerprint") or ""),
         )
-        with bind_proposal_origin(proof):
+        check_permission = bool(
+            item.kind == "chat_turn"
+            and item.input_payload.get("resident_permission_revision")
+            and inv.capability_key
+            in {
+                "integral_create_entry",
+                "integral_update_entry",
+                "integral_update_app",
+                "integral_create_dashboard",
+                "integral_update_dashboard",
+            }
+            and not proof.get("requires_deferred_link")
+        )
+        with bind_proposal_origin(
+            proof,
+            interactive_chat=item.kind == "chat_turn",
+            check_permission=check_permission,
+        ):
             data = await dispatch_capability(inv, cap)
+        if (
+            check_permission
+            and isinstance(data, dict)
+            and data.get("_kind") == "staged_change"
+            and data.get("token")
+        ):
+            from app.agentive.staging import _push_created_event, get_token
+            from app.services.prompt_queue import enqueue_staged_write
+            from app.services.resident_permissions import apply_resident_permission
+
+            applied = await apply_resident_permission(item, context, data["token"])
+            if applied is not None:
+                return {
+                    **data,
+                    "state": applied["state"],
+                    "consumed": bool(applied.get("consumed")),
+                    "execute_result": applied.get("execute_result"),
+                    "decision_source": "resident_permission",
+                }
+            pending = await get_token(data["token"])
+            if pending and pending.state == "pending":
+                await enqueue_staged_write(
+                    user_id=inv.principal_id, session_id=inv.session_id, staged=data
+                )
+                await _push_created_event(pending)
         return await apply_routine_proposal(inv, data, proof)
 
 

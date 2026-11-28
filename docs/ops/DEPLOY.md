@@ -18,6 +18,77 @@ docker compose up --build -d
 docker compose ps
 ```
 
+Both local Compose files run `storage-init` before starting the API. This
+one-time maintenance process provisions the release-reviewed catalog on an
+empty database and retains the initial plan in a named volume. On later
+starts it verifies the existing catalog and serving login. The API uses
+`integral_runtime`, a restricted PostgreSQL role, with
+`JVSPATIAL_POSTGRES_INDEX_CREATION=managed` and
+`JVSPATIAL_AUTO_CREATE_INDEXES=false`. These settings are pinned in the
+local Compose files. Automatic index creation is also disabled by the native
+launcher. Required integrity is verified independently before serving.
+Re-run bootstrap on an older environment file to generate the missing
+`INTEGRAL_LOCAL_POSTGRES_RUNTIME_PASSWORD`; existing secrets remain intact.
+
+### Existing local databases without a catalog
+
+If setup reports `Managed index catalog is not provisioned` or the init
+container reports that existing storage needs review, retain the PostgreSQL
+and file volumes and all original encryption keys. The init service refuses
+to automatically migrate populated databases.
+
+Stop the local API and web containers, verify a restorable database and
+attachment backup, and build the exact intended API and maintenance images:
+
+```bash
+./scripts/bootstrap_env.sh .env .env.example
+docker compose stop api web
+docker compose up -d db
+docker compose build api storage-init
+```
+
+Use the maintenance container to plan the catalog transition. Choose explicit
+budgets appropriate to this database from the
+[governed index procedure](../backend/governed-indexes.md#operator-commands).
+For a small local development database, an example plan is:
+
+```bash
+docker compose run --rm storage-init python -m app.cli indexes plan \
+  --output /data/reviewed-index-plan.json --runtime-role integral_runtime \
+  --max-indexes 600 --max-index-bytes 2000000000 --max-build-bytes 3000000000
+```
+
+Inspect the saved artifact with
+`docker compose run --rm storage-init cat /data/reviewed-index-plan.json`
+and qualify it on a disposable restored copy. No removal is requested by this
+command. Before applying an approved plan, connect to the local PostgreSQL
+owner using `docker compose exec db psql -U integral -d integral`. If the
+restricted serving role does not already exist, create it:
+
+```sql
+CREATE ROLE integral_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+\password integral_runtime
+```
+
+At PostgreSQL's private password prompt, use the generated
+`INTEGRAL_LOCAL_POSTGRES_RUNTIME_PASSWORD` from the local environment file.
+If the role already exists, retain its matching original credential. Exit psql
+with `\q`. Supply the exact independently reviewed plan hash to the maintenance
+command and then recreate the serving containers:
+
+```bash
+docker compose run --rm storage-init python -m app.cli indexes apply \
+  --plan /data/reviewed-index-plan.json --approved-hash REVIEWED_SHA256
+docker compose up -d --force-recreate api web
+```
+
+The same sequence applies to `docker-compose.local.yml` by adding
+`-f docker-compose.local.yml` to each Compose invocation and using
+`.env.docker.example` on initial bootstrap. A failed plan, mismatched
+credential or missing catalog keeps the API unavailable. Resolve the
+specific maintenance error before serving. Existing indexes are preserved;
+retirement requires separate measured evidence and approval.
+
 The bootstrap creates the missing environment file and replaces recognized secret placeholders. Keep generated keys private and stable for the deployment. Review non-secret model, origin, and storage settings separately. Compose requires an operator-provided JWT signing key and OAuth encryption key; it supplies no JWT fallback.
 
 Default host ports are web 9006, API 4000, and PostgreSQL 5433. Use loopback bindings or a reviewed override for local-only access. The file has a fixed database container name, so use a separate override when operating multiple installations on one host.
@@ -292,8 +363,7 @@ range 1–16 per API process). Independent conversations can execute concurrentl
 per-thread admission and work leases still serialize a conversation. Account for
 replica count, provider rate limits and local-model capacity when setting this.
 
-Settings → AI Models profiles can lower model request, tool-call, turn token and
-turn timeout limits. Operator settings remain ceilings: `INTEGRAL_NATIVE_TURN_REQUEST_LIMIT`,
+Platform administrators can lower installation-wide native chat limits in **Settings → AI Models → Deployment Limits** without restarting workers. Model profiles can tighten them further. Keep the same host ceilings on every API server and worker. The tool-call ceiling is 32. The other host ceilings come from `INTEGRAL_NATIVE_TURN_REQUEST_LIMIT`,
 `INTEGRAL_NATIVE_TURN_TOKEN_LIMIT`, `INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS`,
 `INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS` and
 `INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS`. Unset profile values inherit defaults.

@@ -17,11 +17,10 @@ from app.api.utils import (
     export_nodes,
     resolve_principal_id,
 )
-from app.models.edges import MENTIONS
-from app.models.nodes import Entry
+from app.models.nodes import Comment, Entry
 from app.schemas.policy import Resource, Subject
 from app.services import notification_router
-from app.services.mentions import resolve_mentions
+from app.services.mentions import link_mentions
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.utils.time import utc_now_iso
 
@@ -128,16 +127,16 @@ async def create_comment(
         actor_name = (
             getattr(user, "display_name", "") or getattr(user, "email", "") or user_id
         )
-    mentioned_users = await resolve_mentions(
+    mentioned_users = await link_mentions(
+        Comment,
+        comment.id,
         text or "",
-        exclude_user_id=user_id,
-        track_id=entry.track_id or None,
+        actor_id=user_id,
+        track_id=entry.track_id,
+        entry_id=entry.id,
+        mentioned_at=now,
     )
     for mentioned in mentioned_users:
-        try:
-            await comment.connect(mentioned, edge=MENTIONS, mentioned_at=now)
-        except Exception:
-            pass
         try:
             await notification_router.dispatch(
                 user_id=mentioned.user_id or mentioned.id,

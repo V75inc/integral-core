@@ -10,7 +10,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
-POLICY_VERSION = "2026-11-13.2"
+POLICY_VERSION = "2026-11-24.1"
 _NOTE = (
     "Preferred models are starting points, not certification. Validate your own "
     "workflows. Single/default and heavy roles need a capable model; lighter "
@@ -59,6 +59,10 @@ _PROVIDERS = {
             ),
         ],
     },
+    "gemini": {
+        "preferred_heavy": "gemini-3.6-flash",
+        "models": [_entry("gemini-3.6-flash", "Gemini 3.6 Flash", "candidate")],
+    },
     "anthropic": {
         "preferred_heavy": "claude-opus-5-5",
         "models": [
@@ -80,9 +84,44 @@ _PROVIDERS = {
 }
 
 
+# Exact provider IDs, verified against the vendor references in
+# docs/backend/model-credentials-byok.md. Roles reflect enabled transports.
+SPECIALIST_MODELS = {
+    "openai": {
+        "light": "gpt-5.4-mini",
+        "vision": "gpt-5.4-mini",
+        "embedding": "text-embedding-3-small",
+        "transcription": "gpt-transcribe",
+        "realtime": "gpt-realtime-2.1-mini",
+    },
+    "anthropic": {"light": "claude-haiku-5-5", "vision": "claude-sonnet-4-6"},
+    "gemini": {
+        "light": "gemini-3.1-flash-lite",
+        "vision": "gemini-3.1-flash-lite",
+        "embedding": "gemini-embedding-001",
+    },
+    "openrouter": {
+        "light": "openai/gpt-5.4-mini",
+        "vision": "openai/gpt-5.4-mini",
+        "embedding": "openai/text-embedding-3-small",
+    },
+    "ollama": {"light": "gpt-oss:20b", "vision": "gemma4:31b"},
+    "ollama_local": {
+        "light": "gemma4:e2b",
+        "vision": "qwen3-vl:4b",
+        "embedding": "embeddinggemma",
+    },
+}
+
+
 def model_policy_catalog() -> dict[str, Any]:
     """Return a copy safe for API serialization without exposing credentials."""
-    return {"version": POLICY_VERSION, "note": _NOTE, "providers": deepcopy(_PROVIDERS)}
+    return {
+        "version": POLICY_VERSION,
+        "note": _NOTE,
+        "providers": deepcopy(_PROVIDERS),
+        "specialists": deepcopy(SPECIALIST_MODELS),
+    }
 
 
 def _identity(provider: str, model: str) -> tuple[str, str]:
@@ -94,9 +133,35 @@ def _identity(provider: str, model: str) -> tuple[str, str]:
     return provider, model
 
 
+def _non_chat_tier(provider: str, model: str) -> str | None:
+    if model == SPECIALIST_MODELS.get(provider, {}).get("embedding"):
+        return "embedding"
+    if provider not in {"openai", "openrouter", "custom_openai", ""}:
+        return None
+    bare = model.removeprefix("openai/")
+    if re.fullmatch(
+        r"(?:whisper-1|gpt-(?:4o-(?:mini-)?transcribe(?:-diarize)?|"
+        r"(?:live-)?transcribe|realtime(?:-2(?:\.1(?:-mini)?)?|-1\.5|-mini)?|live-1(?:\.1)?|"
+        r"4o-(?:mini-)?realtime-preview))(?:-\d{4}-\d{2}-\d{2})?",
+        bare,
+    ):
+        return "voice"
+    if re.fullmatch(r"text-embedding-(?:3-(?:small|large)|ada-002)", bare):
+        return "embedding"
+    return None
+
+
 def assess_model(provider: str, model: str) -> dict[str, Any]:
     """Classify role suitability without pretending a model has passed an eval."""
     provider, model = _identity(provider, model)
+    non_chat_tier = _non_chat_tier(provider, model)
+    if non_chat_tier:
+        return {
+            "tier": non_chat_tier,
+            "recommended": False,
+            "evidence": "non_chat",
+            "message": "This model is for voice or embeddings and cannot be used for chat.",
+        }
     # Strip routing prefixes only for light detection; custom models do not gain
     # preferred status by borrowing a model ID from another provider.
     bare = model.rsplit("/", 1)[-1].split(":", 1)[0]
@@ -106,6 +171,7 @@ def assess_model(provider: str, model: str) -> dict[str, Any]:
         )
         or re.fullmatch(r"o[34]-mini(?:-\d{4}-\d{2}-\d{2})?", bare)
         or re.fullmatch(r"claude-[a-z0-9.\-]*haiku[a-z0-9.\-]*", bare)
+        or (provider == "gemini" and model == SPECIALIST_MODELS["gemini"]["light"])
         or re.fullmatch(r"gemma4:e2b(?:[-:].*)?", model.rsplit("/", 1)[-1])
     )
     if light:
@@ -139,8 +205,15 @@ class ModelHarnessPolicyError(ValueError):
     """An actionable configuration error, not an internal execution failure."""
 
 
+def require_chat_model(provider: str, model: str) -> None:
+    """Reject known non-chat profiles regardless of text routing role."""
+    assessment = assess_model(provider, model)
+    if assessment["tier"] in {"voice", "embedding"}:
+        raise ModelHarnessPolicyError(assessment["message"])
+
+
 def require_heavy_model(provider: str, model: str) -> None:
     """Reject known light models before persisting or running a heavy route."""
     assessment = assess_model(provider, model)
-    if assessment["tier"] == "light":
+    if assessment["tier"] in {"light", "voice", "embedding"}:
         raise ModelHarnessPolicyError(assessment["message"])

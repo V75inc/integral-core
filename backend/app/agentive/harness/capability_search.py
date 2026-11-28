@@ -14,7 +14,7 @@ from typing import Annotated, Any, Mapping, Sequence
 import yaml
 from pydantic import Field
 
-from app.agentive.harness.pydantic_ai_compat import Tool, ToolReturn
+from app.agentive.harness.pydantic_ai_compat import RunContext, Tool, ToolReturn
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 _STOP_WORDS = frozenset(
@@ -783,7 +783,7 @@ def build_search_capabilities_tool(
         semantic.sort(key=lambda item: (-item[1], item[0]))
         return semantic
 
-    def disclose(result: dict[str, Any]) -> ToolReturn:
+    def disclose(result: dict[str, Any], ctx: RunContext[Any]) -> ToolReturn:
         result = copy.deepcopy(result)
         # A search hit is not a loaded workflow. Keep discovery consistent
         # with the native tool prepare hook: protected writes must load their
@@ -803,33 +803,31 @@ def build_search_capabilities_tool(
                 item["name"] == "integral_verify_build"
                 and state.get("build_succeeded") is True
             )
-            if owners and not saved_design_tool:
+            if (
+                owners
+                and not saved_design_tool
+                and not ctx.active_capability_ids.intersection(owners)
+            ):
                 item["requires_any_skill"] = owners
                 item["load_with"] = [
                     {"tool": "load_capability", "id": owner} for owner in owners
                 ]
                 item["instruction"] = (
-                    "If none is already active, load one listed owning skill "
-                    "with load_capability first, "
-                    "then call this Core tool directly. It is not an App tool "
-                    "key for integral_call_workspace_tool. Loading retains "
-                    "normal permissions and user approval."
+                    "Load a listed owning skill. If the schema is still hidden, "
+                    "search for this exact tool name. Call it directly when disclosed."
                 )
             else:
                 available_tools.append(item["name"])
         result["available_tools"] = available_tools
         result["recommendation"]["instruction"] += (
-            " Only available_tools schemas are disclosed by this search. For a "
-            "tool with requires_any_skill, use an already loaded owning skill "
-            "or load one listed skill first; do not "
-            "invoke it through integral_call_workspace_tool. Call the "
-            "selected tool directly when available; no second tool search is "
-            "needed. Search again only if observed results require a different "
-            "capability."
+            " Call a matching available tool directly. For a skill-gated result, "
+            "load its owning skill first. Search by exact name if its schema is "
+            "still deferred."
         )
         return ToolReturn(return_value=result, tools=available_tools)
 
     async def search_capabilities(
+        ctx: RunContext[Any],
         query: Annotated[str, Field(min_length=2, max_length=_MAX_QUERY_CHARS)],
         limit: Annotated[int, Field(ge=1, le=_MAX_RESULTS)] = 8,
     ) -> ToolReturn:
@@ -838,7 +836,7 @@ def build_search_capabilities_tool(
         cache_key = (normalized_query, limit)
         if cache_key in cached_results:
             result = cached_results[cache_key]
-            return disclose(result)
+            return disclose(result, ctx)
         state["capability_search_completed"] = True
         query_vector = None
         if skills or tool_documents:
@@ -903,7 +901,7 @@ def build_search_capabilities_tool(
             recommended_tool.get("name") if isinstance(recommended_tool, dict) else None
         )
         cached_results[cache_key] = result
-        return disclose(result)
+        return disclose(result, ctx)
 
     return Tool(
         search_capabilities,
@@ -918,6 +916,6 @@ def build_search_capabilities_tool(
             "alternatives. "
             "Search guides discovery but does not authorize or execute a tool."
         ),
-        takes_ctx=False,
+        takes_ctx=True,
         defer_loading=False,
     )

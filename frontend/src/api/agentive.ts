@@ -341,6 +341,72 @@ export async function verifyWhatsAppOtp(phone: string, otpCode: string) {
   return res.data;
 }
 
+/** Public WhatsApp channel status. The server never returns `api_key` or `webhook_secret`. */
+export interface WhatsAppChannelBinding {
+  id: string;
+  user_id?: string;
+  workspace_id?: string;
+  jvconnect_base_url: string;
+  phone_number_id?: string;
+  display_phone?: string;
+  enabled: boolean;
+  last_error?: string;
+  api_key_last4?: string;
+  webhook_registered?: boolean;
+  calling_enabled?: boolean;
+  calling_grant_id?: string;
+  calling_revision?: number;
+  jvvoice_base_url?: string;
+  jvvoice_api_key_last4?: string;
+  jvconnect_calling_status?: string;
+  jvconnect_calling_error?: string;
+}
+
+export async function getWhatsAppChannelBinding(): Promise<{ binding: WhatsAppChannelBinding | null }> {
+  const res = await api.get('/agentive/channels/whatsapp/binding');
+  return res.data;
+}
+
+export async function saveWhatsAppChannelBinding(body: {
+  jvconnect_base_url: string;
+  api_key: string;
+  expected_binding_id: string | null;
+}): Promise<{ binding: WhatsAppChannelBinding }> {
+  const res = await api.put('/agentive/channels/whatsapp/binding', body);
+  return res.data;
+}
+
+export async function disableWhatsAppChannelBinding(
+  id: string,
+): Promise<{ binding: WhatsAppChannelBinding }> {
+  const res = await api.delete(
+    `/agentive/channels/whatsapp/binding/${encodeURIComponent(id)}`,
+  );
+  return res.data;
+}
+
+export async function setWhatsAppCalling(body: {
+  calling_enabled: boolean;
+  expected_grant_id: string;
+  expected_revision: number;
+}): Promise<{ binding: WhatsAppChannelBinding }> {
+  const res = await api.put('/agentive/channels/whatsapp/binding/calling', body);
+  return res.data;
+}
+
+export async function saveWhatsAppVoiceService(body: {
+  jvvoice_base_url: string;
+  api_key: string;
+}): Promise<{ binding: WhatsAppChannelBinding }> {
+  const res = await api.put('/agentive/channels/whatsapp/binding/calling/service', body);
+  return res.data;
+}
+
+export async function reregisterWhatsAppWebhook(): Promise<{ binding: WhatsAppChannelBinding }> {
+  const res = await api.post('/agentive/channels/whatsapp/binding/webhook');
+  return res.data;
+}
+
 export async function verifyLinkToken(identityId: string, token: string) {
   const res = await api.post(`/agentive/channels/identities/${identityId}/verify-link-token`, {
     token,

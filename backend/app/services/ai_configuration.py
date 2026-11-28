@@ -26,6 +26,7 @@ from app.services.model_credentials import (
 from app.services.model_harness_policy import (
     assess_model,
     model_policy_catalog,
+    require_chat_model,
     require_heavy_model,
 )
 from app.services.model_provider_endpoints import normalize_custom_base_url
@@ -112,6 +113,7 @@ def _profile_view(item) -> dict[str, Any]:
             "name",
             "connection_id",
             "model",
+            "embedding_only",
             "generation_settings",
             "updated_at",
         )
@@ -171,20 +173,28 @@ async def configuration(user_id: str) -> dict[str, Any]:
         UserModelConnection, {"context.user_id": user_id}, limit=101
     )
     profiles = await _find(UserModelProfile, {"context.user_id": user_id}, limit=101)
+    from app.services.model_settings import model_capabilities
+
+    providers = {c.id: c.provider for c in connections}
+
+    def profile_view(p):
+        provider = providers.get(p.connection_id, "")
+        return {
+            **_profile_view(p),
+            "harness_policy": assess_model(provider, p.model),
+            "supports_vision": bool(provider)
+            and not p.embedding_only
+            and model_capabilities(provider, p.model).get("image_descriptions") is True,
+        }
+
+    from app.services.deployment_chat_limits import read_limits
+
+    limits = await read_limits()
     return {
         "connections": [_connection_view(c) for c in connections],
-        "profiles": [
-            {
-                **_profile_view(p),
-                "harness_policy": assess_model(
-                    next(
-                        (c.provider for c in connections if c.id == p.connection_id), ""
-                    ),
-                    p.model,
-                ),
-            }
-            for p in profiles
-        ],
+        "profiles": await asyncio.to_thread(
+            lambda: [profile_view(p) for p in profiles]
+        ),
         "model_policy": model_policy_catalog(),
         "default_profile_id": default_id,
         "routing": {
@@ -194,13 +204,8 @@ async def configuration(user_id: str) -> dict[str, Any]:
             "revision": record.updated_at or "" if record else "",
         },
         "key_policy": settings.INTEGRAL_AGENT_KEY_MODE,
-        "harness_limits": {
-            "request_limit": settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT,
-            "token_limit": settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT,
-            "run_seconds": settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS,
-            "request_timeout": settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
-            "idle_timeout": settings.INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS,
-        },
+        "harness_limits": limits["effective"],
+        "deployment_limit_settings": limits,
     }
 
 
@@ -328,6 +333,25 @@ async def save_profile(user_id: str, body: ProfileWrite) -> dict[str, Any]:
     )
     if default_id and profile.id == default_id:
         require_heavy_model(connection.provider, body.model)
+    if record and record.light_profile_id and profile.id == record.light_profile_id:
+        require_chat_model(connection.provider, body.model)
+    embedding_only = (
+        body.embedding_only
+        if "embedding_only" in body.model_fields_set
+        else profile.embedding_only
+    )
+    if embedding_only:
+        from app.services.retrieval.embedding_configuration import PROVIDERS
+
+        if connection.provider not in PROVIDERS:
+            raise ValueError("This provider does not support embedding assignments")
+        if profile.id == default_id or (
+            record and profile.id == record.light_profile_id
+        ):
+            raise ValueError(
+                "Change the chat assignment before marking this model as an encoder"
+            )
+    profile.embedding_only = embedding_only
     previous = profile.updated_at if body.id else None
     profile.name, profile.connection_id, profile.model = (
         body.name.strip(),
@@ -364,6 +388,8 @@ async def activate_profile(
     profile = await _owned(UserModelProfile, user_id, item_id)
     connection = await _owned(UserModelConnection, user_id, profile.connection_id)
     require_heavy_model(connection.provider, profile.model)
+    if profile.embedding_only:
+        raise ValueError("An embedding profile cannot be assigned to chat")
     configured = await asyncio.to_thread(
         validate_model_settings,
         connection.provider,
@@ -453,8 +479,10 @@ async def remove_item(user_id: str, item_id: str, *, connection: bool) -> None:
     _enabled()
     cls = UserModelConnection if connection else UserModelProfile
     item = await _owned(cls, user_id, item_id)
+    from app.models.nodes import WorkspaceModelConfiguration
+    from app.services.retrieval.embedding_configuration import owner_subject
+
     if connection:
-        from app.models.nodes import WorkspaceModelConfiguration
 
         references = await _find(
             WorkspaceModelConfiguration,
@@ -462,11 +490,11 @@ async def remove_item(user_id: str, item_id: str, *, connection: bool) -> None:
                 "$or": [
                     {"context.embedding_settings.connection_id": item.id},
                     {"context.voice_settings.connection_id": item.id},
+                    {"context.realtime_voice_settings.connection_id": item.id},
                 ]
             },
             limit=1001,
         )
-        from app.services.retrieval.embedding_configuration import owner_subject
 
         # A former workspace owner must retain control of their private key.
         # Stale references after transfer cannot fund requests and must not
@@ -507,6 +535,18 @@ async def remove_item(user_id: str, item_id: str, *, connection: bool) -> None:
             raise ValueError(
                 "Clear or reassign the light model before removing this profile"
             )
+        references = await _find(
+            WorkspaceModelConfiguration,
+            {"context.attachment_settings.profile_id": item.id},
+            limit=1001,
+        )
+        if len(references) > 1000:
+            raise ValueError("This model has too many references to remove safely")
+        for reference in references:
+            if await owner_subject(reference.workspace_id) == user_id:
+                raise ValueError(
+                    "Reassign the workspace vision model before removing this profile"
+                )
         from app.models.nodes import ChatThread
 
         if await _find(
@@ -523,6 +563,10 @@ async def remove_item(user_id: str, item_id: str, *, connection: bool) -> None:
 async def profile_credential(user_id: str, profile_id: str, record):
     """Resolve an owned profile without mutating the user's saved default."""
     profile = await _owned(UserModelProfile, user_id, profile_id)
+    if profile.embedding_only:
+        raise ValueError(
+            "An embedding profile cannot be used for chat or image analysis"
+        )
     connection = await _owned(UserModelConnection, user_id, profile.connection_id)
     configured = await asyncio.to_thread(
         validate_model_settings,
@@ -720,13 +764,15 @@ async def save_routing(user_id: str, body: RoutingWrite) -> None:
         record = await get_credential_for_user(user_id) or UserModelCredential(
             user_id=user_id
         )
-        await profile_credential(user_id, body.light_profile_id, record)
+        light = await profile_credential(user_id, body.light_profile_id, record)
+        require_chat_model(light.provider, light.model)
     await activate_profile(user_id, body.heavy_profile_id, routing=body)
 
 
 def _require_structured_support(provider: str, model: str) -> None:
     from app.services.model_settings import model_capabilities
 
+    require_chat_model(provider, model)
     if model_capabilities(provider, model).get("tool_calling") is False:
         raise ValueError(
             "Automatic routing requires structured tool support; choose another model or Single model"

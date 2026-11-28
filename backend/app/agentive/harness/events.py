@@ -238,6 +238,16 @@ class PydanticAIEventTranslator:
     def _looks_like_json_start(text: str) -> bool:
         return text.lstrip().startswith(("{", "["))
 
+    @classmethod
+    def can_preview_prose(cls, text: str) -> bool:
+        """Keep tool, JSON and private envelopes on the settled path."""
+        return bool(text.strip()) and not (
+            text.lstrip().startswith(("{", "[", "<", "`", '"'))
+            or _PRIVATE_PREFIX.match(text)
+            or _TOOL_PREFIX.match(text)
+            or cls._could_be_envelope_prefix(text)
+        )
+
     def translate(self, event: Any) -> Iterator[dict[str, Any]]:
         """Yield safe Integral events for one Pydantic AI event."""
         if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):

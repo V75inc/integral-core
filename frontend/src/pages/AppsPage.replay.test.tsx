@@ -59,7 +59,7 @@ it('recovers an already-open empty Apps page through authorized history after st
     // No live frame, manual refresh, page navigation or browser reload occurs.
     await act(async () => { await vi.advanceTimersByTimeAsync(16_000); });
     expect(openEventStream).toHaveBeenCalledTimes(2);
-    expect(get).toHaveBeenCalledWith('/events', { params: { limit: 50 } });
+    expect(get).toHaveBeenCalledWith('/events', { params: { limit: 50, include_invalidations: 'true' } });
     expect(screen.getByText('Recovered App')).toBeInTheDocument();
     expect(screen.queryByText('No apps yet')).not.toBeInTheDocument();
     expect(appsApi.list).toHaveBeenCalledTimes(2);

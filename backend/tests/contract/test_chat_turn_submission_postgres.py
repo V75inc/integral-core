@@ -6,6 +6,7 @@ import asyncio
 import base64
 import secrets
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -106,6 +107,36 @@ async def _queued_for_thread(
         if entry.work_item_id in work_ids
     ]
     return items, outbox
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_queued_deadline_survives_deployment_limit_increase(
+    postgres_graph_context,
+):
+    from app.schemas.deployment_chat_limits import ChatLimitsWrite
+    from app.services.deployment_chat_limits import read_limits, save_limits
+
+    thread, owner_id, workspace_id = await _submission_context()
+    initial = await read_limits()
+    saved = await save_limits(
+        "platform-admin-fixture",
+        ChatLimitsWrite(revision=initial["revision"], overrides={"run_seconds": 45}),
+    )
+    request = _request(thread, owner_id, workspace_id)
+    before = datetime.now(timezone.utc)
+    first = await submit_chat_turn(request)
+    after = datetime.now(timezone.utc)
+    await save_limits(
+        "platform-admin-fixture",
+        ChatLimitsWrite(revision=saved["revision"], overrides={}),
+    )
+    assert await submit_chat_turn(request) == first
+    items, _ = await _queued_for_thread(thread.id)
+    assert len(items) == 1
+    deadline = datetime.fromisoformat(items[0].deadline_at)
+    assert before + timedelta(seconds=45) <= deadline <= after + timedelta(seconds=45)
 
 
 @pytest.mark.contract

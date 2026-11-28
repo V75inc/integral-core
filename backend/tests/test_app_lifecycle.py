@@ -247,6 +247,18 @@ async def test_install_with_no_settings_schema_completes_immediately():
         node=["ApplicationDefinition"],
     )
     assert [item.id for item in attached] == [definition.id]
+    (track,) = await app.nodes(edge=[CONTAINS], node=["Track"])
+    (entry_type,) = await EntryType.find({"context.track_id": track.id})
+    assert definition.initial_track_materialization == {
+        "version": 1,
+        "tracks": [
+            {
+                "track_id": track.id,
+                "track_key": "demo_track",
+                "entry_types": {"note": entry_type.id},
+            }
+        ],
+    }
 
 
 @pytest.mark.asyncio
@@ -267,6 +279,9 @@ async def test_install_with_settings_schema_pauses_at_step_9():
 
     app = await App.get(result["app_id"])
     assert app.lifecycle_state == "awaiting_settings"
+    initial_definition = await ApplicationDefinition.get(app.active_definition_id)
+    assert initial_definition is not None
+    assert initial_definition.initial_track_materialization is not None
 
 
 @pytest.mark.asyncio
@@ -1110,6 +1125,23 @@ async def test_awaiting_settings_reaper_compensates_abandoned(monkeypatch):
     # Reaper sweep uses named current owner authority and actual system audit.
     n = await run_reaper_pass()
     assert n == 1
+    from jvspatial.core.context import get_default_context
+
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+
+    if graph_transaction_available():
+        # PostgreSQL commits the audit fact to the outbox before delivery.
+        rows = await get_default_context().database.find(
+            "object",
+            {
+                "entity": "OperationEventOutbox",
+                "context.event.resource_id": result["app_id"],
+                "context.operation_key": "app.uninstalled",
+            },
+        )
+        events = [row["context"]["event"] for row in rows]
     compensation_events = [
         event for event in events if event["action"] == "app.uninstalled"
     ]
@@ -1266,7 +1298,24 @@ async def test_update_from_library_materializes_new_prescribed_track_fields():
     lib.version = "2.0.0"
     await lib.save()
 
+    initial_definition = await ApplicationDefinition.get(app.active_definition_id)
+    assert initial_definition is not None
+    origin = initial_definition.initial_track_materialization
+    assert origin is not None
+
     await update_app_from_library(app_id=app.id, actor_id=lifecycle_actor_id)
+
+    current_app = await App.get(app.id)
+    assert current_app is not None
+    current_definition = await ApplicationDefinition.get(
+        current_app.active_definition_id
+    )
+    assert current_definition is not None
+    assert current_definition.id != initial_definition.id
+    assert current_definition.initial_track_materialization is None
+    original = await ApplicationDefinition.get(initial_definition.id)
+    assert original is not None
+    assert original.initial_track_materialization == origin
 
     refreshed = await EntryType.get(note.id)
     assert refreshed is not None
@@ -1432,9 +1481,16 @@ async def test_rematerialize_backfills_manifest_key_on_adopted_entry_types():
 
     assert await _strip_manifest_keys_for_track(track.id) >= 1
 
-    # Re-materialize (what a reinstall/update does) — adopt path must
-    # backfill the manifest key instead of leaving the node keyless.
+    definition = await ApplicationDefinition.get(app.active_definition_id)
+    assert definition is not None
+    definition.initial_track_materialization = None
+    await definition.save()
+
+    # Existing schema repair remains compatible, without assigning provenance.
     await materialize_tracks_for_app(app, lifecycle_actor_id)
+    readback = await ApplicationDefinition.get(definition.id)
+    assert readback is not None
+    assert readback.initial_track_materialization is None
     keys = {
         (et.form_schema or {}).get("_manifest_entry_type_key")
         for et in await EntryType.find({"context.track_id": track.id})

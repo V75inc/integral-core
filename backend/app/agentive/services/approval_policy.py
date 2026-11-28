@@ -74,13 +74,20 @@ def effect_class(
     normalized = str(kind or "").strip().lower()
     data = payload or {}
     if normalized == "batch":
-        nested = data.get("ops")
+        if "operations" in data and "ops" in data:
+            # Ambiguous envelopes never downgrade a destructive child.
+            return ApprovalEffectClass.DESTRUCTIVE_SECURITY
+        nested = data.get("operations", data.get("ops"))
         if isinstance(nested, list):
-            classes = [
-                effect_class(str(op.get("kind") or ""), op)
-                for op in nested
-                if isinstance(op, Mapping)
-            ]
+            classes = set()
+            for op in nested:
+                if not isinstance(op, Mapping):
+                    classes.add(ApprovalEffectClass.MATERIAL_EXTERNAL)
+                    continue
+                child_payload = op.get("payload", op)
+                if not isinstance(child_payload, Mapping):
+                    return ApprovalEffectClass.DESTRUCTIVE_SECURITY
+                classes.add(effect_class(str(op.get("kind") or ""), child_payload))
             if ApprovalEffectClass.DESTRUCTIVE_SECURITY in classes:
                 return ApprovalEffectClass.DESTRUCTIVE_SECURITY
             if ApprovalEffectClass.MATERIAL_EXTERNAL in classes:
@@ -126,3 +133,35 @@ def effect_class(
     }:
         return ApprovalEffectClass.MATERIAL_EXTERNAL
     return ApprovalEffectClass.PRIVATE_REVERSIBLE
+
+
+PRESENTATION_KINDS = {"update_app", "create_dashboard", "update_dashboard"}
+
+
+def is_presentation_effect(kind: str, payload: Mapping[str, Any]) -> bool:
+    """Admit only the three narrowly defined presentation effects."""
+    if effect_class(kind, payload) != ApprovalEffectClass.PRIVATE_REVERSIBLE:
+        return False
+    if kind == "update_app":
+        return set(payload) == {"app_id", "home", "expected_home_revision"}
+    if kind == "create_dashboard":
+        return (
+            {"app_id", "name"}
+            <= set(payload)
+            <= {"app_id", "name", "layout", "widgets", "is_default"}
+        )
+    if kind == "update_dashboard":
+        return (
+            {"app_id", "dashboard_id", "expected_dashboard_updated_at"}
+            <= set(payload)
+            <= {
+                "app_id",
+                "dashboard_id",
+                "expected_dashboard_updated_at",
+                "name",
+                "layout",
+                "widgets",
+                "is_default",
+            }
+        )
+    return False

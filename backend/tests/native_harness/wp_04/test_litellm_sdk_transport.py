@@ -49,6 +49,122 @@ async def _ignore_observation(_observation: Any) -> None:
     return None
 
 
+@pytest.mark.parametrize(
+    "api_base,has_tools,expected_model",
+    [
+        (None, True, "gpt-6.1-sol"),
+        ("https://api.openai.com/v1", True, "gpt-6.1-sol"),
+        (None, False, "gpt-6.1-sol"),
+        ("https://example.invalid/v1", True, "gpt-6.1-sol"),
+    ],
+)
+async def test_native_responses_bridge_preserves_tool_choice_and_route_identity(
+    monkeypatch, api_base, has_tools, expected_model
+):
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
+    captured = {}
+
+    async def completion(**kwargs):
+        captured.update(kwargs)
+        return {
+            "id": "fixture",
+            "model": "gpt-6.1-sol",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Ready"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3},
+        }
+
+    route = ResolvedModelRoute(
+        provider="openai",
+        model="gpt-6.1-sol",
+        api_key=None,
+        api_base=api_base,
+        credential_source="local",
+        credential_ref="fixture",
+    )
+    transport = LiteLLMSDKTransport(
+        route=route, scope=_scope(), completion=completion, observer=_ignore_observation
+    )
+    body = {
+        "model": route.model,
+        "messages": [{"role": "user", "content": "Open my App"}],
+    }
+    if has_tools:
+        body.update(
+            tools=[
+                {
+                    "type": "function",
+                    "function": {"name": "open_view", "parameters": {"type": "object"}},
+                }
+            ],
+            tool_choice="required",
+        )
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://bridge.invalid/v1"
+    ) as client:
+        response = await client.post("/chat/completions", json=body)
+    assert response.status_code == 200
+    assert captured["model"] == expected_model
+    if has_tools:
+        assert (
+            captured["tools"] == body["tools"] and captured["tool_choice"] == "required"
+        )
+    assert route.model == "gpt-6.1-sol"
+
+
+@pytest.mark.parametrize(
+    "model,api_base,registered",
+    [
+        ("gpt-6.1-sol", None, True),
+        ("gpt-6.1-sol", "https://api.openai.com/v1", True),
+        ("gpt-6.1-sol", "https://example.invalid/v1", False),
+        ("gpt-4o", None, False),
+    ],
+)
+async def test_reviewed_native_model_metadata_uses_sdk_registration(
+    monkeypatch, model, api_base, registered
+):
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
+    from unittest.mock import AsyncMock, Mock
+
+    import litellm
+
+    registration = Mock()
+    completion = AsyncMock(return_value={"fixture": True})
+    monkeypatch.setattr(litellm, "register_model", registration)
+    monkeypatch.setattr(litellm, "acompletion", completion)
+    route = ResolvedModelRoute(
+        provider="openai", model=model, api_base=api_base, credential_source="local"
+    )
+    transport = LiteLLMSDKTransport(route=route, scope=_scope())
+    tools = [{"type": "function", "function": {"name": "fixture"}}]
+    assert await transport._sdk_completion(model=model, tools=tools) == {
+        "fixture": True
+    }
+    if registered:
+        registration.assert_called_once_with(
+            {
+                model: {
+                    "litellm_provider": "openai",
+                    "mode": "responses",
+                    "supports_native_streaming": True,
+                    "supports_function_calling": True,
+                    "supports_tool_choice": True,
+                }
+            }
+        )
+    else:
+        registration.assert_not_called()
+    completion.assert_awaited_once_with(model=model, tools=tools)
+
+
 def test_usage_calculates_cost_when_litellm_returns_tokens_without_cost(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1749,6 +1865,7 @@ async def test_local_ollama_capacity_is_native_model_capacity():
         route=route, scope=_scope(), observer=_ignore_observation
     )
     try:
+        assert model.profile["supports_forced_tool_choice"] is False
         assert resolve_context_window(model) == 16384
     finally:
         await model.client.close()
@@ -2236,3 +2353,186 @@ async def test_ollama_only_structured_frames_dispatch_tools(
     assert calls == (["membership"] if structured else [])
     assert output == ("Found the membership rule." if structured else arguments)
     assert len(requests) == (2 if structured else 1)
+
+
+@pytest.mark.asyncio
+async def test_google_vision_uses_actual_gemini_wire_format(monkeypatch, tmp_path):
+    """Exercise the real SDK translators with only Google's HTTP response replaced."""
+    import base64
+    import json
+
+    from pydantic_ai import BinaryContent
+
+    from app.agentive.harness.model_route import owned_model_route
+    from app.services.attachment_metadata.analysis import ImageDescription
+
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEMINI_API_BASE", "https://wrong.invalid")
+    route = owned_model_route(
+        {
+            "model": "gemini/gemini-3.1-flash-lite",
+            "api_key": "synthetic-google",
+            "credential_ref": "fixture",
+        }
+    )
+    captured = []
+
+    async def response(_transport, request):
+        assert request.url.host == "generativelanguage.googleapis.com"
+        assert (
+            request.url.path == "/v1beta/models/gemini-3.1-flash-lite:generateContent"
+        )
+        assert request.headers["x-goog-api-key"] == "synthetic-google"
+        assert not request.url.query
+        body = json.loads(request.content)
+        captured.append(body["contents"][-1]["parts"])
+        tools = body["tools"][0]
+        declarations = (
+            tools.get("functionDeclarations") or tools["function_declarations"]
+        )
+        name = declarations[0]["name"]
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "role": "model",
+                            "parts": [
+                                {
+                                    "functionCall": {
+                                        "name": name,
+                                        "args": {
+                                            "description": "Orange triangle.",
+                                            "visible_text": "",
+                                            "keywords": ["triangle"],
+                                        },
+                                    }
+                                }
+                            ],
+                        },
+                        "finishReason": "STOP",
+                        "index": 0,
+                    }
+                ],
+                "usageMetadata": {
+                    "promptTokenCount": 10,
+                    "candidatesTokenCount": 2,
+                    "totalTokenCount": 12,
+                },
+                "modelVersion": "gemini-3.1-flash-lite",
+            },
+        )
+
+    # LiteLLM can use either httpcore or aiohttp under httpx. Intercept before
+    # transport selection and permit only the in-process Pydantic bridge through.
+    send = httpx.AsyncClient.send
+
+    async def offline_send(client, request, **kwargs):
+        if request.url.host == "litellm-sdk.invalid":
+            return await send(client, request, **kwargs)
+        return await response(client, request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", offline_send)
+    model = build_litellm_sdk_model(
+        route=route, scope=_scope(), observer=_ignore_observation
+    )
+    try:
+        assert model.profile["context_window"] >= 1_000_000
+        result = await Agent(model, output_type=ImageDescription, retries=0).run(
+            [
+                "Describe the image",
+                BinaryContent(data=b"synthetic", media_type="image/png"),
+            ]
+        )
+        assert result.output.description == "Orange triangle."
+        assert result.output.keywords == ["triangle"]
+        assert result.usage.input_tokens == 10
+        assert len(captured) == 1
+        parts = captured[0]
+        assert any(p.get("text") == "Describe the image" for p in parts)
+        inline = next(
+            p.get("inlineData", p.get("inline_data"))
+            for p in parts
+            if "inlineData" in p or "inline_data" in p
+        )
+        assert inline["data"] == base64.b64encode(b"synthetic").decode()
+    finally:
+        await model.client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("valid", [True, False])
+async def test_saved_sol_reads_images_without_chat_tool_calls(monkeypatch, valid):
+    import json
+
+    from pydantic_ai import BinaryContent, UnexpectedModelBehavior
+
+    from app.agentive.harness.model_route import owned_model_route
+    from app.services.attachment_metadata.analysis import (
+        _image_capabilities,
+        _image_output_type,
+    )
+
+    route = owned_model_route({"model": "openai/gpt-6.1-sol", "api_key": "fixture"})
+    assert (await _image_capabilities(route))["image_descriptions"]
+    custom = route.model_copy(update={"api_base": "https://custom.invalid/v1"})
+    assert not (await _image_capabilities(custom))["image_descriptions"]
+    captured = []
+    send = httpx.AsyncClient.send
+
+    async def offline_send(client, request, **kwargs):
+        if request.url.host == "litellm-sdk.invalid":
+            return await send(client, request, **kwargs)
+        assert request.url.host == "api.openai.com"
+        assert request.url.path == "/v1/chat/completions"
+        body = json.loads(request.content)
+        assert body["model"] == "gpt-6.1-sol"
+        assert "tools" not in body and "tool_choice" not in body
+        assert "data:image/png;base64," in json.dumps(body["messages"])
+        captured.append(body)
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "id": "fixture",
+                "model": body["model"],
+                "created": 1,
+                "object": "chat.completion",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                '{"description":"Printed label","visible_text":"A17"}'
+                                if valid
+                                else "invalid JSON"
+                            ),
+                        },
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", offline_send)
+    model = build_litellm_sdk_model(
+        route=route, scope=_scope(), observer=_ignore_observation
+    )
+    try:
+        agent = Agent(model, output_type=await _image_output_type(route), retries=0)
+        image = BinaryContent(data=b"synthetic", media_type="image/png")
+        if valid:
+            assert (
+                await agent.run(["Read visible text.", image])
+            ).output.visible_text == "A17"
+        else:
+            with pytest.raises(UnexpectedModelBehavior):
+                await agent.run(["Read visible text.", image])
+        assert len(captured) == 1
+    finally:
+        await model.client.close()

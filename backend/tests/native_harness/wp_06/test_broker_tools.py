@@ -23,6 +23,8 @@ from app.agentive.harness.runtime import build_native_runtime
 from app.agentive.tooling.catalogue import build_tool_catalogue
 from app.schemas.capability_broker import CapabilityResult
 
+NO_ACTIVE_SKILLS = SimpleNamespace(active_capability_ids=frozenset())
+
 
 @pytest.mark.asyncio
 @pytest.mark.smoke
@@ -445,7 +447,7 @@ async def test_known_integral_tools_still_cross_live_broker_without_search(
 
     listed = await by_name["integral_list_tracks"].function_schema.call({}, ctx)
     found = await by_name["search_capabilities"].function(
-        query="which tracks are in my workspace"
+        NO_ACTIVE_SKILLS, query="which tracks are in my workspace"
     )
     assert found.return_value["results"][0]["name"] == "integral_list_tracks"
     assert listed["tracks"] == []
@@ -574,7 +576,9 @@ async def test_proposal_is_disclosed_after_skill_load_without_run_local_coverage
     ctx_without_skill = SimpleNamespace(active_capability_ids=set())
 
     assert await propose.prepare_tool_def(ctx_without_skill) is None
-    await by_name["search_capabilities"].function(query="design an app")
+    await by_name["search_capabilities"].function(
+        NO_ACTIVE_SKILLS, query="design an app"
+    )
     assert await propose.prepare_tool_def(ctx_without_skill) is None
     ctx_with_skill = SimpleNamespace(active_capability_ids={"integral-scaffold"})
     available = await propose.prepare_tool_def(ctx_with_skill)
@@ -683,6 +687,7 @@ def test_large_broker_catalogue_defers_nonessential_tools() -> None:
         always_available
         | {
             "integral_get_page_context",
+            "integral_recall_prior_conversation",
             "integral_open_view",
             "integral_query",
             "integral_governed_query",
@@ -728,7 +733,7 @@ async def test_setup_is_exposed_as_one_build_contract_not_staging_primitives(tmp
     assert not primitives.intersection(by_name)
     assert "integral_build_approved_design" in by_name
     result = await by_name["search_capabilities"].function(
-        query="create an app with a track"
+        NO_ACTIVE_SKILLS, query="create an app with a track"
     )
     assert not primitives.intersection(result.tools)
     assert not primitives.intersection(
@@ -1344,6 +1349,94 @@ async def test_broad_read_skill_keeps_undiscovered_schemas_deferred(
         run_id=scope.framework_run_id,
     )
     assert result.output == "Verified"
+
+
+@pytest.mark.asyncio
+async def test_broad_skill_search_rechecks_activation_before_disclosing_a_deferred_write(
+    tmp_path, monkeypatch
+):
+    """Search before and after loading the owner, then stage exactly one proposal."""
+    from pydantic_ai_harness.step_persistence import InMemoryStepStore
+
+    from app.agentive.harness.skill_sources import materialize_standard_skill_library
+
+    names = [f"integral_propose_change_{i}" for i in range(12)]
+    target = names[-1]
+    skill = "changes"
+    skills = materialize_standard_skill_library(
+        [(skill, "Propose changes.", "Stage the requested change for review.")],
+        root=tmp_path,
+        allowed_tools={skill: names},
+    )
+    catalogue = [
+        {"name": name, "description": name, "input_schema": {"type": "object"}}
+        for name in names
+    ]
+    calls = []
+
+    async def stage(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=True, data={"staged": True})
+
+    async def no_encoder(text):
+        return None
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", stage
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "propose"),
+    )
+    monkeypatch.setattr(
+        "app.agentive.harness.capability_search._embed_text_for_capability_search",
+        no_encoder,
+    )
+    requests = []
+
+    def respond(messages, info):
+        visible = {tool.name for tool in info.function_tools}
+        requests.append(visible)
+        if len(requests) <= 2:
+            assert not visible.intersection(names)
+            if len(requests) == 1:
+                return ModelResponse(
+                    parts=[ToolCallPart("search_capabilities", {"query": target})]
+                )
+            return ModelResponse(parts=[ToolCallPart("load_capability", {"id": skill})])
+        if len(requests) == 3:
+            assert visible.intersection(names) == set(names[:8])
+            return ModelResponse(
+                parts=[ToolCallPart("search_capabilities", {"query": target})]
+            )
+        assert visible.intersection(names) == {*names[:8], target}
+        if len(requests) == 4:
+            return ModelResponse(parts=[ToolCallPart(target, {})])
+        return ModelResponse(parts=[TextPart("Staged for review.")])
+
+    scope = _scope()
+    agent, _ = build_native_runtime(
+        model=FunctionModel(respond),
+        instructions="Propose the requested change.",
+        tools=build_brokered_tools(
+            scope=scope, catalogue=catalogue, skill_library=tmp_path
+        ),
+        scope=scope,
+        agent_name="deferred-change",
+        skill_directories=[tmp_path],
+        allowed_skill_names=skills,
+        step_store_backend=InMemoryStepStore(),
+    )
+    result = await agent.run(
+        "Propose the final change.",
+        run_id=scope.framework_run_id,
+        conversation_id=scope.framework_conversation_id,
+    )
+    assert result.output == "Staged for review."
+    assert len(calls) == 1 and calls[0]["capability_key"] == target
+    assert calls[0]["op_class"] == "propose"
+    assert calls[0]["principal_id"] == scope.principal_id
+    assert calls[0]["workspace_id"] == scope.workspace_id
 
 
 @pytest.mark.asyncio
@@ -2542,9 +2635,9 @@ async def test_app_read_protocol_visibility_does_not_unlock_unloaded_writes(
 def test_generic_app_read_boundary_advertises_live_read_protocol(key):
     original = {key: {"declared_query_required": True}, "results": []}
     projected = _resource_links_for_model(original)
-    assert projected["recovery"]["tool"] == "integral_list_workspace_tools"
-    assert projected["recovery"]["arguments"] == {"read_only": True}
-    assert projected["recovery"]["invoke_with"] == "integral_call_workspace_tool"
+    assert projected["recovery"]["tool"] == "integral_find_workspace_resources"
+    assert projected["recovery"]["required_input"] == "query"
+    assert "integral_governed_query" in projected["recovery"]["message"]
     assert "recovery" not in original
 
 
@@ -3029,7 +3122,9 @@ async def test_search_respects_protected_write_skill_loading(tmp_path, monkeypat
         ],
     )
     search = next(tool for tool in tools if tool.name == "search_capabilities")
-    returned = await search.function(query="integral_save_view default view")
+    returned = await search.function(
+        NO_ACTIVE_SKILLS, query="integral_save_view default view"
+    )
     hit = next(
         item
         for item in returned.return_value["results"]
@@ -3051,5 +3146,7 @@ async def test_search_respects_protected_write_skill_loading(tmp_path, monkeypat
         is not None
     )
     # A second search must not falsely advertise the protected write either.
-    again = await search.function(query="integral_save_view default view")
+    again = await search.function(
+        NO_ACTIVE_SKILLS, query="integral_save_view default view"
+    )
     assert again.return_value == returned.return_value

@@ -132,7 +132,7 @@ def test_health_probe_reports_the_unwrapped_message(monkeypatch):
 
     from app.agentive.connectors import mcp_client
 
-    async def _boom(_auth):
+    async def _boom(_auth, _config=None, _manifest=None):
         raise ExceptionGroup(
             "unhandled errors in a TaskGroup (1 sub-exception)",
             [OSError("nodename nor servname provided")],

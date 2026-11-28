@@ -6,9 +6,19 @@ import type { SavedView } from '../../../types';
 const mockToolsCall = vi.fn();
 const mockShowToast = vi.fn();
 const mockCreate = vi.fn();
+const mockUpload = vi.fn();
 vi.mock('../../../api', () => ({
   entriesApi: { create: (...args: unknown[]) => mockCreate(...args) },
   entryTypesApi: { list: async () => [{id:'type',name:'Record',form_schema:{}}] },
+}));
+vi.mock('../../../api/attachments', () => ({
+  attachmentsApi: { uploadForEntry: (...args: unknown[]) => mockUpload(...args) },
+}));
+
+const mockDownload = vi.fn();
+vi.mock('../../../api/actionFiles', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../api/actionFiles')>(),
+  downloadActionFile: (file: unknown) => mockDownload(file),
 }));
 
 vi.mock('../../../api/tools', () => ({
@@ -47,6 +57,27 @@ function view(buttons: Record<string, unknown>[], extraBindings: Record<string, 
 }
 
 const noop = () => {};
+
+it.each([false, true])('downloads an export when Entry read-only is %s', async entryAppReadonly => {
+  const file = { filename: 'export.csv', mime: 'text/csv', content_base64: 'YQ==' };
+  mockToolsCall.mockResolvedValue({ output: { ok: true, file } });
+  mockUpload.mockResolvedValue({});
+  render(
+    <ActionBarWidget
+      view={view(
+        [{ key: 'export', label: 'Export', tool: 'export_tool', produces_file: true, persist_as_attachment: true }],
+        { entryAppReadonly },
+      )}
+      entries={[]}
+      isLoading={false}
+      onEntryOpen={noop}
+    />
+  );
+  fireEvent.click(screen.getByText('Export'));
+  await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Export complete', 'success'));
+  expect(mockDownload).toHaveBeenCalledWith(file);
+  expect(mockUpload).toHaveBeenCalledTimes(entryAppReadonly ? 0 : 1);
+});
 
 describe('ActionBarWidget — refresh-nonce notification', () => {
   it('calls onActionComplete after a successful tool run', async () => {

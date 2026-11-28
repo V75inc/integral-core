@@ -117,3 +117,14 @@ def test_ciphertext_without_its_key_fails_closed(no_enc_key, monkeypatch):
     monkeypatch.delenv("INTEGRAL_CREDENTIAL_ENC_KEY")
 
     assert crn.decrypt_auth_state(stored) == {"env": {"MCP_SECRET": ""}}
+
+
+def test_required_encryption_refuses_to_store_sync_tokens_without_key(no_enc_key):
+    """Sync writers refuse credential-bearing state without an encryption key."""
+    from app.api.errors import ServiceUnavailableError
+
+    with pytest.raises(ServiceUnavailableError, match="require encryption"):
+        crn.encrypt_auth_state({"access_token": _SECRET}, require_key=True)
+    assert crn.encrypt_auth_state({"labels": ["inbox"]}, require_key=True) == {
+        "labels": ["inbox"]
+    }

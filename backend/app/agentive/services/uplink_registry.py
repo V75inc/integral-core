@@ -262,8 +262,6 @@ def _scheduler_available() -> bool:
 # ``routine_task_scheduler`` loop runs it like any user-created routine.
 # ---------------------------------------------------------------------------
 
-_SCHEDULE_THREAD_PROVIDER = "integral_native"
-
 
 def _schedule_key(agent_key: str, index: int) -> str:
     """Stable per-(agent, slot) idempotency key for reinstall / library sync."""
@@ -329,10 +327,11 @@ async def _resolve_installing_principal(app_node: Any) -> Optional[str]:
 async def _resolve_schedule_agent_id(principal: str, workspace_id: str) -> str:
     """Sticky agent binding for the routine's thread (same chain as thread create)."""
     try:
+        from app.agentive.services.routine_tasks import APP_SCHEDULE_THREAD_PROVIDER
         from app.api.ai_chat import _resolve_agent_for_new_thread
         from app.services.chat_providers.registry import get_registry
 
-        provider = get_registry().get(_SCHEDULE_THREAD_PROVIDER)
+        provider = get_registry().get(APP_SCHEDULE_THREAD_PROVIDER)
         if provider is None:
             return ""
         return await _resolve_agent_for_new_thread(
@@ -369,7 +368,6 @@ async def _materialize_default_schedule(
     from app.agentive.workspace_agent_profile import _app_slug
     from app.models.edges import CONTAINS
     from app.models.nodes import App
-    from app.services.chat_threads import create_thread
 
     key = _schedule_key(agent_key, schedule_index)
     try:
@@ -456,17 +454,11 @@ async def _materialize_default_schedule(
     app_name = str(getattr(app_node, "name", "") or slug)
     try:
         agent_id = await _resolve_schedule_agent_id(principal, workspace_id)
-        thread = await create_thread(
-            user_id=principal,
-            provider_id=_SCHEDULE_THREAD_PROVIDER,
-            title=f"{app_name}: {description or agent_key}",
-            workspace_id=workspace_id,
-            agent_id=agent_id,
-        )
         routine = await create_routine_task(
             user_id=principal,
             workspace_id=workspace_id,
-            thread_id=thread.id,
+            thread_id="",
+            pending_thread_title=f"{app_name}: {description or agent_key}",
             agent_id=agent_id,
             instruction=instruction,
             cron=cron,

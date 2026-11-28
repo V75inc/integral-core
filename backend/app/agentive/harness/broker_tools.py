@@ -114,13 +114,15 @@ def _resource_links_for_model(
         enriched = {
             **enriched,
             "recovery": {
-                "tool": "integral_list_workspace_tools",
-                "arguments": {"read_only": True},
-                "invoke_with": "integral_call_workspace_tool",
+                "tool": "integral_find_workspace_resources",
+                "required_input": "query",
                 "message": (
-                    "These App records were not read. Discover the installed App's "
-                    "read tools, narrowing by its app_id from integral_list_apps, "
-                    "then invoke the matching tool with its declared input schema. "
+                    "These App records were not read. Discover the relevant "
+                    "installed App and its current read contracts using the "
+                    "user's information need. Prefer a matching complete "
+                    "read_queries contract via integral_governed_query; "
+                    "otherwise invoke a matching declared read tool. "
+                    "Follow next_offset if more sources are needed. "
                     "Do not report zero records or unavailable workspace access "
                     "based on this generic boundary."
                 ),
@@ -930,6 +932,10 @@ def build_brokered_tools(
     When ``skill_library`` is supplied, a read-only unified search tool covers
     the authorized projected skills and this same tool catalogue.
     """
+    if scope.connection_audience == "public":
+        from app.agentive.services.connection_profiles import ProfileDenied
+
+        raise ProfileDenied("Public connections cannot use the authenticated broker")
     if catalogue is None:
         from app.agentive.tooling.catalogue import build_tool_catalogue
 
@@ -973,6 +979,7 @@ def build_brokered_tools(
         immediately_available |= frozenset(
             {
                 "integral_get_page_context",
+                "integral_recall_prior_conversation",
                 "integral_open_view",
                 "integral_query",
                 "integral_governed_query",
@@ -1088,25 +1095,23 @@ def build_brokered_tools(
         definitions = {item.get("name"): item for item in catalogue}
         for path in sorted(skill_library.glob("*/SKILL.md")):
             declared = allowed_tools_from_skill_path(path)
-            # Skills owns activation; Tool.prepare discloses a bounded starter
-            # set in declaration order. The former all-or-nothing eight-tool
-            # cutoff made broad read skills rediscover even their first read.
-            # This is schema presentation, never a cached permission/result.
-            read_count = 0
-            read_bytes = 0
+            # Apply one disclosure budget to the whole procedure, including
+            # mutations. Native ToolSearch can reveal further schemas on demand.
+            starter_count = 0
+            starter_bytes = 0
             for tool_name in declared:
                 skill_owners.setdefault(tool_name, set()).add(path.parent.name)
                 definition = definitions.get(tool_name)
-                if definition is None:
+                if definition is None or tool_name in _BUILD_IMPLEMENTATION_TOOLS:
                     continue
-                source, effect = infer_source_and_op_class(tool_name)
-                if source != "core" or effect != "read":
+                source, _ = infer_source_and_op_class(tool_name)
+                if source != "core":
                     continue
                 size = len(json.dumps(definition, ensure_ascii=False).encode("utf-8"))
-                if read_count >= 8 or read_bytes + size > 16000:
+                if starter_count >= 8 or starter_bytes + size > 16000:
                     continue
-                read_count += 1
-                read_bytes += size
+                starter_count += 1
+                starter_bytes += size
                 starter_tool_owners.setdefault(tool_name, set()).add(path.parent.name)
     for item in catalogue:
         name = str(item.get("name") or "").strip()
@@ -1189,11 +1194,7 @@ def build_brokered_tools(
                     else frozenset()
                 ),
                 call_state,
-                workflow_tool_owners=frozenset(
-                    owner
-                    for owner in skill_owners.get(name, ())
-                    if op_class != "read" or owner in starter_tool_owners.get(name, ())
-                ),
+                workflow_tool_owners=frozenset(starter_tool_owners.get(name, ())),
             ),
             defer_loading=name not in immediately_available,
             # Public Pydantic barriers preserve model-emitted order for
@@ -1257,10 +1258,8 @@ def _prepare_capability_tool(
             # preparation hook; no other unloaded procedure is activated.
             return replace(tool_def, defer_loading=False)
         # Skills supplies instructions; Core binds its standard allowed-tools
-        # declarations to the already authorized catalogue. Reveal schemas
-        # needed to propose changes and a bounded starter set of reads on
-        # activation. Remaining reads stay deferred until discovery selects
-        # them, rather than injecting an entire reporting/query catalogue.
+        # declarations to the already authorized catalogue. Loading the
+        # procedure reveals its starter schemas. Others stay discoverable.
         # Shared tools may belong to several procedures. This is presentation,
         # never permission: dispatch still rechecks scope, policy and approval.
         if workflow_tool_owners.intersection(ctx.active_capability_ids):

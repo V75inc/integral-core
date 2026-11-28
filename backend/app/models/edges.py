@@ -7,6 +7,7 @@ the base ``Edge`` class via ``connect()`` with ``edge=None``.
 from typing import Optional
 
 from jvspatial.core import Edge
+from pydantic import Field
 
 
 class CATALOGS(Edge):
@@ -35,6 +36,25 @@ class HasAuthorizationState(Edge):
 
 
 HAS_AUTHORIZATION_STATE = HasAuthorizationState
+
+
+class HasConnectionProfiles(Edge):
+    """Workspace → its private agent profile configuration."""
+
+    bidirectional: bool = False
+
+
+HAS_CONNECTION_PROFILES = HasConnectionProfiles
+
+
+class HasProfilePrincipal(Edge):
+    """WorkspaceConnectionProfiles → dedicated non-login User for one profile."""
+
+    profile_key: str
+    bidirectional: bool = False
+
+
+HAS_PROFILE_PRINCIPAL = HasProfilePrincipal
 
 
 class HasModelConfiguration(Edge):
@@ -164,6 +184,18 @@ class CollaborationGrantHistory(Edge):
 
 MEMBERSHIP_GRANT_HISTORY = MembershipGrantHistory
 COLLABORATION_GRANT_HISTORY = CollaborationGrantHistory
+
+
+class ResidentWritePermission(Edge):
+    """A caller's explicit standing permission for interactive workspace chat."""
+
+    mode: str = "ask"
+    custom_track_ids: list[str] = Field(default_factory=list)
+    custom_app_ids: list[str] = Field(default_factory=list)
+    track_id: str = ""
+    track_ids: list[str] = Field(default_factory=list)
+    revision: str = ""
+    bidirectional: bool = False
 
 
 class HasAgentPreference(Edge):

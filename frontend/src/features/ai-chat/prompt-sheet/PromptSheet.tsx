@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { Button } from '../../../components/ui';
 import JsonViewer from '../../../components/ui/JsonViewer';
 import { IconButton, Input, Surface, Text } from '../../../ui';
+import { useCallReview } from "../voiceReviewPresentation";
 import { usePromptQueue } from './usePromptQueue';
 import type { PromptQuestionItem, PromptStagedWriteItem } from './types';
 
@@ -26,7 +27,20 @@ export function PromptSheetHost({
   }) => ReactNode;
 }) {
   const sheet = usePromptQueue();
-  const node = sheet.open && sheet.current ? <PromptSheetView sheet={sheet} /> : null;
+  const voice = useCallReview();
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const item = sheet.current;
+  const inCall = !!voice && voice.threadId === sheet.threadId && item?.kind === 'staged_write'
+    && item.status === 'pending' && !item.last_error;
+  const compact = inCall && expanded !== item.token;
+  const node = sheet.open && item && (compact ? (
+    <div className="flex items-center justify-between gap-2 px-4 py-2">
+      <Text as="span" variant="body-sm" tone="muted" role="status">
+        {voice.requiresDetails && voice.proposal === item.token ? "Visual review required for this change" : voice.proposal === item.token ? "Awaiting your voice decision" : "Change awaiting review"}
+      </Text>
+      <Button size="sm" variant="ghost" onClick={() => setExpanded(item.token)}>Review details</Button>
+    </div>
+  ) : <PromptSheetView sheet={sheet} />);
   return (
     <>
       {children({

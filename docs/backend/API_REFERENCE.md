@@ -39,8 +39,12 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | DELETE | `/agentive/channels/identities/{identity_id}` | [delete_channel_identity](../../backend/app/agentive/api/channels.py) |
 | POST | `/agentive/channels/identities/{identity_id}/verify` | [verify_channel_identity](../../backend/app/agentive/api/channels.py) |
 | POST | `/agentive/channels/identities/{identity_id}/verify-link-token` | [verify_link_token](../../backend/app/agentive/api/channels.py) |
+| GET | `/agentive/channels/whatsapp/binding` | [get_whatsapp_channel_binding_endpoint](../../backend/app/agentive/api/channels.py) |
+| PUT | `/agentive/channels/whatsapp/binding` | [save_whatsapp_channel_binding_endpoint](../../backend/app/agentive/api/channels.py) |
+| DELETE | `/agentive/channels/whatsapp/binding/{binding_id}` | [disable_whatsapp_channel_binding_endpoint](../../backend/app/agentive/api/channels.py) |
 | POST | `/agentive/channels/whatsapp/verify-initiate` | [whatsapp_verify_initiate](../../backend/app/agentive/api/channels.py) |
 | POST | `/agentive/channels/whatsapp/verify-otp` | [whatsapp_verify_otp](../../backend/app/agentive/api/channels.py) |
+| POST | `/agentive/channels/whatsapp/webhook` | [whatsapp_channel_webhook](../../backend/app/agentive/api/channels.py) |
 
 ## chat
 

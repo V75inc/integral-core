@@ -46,6 +46,7 @@ from app.services.attachment_storage import get_attachment_storage_service
 from app.services.authority_facts import relationship_flag, relationship_literal
 from app.services.avatar_resize import resize_avatar
 from app.services.change_event import emit_change_event
+from app.services.email_identity import roster_account_emails
 from app.services.host_hooks import enrich_workspace_export
 from app.services.permissions import get_user_node
 from app.services.workspace_permissions import (
@@ -214,7 +215,9 @@ async def _require_workspace_role(
 
 
 @endpoint("/workspaces", methods=["GET"], auth=True, tags=["Workspaces"])
-async def list_workspaces(request: Request) -> Dict[str, Any]:
+async def list_workspaces(
+    request: Request, limit: Optional[int] = None
+) -> Dict[str, Any]:
     """List every workspace the user can read (Personal + each org membership)."""
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -222,6 +225,29 @@ async def list_workspaces(request: Request) -> Dict[str, Any]:
     user = await get_user_node(user_id)
     if not user:
         return {"workspaces": [], "total": 0}
+    if limit is not None:
+        # Bounded navigation projection without per-row export/host enrichers.
+        from app.services.request_scope import resolve_workspace_id_from_request
+
+        page_size = min(max(limit, 1), 20)
+        current = await resolve_workspace_id_from_request(request, user_id)
+        workspaces = await list_accessible_workspaces(user_id, limit=page_size + 1)
+        rows = {workspace.id: workspace for workspace in workspaces}
+        if current and current not in rows:
+            active = await Workspace.get(current)
+            if active is not None and await can_access_workspace(user_id, current) in {
+                "owner",
+                "admin",
+                "member",
+            }:
+                rows[current] = active
+        ordered = sorted(rows.values(), key=lambda ws: ws.id != current)
+        return {
+            "workspaces": [
+                {"id": row.id, "name": row.name} for row in ordered[:page_size]
+            ],
+            "has_more": len(ordered) > page_size,
+        }
     workspaces = await list_accessible_workspaces(user_id)
     items: List[Dict[str, Any]] = []
     for ws in workspaces:
@@ -735,6 +761,7 @@ async def list_workspace_members(request: Request, workspace_id: str) -> Dict[st
         node=["User"],
         limit=2000,
     )
+    emails = await roster_account_emails(member_nodes)
     for u in member_nodes:
         # Never full-export User in a list every member can read. A raw export
         # carries `preferences` — which holds the email-verification OTP slot
@@ -752,6 +779,10 @@ async def list_workspace_members(request: Request, workspace_id: str) -> Dict[st
         # PUBLIC_USER_FIELDS for every other caller of the view.
         if getattr(u, "user_id", None):
             data["user_id"] = u.user_id
+        # The route is admin-only and the members page identifies people by
+        # email, so it is added here too, never to the shared public view.
+        if u.user_id in emails:
+            data["email"] = emails[u.user_id]
         row = await read_member_facts(u, ws.id)
         if row is None:
             from app.exceptions import AuthorizationUnavailableError

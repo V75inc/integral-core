@@ -46,6 +46,11 @@ export function useChangeEventInvalidation(): void {
   const cursorOwnerRef = useRef('');
   const ownerGenerationRef = useRef(0);
   const subscribedRef = useRef(false);
+  const invalidationSequence = useRef(0);
+  const scopeInvalidation = useCallback((scope: string): ActivityEvent => ({
+    id: `refresh:${++invalidationSequence.current}:${scope}`,
+    ts: "", actor_kind: "system", actor_id: "", action: "entry.invalidate", scope,
+  }), []);
 
   const rememberEvent = useCallback((id: string): boolean => {
     const seen = seenIdsRef.current;
@@ -97,9 +102,10 @@ export function useChangeEventInvalidation(): void {
           // The authenticated scope header selects the workspace. A user:
           // filter would exclude App/Track events that the socket missed.
           limit: 50,
+          include_invalidations: true,
         });
         if (generation !== generationRef.current) return;
-        replay.events.push(...page.events);
+        replay.events.push(...page.events, ...(page.scope_invalidations ?? []).map(scopeInvalidation));
         replay.cursor = page.resume_cursor ?? page.next_cursor ?? previousCursor;
         if (!page.has_more || !page.next_cursor || page.next_cursor === previousCursor) break;
       }
@@ -127,7 +133,7 @@ export function useChangeEventInvalidation(): void {
         if (generation === generationRef.current) pollInFlightRef.current = false;
       }
     }
-  }, [principalId, applyEvents]);
+  }, [principalId, applyEvents, scopeInvalidation]);
 
   useEffect(() => {
     if (!token || !principalId) {
@@ -198,9 +204,11 @@ export function useChangeEventInvalidation(): void {
         ws.onmessage = (event: MessageEvent) => {
           try {
             const raw = JSON.parse(String(event.data)) as unknown;
-            const parsedEvent = parseChangeEventWireMessage(raw);
+            const signal = raw as { type?: string; scope?: string };
+            const parsedEvent = signal?.type === "scope_invalidated" && typeof signal.scope === "string" && signal.scope.startsWith("track:")
+              ? scopeInvalidation(signal.scope) : parseChangeEventWireMessage(raw);
             if (parsedEvent && !cancelled && generation === generationRef.current) {
-              queued.set(`${parsedEvent.action?.split('.')[0]}:${parsedEvent.resource_id ?? parsedEvent.id}`, parsedEvent);
+              queued.set(`${parsedEvent.action?.split('.')[0]}:${parsedEvent.resource_id ?? (parsedEvent.action === "entry.invalidate" ? parsedEvent.scope : parsedEvent.id)}`, parsedEvent);
               // The durable poll cursor is independent of socket delivery and
               // catches overflow later; keep only a bounded live burst here.
               if (queued.size > 500) queued.delete(queued.keys().next().value!);
@@ -252,7 +260,7 @@ export function useChangeEventInvalidation(): void {
         }
       }
     };
-  }, [token, principalId, workspaceId, applyEvents, pollOnce]);
+  }, [token, principalId, workspaceId, applyEvents, pollOnce, scopeInvalidation]);
 
   useEffect(() => {
     const handler = (event: Event) => {

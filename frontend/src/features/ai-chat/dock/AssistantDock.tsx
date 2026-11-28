@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import {
   isDockSuppressedPath,
@@ -8,6 +8,7 @@ import {
 import { useIsMdUp } from "../../../hooks/useMediaQuery";
 import { useRegisterOverlay } from "../../../hooks/useOverlayPresence";
 import { DOCK_MAX_WIDTH, DOCK_MIN_WIDTH } from "./assistantDockPrefs";
+import { peekChatHandoff } from "../chatHandoff";
 
 // The shell already imports the chat runtime through the ai-chat facade.
 // Import this small body with it so opening/restoring the dock never depends
@@ -27,20 +28,29 @@ import AssistantDockBody from "./AssistantDockBody";
  * register as a viewport-blocking overlay on desktop.
  */
 export function AssistantDock() {
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
+  const navigate = useNavigate();
+  const fullPage = isDockSuppressedPath(pathname);
+  const returnPage = useRef("/");
+  useEffect(() => {
+    if (!fullPage) returnPage.current = pathname + search + hash;
+  }, [fullPage, pathname, search, hash]);
   const isMdUp = useIsMdUp();
-  const { open, width, closeDock, setWidth, setResizing } = useAssistantDock();
+  const { open, width, openDock, closeDock, suppressDock, setWidth, setResizing } = useAssistantDock();
+  useEffect(() => {
+    if (fullPage) suppressDock();
+  }, [fullPage, suppressDock]);
 
   // Only the mobile sheet blocks the viewport; the desktop dock is a
   // companion column and must not make toasts flee to the other corner.
-  useRegisterOverlay(open && !isMdUp);
+  useRegisterOverlay(open && !fullPage && !isMdUp);
 
   // Escape closes only when focus is inside the dock. A non-modal companion
   // stealing the global Escape would close it while the user is dismissing
   // something else entirely (a dialog it raised, a menu, a filter popover).
   const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open || fullPage) return undefined;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       const active = document.activeElement;
@@ -50,7 +60,7 @@ export function AssistantDock() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, closeDock]);
+  }, [open, fullPage, closeDock]);
 
   // Drag-to-resize. Pointer capture keeps the drag alive when the cursor
   // outruns the 4px handle, which it always does.
@@ -101,20 +111,20 @@ export function AssistantDock() {
     [setWidth],
   );
 
-  if (!open) return null;
-  // The dedicated chat route already owns a full-viewport surface.
-  if (isDockSuppressedPath(pathname)) return null;
+  // A chat link can navigate and request its companion in the same event.
+  // The dock provider consumes that intent in an effect after the route commits.
+  if (!open && !fullPage && !peekChatHandoff()) return null;
 
   return (
     <div
       ref={panelRef}
-      role="complementary"
+      role={fullPage ? "region" : "complementary"}
       aria-label="AI chat"
       /* Read by Modal's focus trap: a dialog that opts into
          `allowAssistantDock` extends its Tab cycle across this element so the
          visually-reachable dock is keyboard-reachable too. */
-      data-assistant-dock=""
-      className={[
+      data-assistant-dock={fullPage ? undefined : ""}
+      className={fullPage ? "flex min-h-0 w-full" : [
         "fixed z-dock flex flex-col overflow-hidden bg-[var(--section-bg)] shadow-none",
         isMdUp
           ? "right-0 border-l border-[var(--panel-border)]"
@@ -125,13 +135,13 @@ export function AssistantDock() {
          has its own header — and therefore its close button — painted over
          and unreachable. Desktop differs only in taking a fixed width instead
          of the full viewport. */
-      style={{
+      style={fullPage ? { height: "calc(100vh - var(--system-bar-h, 0px))" } : {
         top: "var(--system-bar-h, 0px)",
         height: "calc(100vh - var(--system-bar-h, 0px))",
         ...(isMdUp ? { width: `${width}px` } : null),
       }}
     >
-      {isMdUp ? (
+      {!fullPage && isMdUp ? (
         <div
           role="separator"
           aria-orientation="vertical"
@@ -158,7 +168,10 @@ export function AssistantDock() {
         />
       ) : null}
 
-      <AssistantDockBody onClose={closeDock} />
+      <AssistantDockBody fullPage={fullPage} onClose={closeDock} onCollapse={() => {
+        openDock();
+        navigate(returnPage.current);
+      }} />
     </div>
   );
 }

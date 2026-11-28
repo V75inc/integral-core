@@ -259,7 +259,11 @@ def test_candidate_review_is_enforced_by_real_audit_wrapper(
     )
     policy = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(policy)
-    review = json.loads((REPO_ROOT / ".ci/frontend_dependency_review.json").read_text())
+    review = json.loads(
+        (
+            REPO_ROOT / "backend/tests/fixtures/frontend-audit-ci-20261117-retired.json"
+        ).read_text()
+    )
     document = {"vulnerabilities": review["graph"]}
     today = datetime.now(timezone.utc).date()
     review["reviewed_on"] = today.isoformat()
@@ -290,6 +294,9 @@ def test_candidate_review_is_enforced_by_real_audit_wrapper(
         (root / relative).write_text("fixture build recipe\n")
     shutil.copy2(
         REPO_ROOT / "frontend/package-lock.json", root / "frontend/package-lock.json"
+    )
+    review["lock_sha256"] = policy.canonical_digest(
+        json.loads((root / "frontend/package-lock.json").read_text())
     )
     review["build_inputs_sha256"] = policy.build_inputs_digest(root)
     if state == "unapproved":

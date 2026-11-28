@@ -65,7 +65,9 @@ def guarded_mcp_http_client(
     return guarded_async_client(headers=headers, timeout=timeout, auth=auth)
 
 
-def _session_timeout(auth_state: Dict[str, Any]) -> float:
+def _session_timeout(
+    auth_state: Dict[str, Any], manifest: Optional[dict] = None
+) -> float:
     """Per-request budget for one MCP session, including stdio startup.
 
     HTTP sessions have no build step. Stdio sessions do: ``initialize`` and
@@ -73,7 +75,7 @@ def _session_timeout(auth_state: Dict[str, Any]) -> float:
     package, and that work is inside the same read timeout.
     """
     try:
-        transport = _transport_from_auth(auth_state)
+        transport = _resolve_mcp_transport(auth_state, manifest)
     except ValueError:
         return _DEFAULT_TIMEOUT
     if transport == "stdio":
@@ -86,6 +88,51 @@ def _transport_from_auth(auth_state: Dict[str, Any]) -> str:
     if raw not in ("stdio", "streamable_http"):
         raise ValueError(f"unsupported MCP transport: {raw!r}")
     return raw
+
+
+def _package_mcp_transport(source: Any) -> Optional[str]:
+    """Return a package MCP transport, or None when that package omits it."""
+    if not isinstance(source, dict):
+        return None
+    capabilities = source.get("capabilities")
+    if not isinstance(capabilities, dict) or "mcp" not in capabilities:
+        return None
+    mcp = capabilities.get("mcp")
+    if not isinstance(mcp, dict) or "transport" not in mcp:
+        return None
+    raw = str(mcp.get("transport") or "").strip().lower()
+    if raw not in ("stdio", "streamable_http"):
+        raise ValueError("package does not declare an MCP transport")
+    return raw
+
+
+def _resolve_mcp_transport(
+    auth_state: Dict[str, Any], manifest: Optional[dict] = None
+) -> str:
+    """Return the MCP transport from the package, then the catalog."""
+    found = _package_mcp_transport(manifest)
+    slug = str((auth_state or {}).get("catalog_slug") or "").strip()
+    if found is None and slug:
+        from app.connectors.package_runtime import admitted_manifest
+
+        found = _package_mcp_transport(admitted_manifest(slug))
+    if found is None and slug:
+        from app.connectors.catalog_loader import get_catalog_entry
+
+        try:
+            entry = get_catalog_entry(slug)
+        except KeyError:
+            entry = {}
+        catalog = str((entry or {}).get("transport") or "").strip().lower()
+        if catalog in ("stdio", "streamable_http"):
+            found = catalog
+        elif catalog:
+            raise ValueError("package does not declare an MCP transport")
+    if found:
+        return found
+    if slug:
+        raise ValueError("package does not declare an MCP transport")
+    return _transport_from_auth(auth_state)
 
 
 # Execution-selecting vars: never accepted from connector data under any
@@ -122,53 +169,88 @@ _NEVER_FROM_CONNECTOR: frozenset[str] = frozenset(
     }
 )
 
-# Env keys the SERVER generates for a catalog stdio server (the OAuth token
-# store writes these). Allowed in addition to whatever the catalog entry
-# itself declares. See ``app/connectors/stdio_env.py``.
-_SERVER_GENERATED_ENV_KEYS: frozenset[str] = frozenset(
-    {
-        "QUICKBOOKS_CLIENT_ID",
-        "QUICKBOOKS_CLIENT_SECRET",
-        "QUICKBOOKS_REFRESH_TOKEN",
-        "QUICKBOOKS_REALM_ID",
-        "QUICKBOOKS_ENVIRONMENT",
-        # Written by ``stdio_env.persist_quickbooks_token_store`` and handed to
-        # the child so it can find its 0600 dotenv. Omitting it from this set
-        # made ``quickbooks_mcp`` mount cleanly and report ``ok`` — the initial
-        # discovery still had the provisional env — and then start every later
-        # spawn (health, refresh, and EVERY tool call) with no credentials.
-        "QUICKBOOKS_TOKEN_STORE_PATH",
-    }
-)
+
+def _mcp_spawn_keys(source: Any) -> Optional[set[str]]:
+    """Return spawn env keys when a package declares them."""
+    if not isinstance(source, dict):
+        return None
+    capabilities = source.get("capabilities")
+    if not isinstance(capabilities, dict) or "mcp" not in capabilities:
+        return None
+    mcp = capabilities.get("mcp")
+    if not isinstance(mcp, dict):
+        raise ValueError("package does not declare spawn env")
+    if "env" not in mcp and "generated_env" not in mcp:
+        return None
+    allowed: set[str] = set()
+    if "env" in mcp:
+        package_env = mcp.get("env")
+        if not isinstance(package_env, dict):
+            raise ValueError("package does not declare spawn env")
+        allowed.update(str(key) for key in package_env)
+    if "generated_env" in mcp:
+        generated = mcp.get("generated_env")
+        if not isinstance(generated, list):
+            raise ValueError("package does not declare spawn env")
+        allowed.update(str(key) for key in generated)
+    return allowed
 
 
-def _allowed_spawn_env_keys(auth_state: Dict[str, Any]) -> frozenset[str]:
-    """Env keys a connector may contribute to the spawn, from its catalog entry.
+def _spawn_mcp(auth_state: Dict[str, Any], manifest: Optional[dict] = None) -> dict:
+    """Return the MCP block whose spawn env declaration is in force."""
+    found = _mcp_spawn_keys(manifest)
+    mcp_source: Any = manifest if found is not None else None
+    if found is None:
+        slug = str((auth_state or {}).get("catalog_slug") or "").strip()
+        from app.connectors.package_runtime import admitted_manifest
 
-    Derived from the vetted catalog: ``env_defaults`` keys plus declared
-    ``auth.fields`` names, plus the keys the server's own token store writes.
-    Anything else in ``auth_state["env"]`` is dropped.
+        admitted = admitted_manifest(slug) if slug else None
+        if _mcp_spawn_keys(admitted) is not None:
+            mcp_source = admitted
+    if not isinstance(mcp_source, dict):
+        return {}
+    mcp = (mcp_source.get("capabilities") or {}).get("mcp") or {}
+    return mcp if isinstance(mcp, dict) else {}
+
+
+def _allowed_spawn_env_keys(
+    auth_state: Dict[str, Any], manifest: Optional[dict] = None
+) -> frozenset[str]:
+    """Env keys a connector may contribute to the spawn, from its package.
+
+    A stored snapshot that declares spawn env wins. An older snapshot falls
+    back to the admitted package, then the catalog. Anything else in
+    ``auth_state["env"]`` is dropped.
     """
     slug = str((auth_state or {}).get("catalog_slug") or "").strip()
-    allowed: set[str] = set(_SERVER_GENERATED_ENV_KEYS)
+    package_keys = _mcp_spawn_keys(manifest)
+    if package_keys is None and slug:
+        from app.connectors.package_runtime import admitted_manifest
+
+        package_keys = _mcp_spawn_keys(admitted_manifest(slug))
+    if package_keys is not None:
+        return frozenset(package_keys) - _NEVER_FROM_CONNECTOR
+    allowed: set[str] = set()
     if slug:
         from app.connectors.catalog_loader import get_catalog_entry
 
         try:
             entry = get_catalog_entry(slug)
         except KeyError:
-            return frozenset(allowed)
+            entry = {}
         allowed.update(str(k) for k in (entry.get("env_defaults") or {}))
         auth = entry.get("auth") if isinstance(entry.get("auth"), dict) else {}
         for auth_field in (auth or {}).get("fields") or []:
             if isinstance(auth_field, dict) and auth_field.get("name"):
                 allowed.add(str(auth_field["name"]))
-    # Never contributable, even if a catalog entry names one: these select
-    # which binary runs or what it loads.
     return frozenset(allowed) - _NEVER_FROM_CONNECTOR
 
 
-def _build_spawn_env(auth_state: Dict[str, Any]) -> Dict[str, str]:
+def _build_spawn_env(
+    auth_state: Dict[str, Any],
+    config: Optional[Dict[str, Any]] = None,
+    manifest: Optional[dict] = None,
+) -> Dict[str, str]:
     """Environment for a stdio MCP subprocess — ALLOWLIST, not denylist.
 
     A denylist is the wrong shape here and was a live RCE: the catalog command
@@ -185,14 +267,38 @@ def _build_spawn_env(auth_state: Dict[str, Any]) -> Dict[str, str]:
 
     env_dict: Dict[str, str] = dict(get_default_environment())
     supplied = (auth_state or {}).get("env")
-    if not isinstance(supplied, dict):
-        return env_dict
-
-    allowed = _allowed_spawn_env_keys(auth_state)
-    for key, value in supplied.items():
-        name = str(key)
-        if name in allowed:
-            env_dict[name] = str(value)
+    allowed = _allowed_spawn_env_keys(auth_state, manifest)
+    if isinstance(supplied, dict):
+        for key, value in supplied.items():
+            name = str(key)
+            if name in allowed:
+                env_dict[name] = str(value)
+    package_env = _spawn_mcp(auth_state, manifest).get("env")
+    if isinstance(package_env, dict):
+        for key, spec in package_env.items():
+            if key not in allowed or not isinstance(spec, dict):
+                continue
+            name = str(key)
+            if "value" in spec:
+                env_dict[name] = str(spec["value"])
+            elif spec.get("secret"):
+                found = (auth_state or {}).get(spec["secret"])
+                if found:
+                    env_dict[name] = str(found)
+            elif spec.get("config"):
+                key = spec["config"]
+                found = config.get(key) if isinstance(config, dict) else None
+                if found is None:
+                    found = (auth_state or {}).get(key)
+                if found is not None:
+                    env_dict[name] = str(found)
+            elif spec.get("oauth"):
+                oauth = (auth_state or {}).get("oauth")
+                found = oauth.get(spec["oauth"]) if isinstance(oauth, dict) else None
+                if not found:
+                    found = (auth_state or {}).get(spec["oauth"])
+                if found:
+                    env_dict[name] = str(found)
     return env_dict
 
 
@@ -216,8 +322,90 @@ def _freeform_stdio_allowed() -> bool:
     return os.environ.get("DEBUG", "").strip().lower() in ("1", "true", "yes")
 
 
+def _package_http_mcp_url(
+    source: Any, config: Optional[Dict[str, Any]]
+) -> Optional[str]:
+    """Return a package HTTP MCP URL, or None when that package omits it."""
+    if not isinstance(source, dict):
+        return None
+    capabilities = source.get("capabilities")
+    if not isinstance(capabilities, dict) or "mcp" not in capabilities:
+        return None
+    mcp = capabilities.get("mcp")
+    if not isinstance(mcp, dict) or "url" not in mcp:
+        return None
+    transport = str(mcp.get("transport") or "streamable_http").strip().lower()
+    if transport != "streamable_http":
+        return None
+    url = mcp.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("package does not declare an MCP URL")
+    from app.connectors.package_runtime import render
+
+    rendered = str(render(url.strip(), config or {}, {})).strip()
+    if not rendered:
+        raise ValueError("package does not declare an MCP URL")
+    return rendered
+
+
+def _resolve_http_mcp_url(
+    auth_state: Dict[str, Any],
+    manifest: Optional[dict] = None,
+    config: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Return the HTTP MCP URL from the package, then the catalog."""
+    found = _package_http_mcp_url(manifest, config)
+    slug = str((auth_state or {}).get("catalog_slug") or "").strip()
+    if found is None and slug:
+        from app.connectors.package_runtime import admitted_manifest
+
+        found = _package_http_mcp_url(admitted_manifest(slug), config)
+    if found is None and slug:
+        from app.connectors.catalog_loader import get_catalog_entry
+
+        try:
+            entry = get_catalog_entry(slug)
+        except KeyError:
+            entry = {}
+        catalog_url = str((entry or {}).get("url") or "").strip()
+        if catalog_url:
+            found = catalog_url
+    if found:
+        return found
+    if slug:
+        raise ValueError("package does not declare an MCP URL")
+    url = str((auth_state or {}).get("url") or "").strip()
+    if not url:
+        raise ValueError("streamable_http MCP connector requires auth_state.url")
+    return url
+
+
+def _package_stdio_command(source: Any) -> Optional[tuple[str, list[str]]]:
+    """Return a package stdio command, or None when that package omits it."""
+    if not isinstance(source, dict):
+        return None
+    capabilities = source.get("capabilities")
+    if not isinstance(capabilities, dict) or "mcp" not in capabilities:
+        return None
+    mcp = capabilities.get("mcp")
+    if not isinstance(mcp, dict) or "command" not in mcp:
+        return None
+    command = mcp.get("command")
+    if (
+        not isinstance(command, list)
+        or not command
+        or any(not isinstance(part, str) or not part.strip() for part in command)
+    ):
+        raise ValueError("package does not declare a stdio command")
+    transport = str(mcp.get("transport") or "stdio").strip().lower()
+    if transport != "stdio":
+        raise ValueError("package does not declare a stdio command")
+    return command[0].strip(), [part.strip() for part in command[1:]]
+
+
 def _resolve_trusted_stdio_command(
     auth_state: Dict[str, Any],
+    manifest: Optional[dict] = None,
 ) -> tuple[str, list[str]]:
     """Return the ``(command, args)`` to spawn for a stdio MCP connector.
 
@@ -234,6 +422,18 @@ def _resolve_trusted_stdio_command(
     fixtures spawn a local echo server by path).
     """
     slug = str((auth_state or {}).get("catalog_slug") or "").strip()
+    # A persisted manifest can supply data but cannot select executable code.
+    if not slug and manifest:
+        slug = str(manifest.get("id") or "").strip()
+    if slug:
+        from app.connectors.package_discovery import first_party_package_dir
+        from app.connectors.package_runtime import admitted_manifest
+
+        bundled = admitted_manifest(slug) if first_party_package_dir(slug) else None
+        if bundled and bundled.get("trust", {}).get("tier") == "trusted":
+            found = _package_stdio_command(bundled)
+            if found is not None:
+                return found
     if slug:
         from app.connectors.catalog_loader import get_catalog_entry
 
@@ -268,6 +468,8 @@ async def open_mcp_session(
     auth_state: Dict[str, Any],
     *,
     timeout: float = _DEFAULT_TIMEOUT,
+    config: Optional[Dict[str, Any]] = None,
+    manifest: Optional[dict] = None,
 ) -> AsyncIterator[Any]:
     """Yield an initialized ``ClientSession`` for the connector's auth_state.
 
@@ -283,14 +485,16 @@ async def open_mcp_session(
     # raw node dict — decrypt once here, at the point of use, so every entry
     # point (mount, refresh, health, proxy invoke) gets it for free.
     auth_state = decrypt_auth_state(auth_state)
-    transport = _transport_from_auth(auth_state)
+    transport = _resolve_mcp_transport(auth_state, manifest)
     if transport == "stdio":
         from mcp.client.stdio import StdioServerParameters, stdio_client
 
         command, args = await asyncio.to_thread(
-            _resolve_trusted_stdio_command, auth_state
+            _resolve_trusted_stdio_command, auth_state, manifest
         )
-        env_dict = await asyncio.to_thread(_build_spawn_env, auth_state)
+        env_dict = await asyncio.to_thread(
+            _build_spawn_env, auth_state, config, manifest
+        )
         params = StdioServerParameters(command=command, args=args, env=env_dict)
         async with stdio_client(params) as (read, write):
             async with ClientSession(
@@ -303,9 +507,7 @@ async def open_mcp_session(
     # streamable_http
     from mcp.client.streamable_http import streamablehttp_client
 
-    url = str(auth_state.get("url") or "").strip()
-    if not url:
-        raise ValueError("streamable_http MCP connector requires auth_state.url")
+    url = _resolve_http_mcp_url(auth_state, manifest, config)
     from app.services.url_safety import pin_public_dns, validate_outbound_http_url
 
     # F-2: validating the mount URL and then handing it to the SDK client was
@@ -335,13 +537,19 @@ async def open_mcp_session(
                 yield session
 
 
-async def list_remote_tools(auth_state: Dict[str, Any]) -> List[RemoteTool]:
+async def list_remote_tools(
+    auth_state: Dict[str, Any],
+    config: Optional[Dict[str, Any]] = None,
+    manifest: Optional[dict] = None,
+) -> List[RemoteTool]:
     """Connect, ``list_tools``, return normalized RemoteTool list."""
     from app.agentive.services.connector_registry_node import decrypt_auth_state
 
     state = decrypt_auth_state(auth_state)
-    timeout = _session_timeout(state)
-    async with open_mcp_session(auth_state, timeout=timeout) as session:
+    timeout = _session_timeout(state, manifest)
+    async with open_mcp_session(
+        auth_state, timeout=timeout, config=config, manifest=manifest
+    ) as session:
         result = await session.list_tools()
         tools: List[RemoteTool] = []
         for t in getattr(result, "tools", None) or []:
@@ -372,7 +580,7 @@ async def list_remote_tools(auth_state: Dict[str, Any]) -> List[RemoteTool]:
 class McpRemoteToolError(RuntimeError):
     """A failed remote call with a bounded, credential-free classification."""
 
-    def __init__(self, message: str, error_code: str = "remote_error"):
+    def __init__(self, message: str, error_code: str = "remote_error"):  # noqa: B042
         super().__init__(message)
         self.error_code = error_code
 
@@ -405,12 +613,16 @@ async def call_remote_tool(
     auth_state: Dict[str, Any],
     tool_name: str,
     arguments: Optional[Dict[str, Any]] = None,
+    config: Optional[Dict[str, Any]] = None,
+    manifest: Optional[dict] = None,
 ) -> Any:
     """Connect, ``call_tool``, return structured content or text payload."""
     from app.agentive.services.connector_registry_node import decrypt_auth_state
 
-    timeout = _session_timeout(decrypt_auth_state(auth_state))
-    async with open_mcp_session(auth_state, timeout=timeout) as session:
+    timeout = _session_timeout(decrypt_auth_state(auth_state), manifest)
+    async with open_mcp_session(
+        auth_state, timeout=timeout, config=config, manifest=manifest
+    ) as session:
         result = await session.call_tool(tool_name, arguments=dict(arguments or {}))
     if bool(getattr(result, "isError", False)):
         # Protocol failure is authoritative even when the server supplies
@@ -502,10 +714,14 @@ def _scrub_credentials(text: str) -> str:
     return text[:500]
 
 
-async def probe_mcp_health(auth_state: Dict[str, Any]) -> Dict[str, Any]:
+async def probe_mcp_health(
+    auth_state: Dict[str, Any],
+    config: Optional[Dict[str, Any]] = None,
+    manifest: Optional[dict] = None,
+) -> Dict[str, Any]:
     """Health probe: list_tools round-trip. Returns status dict (never raises)."""
     try:
-        tools = await list_remote_tools(auth_state)
+        tools = await list_remote_tools(auth_state, config, manifest)
         return {
             "ok": True,
             "status": HEALTH_OK,

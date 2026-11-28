@@ -713,11 +713,9 @@ async def create_staged_change(
 ) -> StagedChange:
     """Mint a new staged change.
 
-    If the user has previously granted session-scoped autonomy for
-    ``kind``, the change is created already blessed (with
-    ``autonomy_grant_used=True``) so ``execute_X`` can proceed
-    immediately on the agent's next turn — but the frontend still
-    renders the card so the user retains an undo before consume.
+    Interactive resident work always mints a pending proposal. A verified
+    standing permission can subsequently decide that exact proposal through
+    the canonical writer. Other proposals remain available for human review.
 
     ``interaction_id`` should be the id of the agent runtime Interaction
     that minted this token (the prepare-X turn). When set, the closure
@@ -829,7 +827,11 @@ async def create_staged_change(
     # When/if agent runtime ships SPEC §7.3 and the chat stream carries
     # tool results, the inbox path remains useful as a fallback /
     # cross-tab notifier.
-    if (sc.origin_proof or {}).get("requires_deferred_link") is not True:
+    from app.agentive.services.proposal_origin import checking_resident_permission
+
+    if (sc.origin_proof or {}).get(
+        "requires_deferred_link"
+    ) is not True and not checking_resident_permission():
         await _push_created_event(sc)
     return sc
 

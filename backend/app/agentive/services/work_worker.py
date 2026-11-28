@@ -462,9 +462,21 @@ async def _handle_chat_turn(
 ) -> WorkItem:
     """Settle cancellation even when it races with a final public output write."""
     from app.services.chat_turn_worker import terminalize_chat_turn
+    from app.services.working_memory import (
+        MemoryCapture,
+        active_capture,
+        remember_committed_message,
+    )
 
+    capture = MemoryCapture(
+        item.principal_id,
+        item.workspace_id,
+        item.thread_id,
+        str((item.input_payload or {}).get("accepted_message_id") or ""),
+    )
+    token = active_capture.set(capture)
     try:
-        return await _execute_chat_turn(
+        result = await _execute_chat_turn(
             item, worker_id=worker_id, lease_seconds=lease_seconds
         )
     except WorkError as exc:
@@ -474,11 +486,31 @@ async def _handle_chat_turn(
             work_item=item,
             logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),
         )
-        return await terminalize_chat_turn(
+        result = await terminalize_chat_turn(
             context,
             status="cancelled",
             failure={"code": exc.code, "message": exc.message},
         )
+    finally:
+        active_capture.reset(token)
+    if result.status == "succeeded":
+        from app.services.chat_turn_transcript import _message_id
+
+        if capture.accepted_message:
+            await remember_committed_message(
+                principal=result.principal_id,
+                workspace=result.workspace_id,
+                thread_id=result.thread_id,
+                message_id=capture.accepted_message,
+            )
+        await remember_committed_message(
+            principal=result.principal_id,
+            workspace=result.workspace_id,
+            thread_id=result.thread_id,
+            message_id=_message_id(result.work_item_id),
+            evidence=tuple(capture.evidence.values()),
+        )
+    return result
 
 
 async def _execute_chat_turn(
@@ -762,6 +794,7 @@ async def _execute_chat_turn(
         extra_data["pending_approval_tokens"] = (
             {}
             if deferred_resume is not None
+            or execution.extra_data.get("voice_delegate") is True
             else await _pending_write_references(
                 principal_id=ctx.principal_id,
                 workspace_id=ctx.workspace_id,
@@ -894,6 +927,23 @@ async def _execute_chat_turn(
                 tool_call_id=call.tool_call_id,
                 input_schema=current_core_deferred_schema(call.tool_name),
             )
+            if item.input_payload.get("resident_permission_revision"):
+                from app.agentive.harness.broker_tools import _tool_work_context
+                from app.services.resident_permissions import apply_resident_permission
+
+                tool_context = _tool_work_context(
+                    ctx, call.tool_call_id, call.tool_name
+                )
+                applied = await apply_resident_permission(
+                    item, tool_context, approval.staging_token
+                )
+                if applied is not None and applied.get("consumed"):
+                    current = await work_items._current_work_item(item.work_item_id)
+                    if current is None:
+                        raise WorkError(
+                            "work.not_found", "Applied work item disappeared"
+                        )
+                    return current
             try:
                 from app.agentive.staging import _push_created_event, get_token
 
@@ -1387,9 +1437,23 @@ async def _execute_claimed_work(
     # send its storage or fencing errors through the generic transition path,
     # which would leave its principal permit and thread reservation stranded.
     if kind == "chat_turn":
-        return await _handle_chat_turn(
+        finished = await _handle_chat_turn(
             item, worker_id=worker_id, lease_seconds=lease_seconds
         )
+        # After the turn transaction commits. A delivery failure stays off
+        # the WorkItem and does not send a second WhatsApp message.
+        try:
+            from app.agentive.services.whatsapp_chat_bridge import (
+                deliver_terminal_whatsapp_reply,
+            )
+
+            await deliver_terminal_whatsapp_reply(finished)
+        except Exception:  # noqa: BLE001 — delivery must not change the WorkItem
+            log.exception(
+                "whatsapp terminal delivery failed for work item %s",
+                getattr(finished, "work_item_id", ""),
+            )
+        return finished
     try:
         if kind == "capability":
             return await _handle_capability(
@@ -1647,7 +1711,11 @@ async def worker_loop(
                 claim_cursor=claim_cursor,
                 follow_up_cursor=follow_up_cursor,
             )
-            if result is None:
+            if result is None and follow_up_cursor is not None:
+                from app.services.chat_turn_wake import wait_for_chat_work
+
+                await wait_for_chat_work(stop, idle_sleep)
+            elif result is None:
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=idle_sleep)
                 except asyncio.TimeoutError:

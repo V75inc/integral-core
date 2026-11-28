@@ -1356,6 +1356,32 @@
 
   /* Settings shares its content pane with a collapsible assistant. Keep a
      labelled menu on narrow panes and a grouped sidebar on wider panes. */
+  .settings-nav-group {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding-block: 0.25rem;
+  }
+  .settings-nav-group-label {
+    border-block-end: 1px solid var(--panel-border);
+    padding-inline: 0.75rem;
+    padding-block: 0.125rem 0.375rem;
+  }
+  .settings-nav-row + .settings-nav-row {
+    margin-block-start: 0.125rem;
+  }
+  .settings-nav-row:focus-visible {
+    outline: 2px solid var(--focus-ring-color);
+    outline-offset: -2px;
+  }
+  /* Interactive surfaces retain their background for both pointer and keyboard navigation. */
+  .interactive-panel-hover:hover,
+  .interactive-panel-menu-item[data-highlighted],
+  .interactive-panel-selected[data-state="checked"] {
+    background-color: var(--panel-2);
+  }
+
   .settings-nav-item:hover {
     background: var(--panel-2);
   }

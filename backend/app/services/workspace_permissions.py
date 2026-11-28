@@ -144,6 +144,11 @@ async def get_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
 async def _current_workspace_role(user: User, workspace: Workspace) -> WorkspaceRole:
     """Read authority for an already freshly checked principal and workspace."""
     try:
+        if (
+            getattr(user, "service_workspace_id", "")
+            and user.service_workspace_id != workspace.id
+        ):
+            return "none"
         from app.services.workspace_suspension import workspace_suspended
 
         if await workspace_suspended(user.id, workspace.id):
@@ -386,7 +391,9 @@ async def count_owned_personal_workspaces(user_id: str) -> int:
     return n
 
 
-async def list_accessible_workspaces(user_id: str) -> list[Workspace]:
+async def list_accessible_workspaces(
+    user_id: str, *, limit: int | None = None
+) -> list[Workspace]:
     """All workspaces the user can read.
 
     Personal workspace of the user + every organization-kind workspace
@@ -400,14 +407,14 @@ async def list_accessible_workspaces(user_id: str) -> list[Workspace]:
             user = await get_user_node(user_id)
             if not user:
                 return []
-            return await _list_current_accessible_workspaces(user)
+            return await _list_current_accessible_workspaces(user, limit=limit)
     except Exception as exc:
         logger.exception("list_accessible_workspaces traversal failed")
         raise AuthorizationUnavailableError() from exc
 
 
 async def _list_current_accessible_workspaces(
-    user: User, *, roles_out: dict[str, str] | None = None
+    user: User, *, roles_out: dict[str, str] | None = None, limit: int | None = None
 ) -> list[Workspace]:
     """Continue one admitted principal evaluation; never cache its result."""
     out: dict[str, Workspace] = {}
@@ -428,6 +435,8 @@ async def _list_current_accessible_workspaces(
                 out[ws.id] = ws
                 if roles_out is not None:
                     roles_out[ws.id] = role
+                if limit is not None and len(out) >= limit:
+                    return list(out.values())
         if not cursor:
             return list(out.values())
         if cursor in seen_cursors:

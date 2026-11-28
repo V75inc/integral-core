@@ -1,0 +1,14 @@
+schema: integral.connector/v1
+id: whatsapp
+version: 1.0.0
+publisher: integral
+name: WhatsApp
+description: Workspace WhatsApp line through JV Connect. Grants stay on the existing binding.
+host_managed: true
+trust:
+  tier: trusted
+binding:
+  scopes: [workspace]
+capabilities:
+  channel:
+    mode: managed-text-v1

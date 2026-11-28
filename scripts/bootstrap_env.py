@@ -124,6 +124,20 @@ def bootstrap(dest_path: Path, example_path: Path) -> None:
             lambda: base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii"),
         ),
     )
+    # The local Compose template opts into a generated, persistent serving
+    # credential. Existing .env files can adopt it without rotating any keys.
+    if re.search(
+        r"^[ \t]*INTEGRAL_LOCAL_POSTGRES_RUNTIME_PASSWORD=",
+        example_path.read_text(encoding="utf-8"),
+        re.M,
+    ):
+        specs += (
+            (
+                "INTEGRAL_LOCAL_POSTGRES_RUNTIME_PASSWORD",
+                lambda value: len(value) >= 24,
+                lambda: secrets.token_hex(24),
+            ),
+        )
     for key, validate, generate in specs:
         assignments = re.findall(
             rf"^[ \t]*(?:export\s+)?{re.escape(key)}\s*=(.*)$", text, re.M

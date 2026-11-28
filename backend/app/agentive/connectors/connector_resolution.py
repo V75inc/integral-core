@@ -50,13 +50,28 @@ def row_slug(connector: Any) -> str:
 
 
 def row_display_name(connector: Any, *, slug: str = "") -> str:
-    """Human label: row label, else catalog display name, else slug."""
+    """Human label: row label, else the package name, else the catalog name."""
     label = str(getattr(connector, "label", "") or "").strip()
     if label:
         return label
     resolved = (slug or "").strip() or row_slug(connector)
     if resolved == "mcp":
         return "External tool server (MCP)"
+    from app.connectors.package_runtime import admitted_manifest
+
+    stored = getattr(connector, "package_manifest", None)
+    if isinstance(stored, dict):
+        stored_name = str(stored.get("name") or "").strip()
+        if stored_name:
+            return stored_name
+    admitted = admitted_manifest(resolved) if resolved else None
+    package_name = ""
+    if isinstance(admitted, dict):
+        package_name = str(admitted.get("name") or "").strip()
+    if package_name:
+        return package_name
+    if isinstance(stored, dict) or isinstance(admitted, dict):
+        raise ValueError("package does not declare a name")
     try:
         from app.connectors.catalog_loader import get_catalog_entry
 

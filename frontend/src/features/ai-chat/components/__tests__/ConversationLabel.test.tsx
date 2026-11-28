@@ -142,3 +142,14 @@ it('cancels stale previews when a row changes identity or unmounts', () => {
   revealAfterDelay();
   expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 });
+
+it('keeps the associated agent and existing activity time beneath the title', () => {
+  render(<button><ConversationLabel
+    title="Review Contacts"
+    agentName="CRM read review"
+    lastActivity="2026-10-08T05:15:00Z"
+  /></button>);
+  const agent = screen.getByText('CRM read review');
+  expect(agent.parentElement?.querySelector('time')).toHaveAttribute('datetime', '2026-10-08T05:15:00Z');
+  expect(screen.getByText('Review Contacts')).toBeInTheDocument();
+});

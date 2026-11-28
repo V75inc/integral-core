@@ -163,9 +163,13 @@ def test_proxies_websocket(tmp_path: Path) -> None:
 
     @stub.websocket("/ws/ping")
     async def ping(websocket: WebSocket) -> None:
+        if websocket.headers.get("origin") != "https://workspace.example":
+            await websocket.close(code=1008)
+            return
         await websocket.accept()
         message = await websocket.receive_text()
         await websocket.send_text(message.upper())
+        await websocket.send_bytes(await websocket.receive_bytes())
 
     port = _free_port()
     server = uvicorn.Server(
@@ -192,9 +196,18 @@ def test_proxies_websocket(tmp_path: Path) -> None:
                 disconnected.set()
 
         with TestClient(observe_disconnect) as web:
-            with web.websocket_connect("/ws/ping") as ws:
+            for origin in (None, "null", "https://untrusted.example"):
+                headers = {"origin": origin} if origin is not None else {}
+                with web.websocket_connect("/ws/ping", headers=headers) as ws:
+                    assert ws.receive()["type"] == "websocket.close"
+            disconnected.clear()
+            with web.websocket_connect(
+                "/ws/ping", headers={"origin": "https://workspace.example"}
+            ) as ws:
                 ws.send_text("hi")
                 assert ws.receive_text() == "HI"
+                ws.send_bytes(b"\x01\x00")
+                assert ws.receive_bytes() == b"\x01\x00"
                 ws.close()
                 assert disconnected.wait(timeout=5)
     finally:

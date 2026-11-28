@@ -12,6 +12,7 @@ const SELECT_CLASS =
 export function SelectWidget(props: WidgetProps) {
   const { name, schema, value, onChange, required, disabled } = props;
   const options = (schema.enum as unknown[] | undefined) || [];
+  const labels = (schema['x-option-labels'] || {}) as Record<string, string>;
   const stringValue = value == null ? '' : String(value);
   return (
     <select
@@ -38,7 +39,7 @@ export function SelectWidget(props: WidgetProps) {
         const optString = String(opt);
         return (
           <option key={`${optString}-${i}`} value={optString}>
-            {optString}
+            {labels[optString] || optString}
           </option>
         );
       })}

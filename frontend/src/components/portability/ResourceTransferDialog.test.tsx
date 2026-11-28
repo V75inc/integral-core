@@ -57,8 +57,9 @@ describe('portable resource dialog', () => {
     fireEvent.click(screen.getByText('Preview import'));
     expect(await screen.findByText('1 App · 2 Tracks · 5 records · 1 attachment')).toBeInTheDocument();
     expect(portableApi.import).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Include records and attachments')).not.toBeChecked();
     fireEvent.click(screen.getByText('Import copies'));
-    await waitFor(() => expect(portableApi.import).toHaveBeenCalledWith(file, undefined));
+    await waitFor(() => expect(portableApi.import).toHaveBeenCalledWith(file, undefined, false));
     expect(props.onImported).toHaveBeenCalledTimes(1);
   });
 
@@ -74,8 +75,28 @@ describe('portable resource dialog', () => {
     fireEvent.click(screen.getByText('Preview import'));
     expect(await screen.findByText(/Uses admitted package/)).toBeInTheDocument();
     expect(screen.getByText(/tcs-crm 1.3.0/)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Include records and attachments'));
+    expect(screen.getByRole('status')).toHaveTextContent('Importing configuration, 5 records and 1 attachment.');
     fireEvent.click(screen.getByText('Install and import'));
-    await waitFor(() => expect(portableApi.import).toHaveBeenCalledWith(file, undefined));
+    await waitFor(() => expect(portableApi.import).toHaveBeenCalledWith(file, undefined, true));
+  });
+
+  it('resets data consent when the archive changes and offers only the available contents', async () => {
+    render(<ResourceTransferDialog {...props} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Import' }));
+    const choose = async (name: string) => {
+      fireEvent.change(screen.getByLabelText('Integral archive'), { target: { files: [new File(['zip'], name)] } });
+      fireEvent.click(screen.getByText('Preview import'));
+      await screen.findByText('Archive contents');
+    };
+    await choose('first.zip');
+    fireEvent.click(screen.getByLabelText('Include records and attachments'));
+    await choose('second.zip');
+    expect(screen.getByLabelText('Include records and attachments')).not.toBeChecked();
+    vi.mocked(portableApi.preview).mockResolvedValue({ ...summary, mode: 'configuration', entries: 0, attachments: 0 });
+    await choose('empty.zip');
+    expect(screen.queryByLabelText('Include records and attachments')).not.toBeInTheDocument();
+    expect(screen.getByText('Importing configuration only.')).toBeVisible();
   });
 
   it('lists multiple packages in the import preview', async () => {
@@ -107,7 +128,7 @@ describe('portable resource dialog', () => {
     fireEvent.change(screen.getByLabelText('Integral archive'), { target: { files: [file] } });
     fireEvent.click(screen.getByText('Preview import'));
     fireEvent.click(await screen.findByText('Import copies'));
-    await waitFor(() => expect(portableApi.import).toHaveBeenCalledWith(file, 'parent'));
+    await waitFor(() => expect(portableApi.import).toHaveBeenCalledWith(file, 'parent', false));
   });
 
   it('retains Track selections across pages', async () => {

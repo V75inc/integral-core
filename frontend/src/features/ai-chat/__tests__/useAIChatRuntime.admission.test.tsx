@@ -76,6 +76,7 @@ vi.mock("../../../api/aiChat", () => ({
       return history;
     }),
     createThread: vi.fn(),
+    getThreadIfChanged: vi.fn(),
     cancelThread: vi.fn(async () => ({ thread_id: "t1", cancelled: true })),
   },
 }));
@@ -234,6 +235,34 @@ describe("admission refusals are visible, and nothing is appended", () => {
       agentId: "agent1",
     });
     expect(result.current.activeThreadId).toBe("t-fresh");
+  });
+
+  it("treats combined history as a filter and creates a named thread only on first send", async () => {
+    const { aiChatApi } = await import("../../../api/aiChat");
+    const provider = { ...persistedProvider, id: "integral_native" };
+    const profileChoices = [{ key: "staff", name: "Read records", description: "", icon: "integral" }];
+    const { result } = renderHook(() => useAIChatRuntime(provider, {
+      managedDraft: true, profileChoices, startNewThread: true,
+    }));
+    await waitFor(() => expect(result.current.profileSelectionReady).toBe(true));
+    expect(result.current.profileFilter).toBe("workspace-assistant");
+    expect(result.current.needsDraftAgent).toBe(false);
+    await act(async () => { await result.current.switchProfile("staff"); });
+    expect(result.current.profileFilter).toBe("staff");
+    expect(result.current.activeThreadId).toBeNull();
+    expect(aiChatApi.createThread).not.toHaveBeenCalled();
+    vi.mocked(aiChatApi.createThread).mockResolvedValueOnce({
+      id: "t-profile", provider_id: "integral_native", agent_profile_key: "staff",
+      title: "", archived: false,
+    } as never);
+    await send(result, "read records");
+    expect(aiChatApi.createThread).toHaveBeenCalledWith("integral_native", {
+      agentId: "agent1", agentProfileKey: "staff", workspaceId: "ws1",
+    });
+    await act(async () => { await result.current.switchProfile("all-workspace-assistants"); });
+    expect(result.current.needsDraftAgent).toBe(true);
+    expect(result.current.activeThreadId).toBeNull();
+    expect(aiChatApi.createThread).toHaveBeenCalledTimes(1);
   });
 
   it("says the cap was hit instead of appending an unanswered message", async () => {
@@ -501,3 +530,62 @@ function messageTextForTest(m: { content?: unknown }): string {
     .map((p) => (p.type === "text" ? p.text ?? "" : ""))
     .join("");
 }
+
+
+describe("voice-first conversation adoption", () => {
+  const voiceProvider = { ...persistedProvider, id: "integral_native" };
+  const opening = { workspace_id: "ws1", profile_key: "", thread_id: "" };
+  const voiceThread = {
+    id: "voice-1", provider_id: "integral_native", agent_id: "", title: "Voice conversation",
+    archived: false, updated_at: "revision-1", messages: [],
+  };
+
+  it("selects only the durable ready thread and keeps the mounted draft composer", async () => {
+    const { aiChatApi } = await import("../../../api/aiChat");
+    vi.mocked(aiChatApi.listThreads).mockResolvedValue([]);
+    vi.mocked(aiChatApi.getThread).mockResolvedValueOnce(voiceThread);
+    const { result } = renderHook(() => useAIChatRuntime(voiceProvider, { startNewThread: true }));
+    await waitFor(() => expect(result.current.composerReady).toBe(true));
+    const originalKey = result.current.voiceAwareComposerKey;
+    expect(result.current.activeThreadId).toBeNull();
+    expect(aiChatApi.createThread).not.toHaveBeenCalled();
+
+    await act(() => result.current.adoptNativeVoiceThread("voice-1", opening));
+    expect(result.current.activeThreadId).toBe("voice-1");
+    expect(result.current.voiceAwareComposerKey).toBe(originalKey);
+    expect(result.current.threads.map(thread => thread.id)).toEqual(["voice-1"]);
+    expect(result.current.composerReady).toBe(true);
+    expect(aiChatApi.createThread).not.toHaveBeenCalled();
+
+    vi.mocked(aiChatApi.getThreadIfChanged).mockResolvedValueOnce({
+      ...voiceThread, updated_at: "revision-2",
+      messages: [{ id: "work", role: "assistant", parts: [{ type: "text", text: "Durable workspace answer" }] }],
+    } as never);
+    act(() => result.current.refreshNativeVoiceThread("voice-1", "ws1"));
+    await waitFor(() => expect(texts(result)).toEqual(["Durable workspace answer"]));
+    expect(aiChatApi.getThreadIfChanged).toHaveBeenCalledWith("voice-1", "revision-1");
+
+    act(() => result.current.switchToNewThread());
+    expect(result.current.activeThreadId).toBeNull();
+    expect(result.current.voiceAwareComposerKey).not.toBe(originalKey);
+  });
+
+  it("does not adopt another workspace, mismatched profile, or a ready result after switching draft", async () => {
+    const { aiChatApi } = await import("../../../api/aiChat");
+    vi.mocked(aiChatApi.listThreads).mockResolvedValue([]);
+    const { result } = renderHook(() => useAIChatRuntime(voiceProvider, { startNewThread: true }));
+    await waitFor(() => expect(result.current.composerReady).toBe(true));
+    await act(() => result.current.adoptNativeVoiceThread("voice-1", { ...opening, workspace_id: "other" }));
+    expect(aiChatApi.getThread).not.toHaveBeenCalled();
+    vi.mocked(aiChatApi.getThread).mockResolvedValueOnce({ ...voiceThread, agent_profile_key: "other-profile" });
+    await act(() => result.current.adoptNativeVoiceThread("voice-1", opening));
+    expect(result.current.activeThreadId).toBeNull();
+
+    let settle!: (value: typeof voiceThread) => void;
+    vi.mocked(aiChatApi.getThread).mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+    const pending = result.current.adoptNativeVoiceThread("voice-1", opening);
+    act(() => result.current.switchToNewThread());
+    await act(async () => { settle(voiceThread); await pending; });
+    expect(result.current.activeThreadId).toBeNull();
+  });
+});

@@ -260,6 +260,18 @@ async def _create_entry_in_track(
     schema_revision = schema_revision_from_profile_version(
         getattr(operational_model, "version_number", None)
     )
+    from app.services.native_voice_creation import validate_confirmed_creation
+
+    validate_confirmed_creation(
+        track,
+        resolved_type,
+        resolve_entry_type_spec(resolved_type, runtime_tier),
+        title,
+        body,
+        None,
+        tags,
+        attachment_ids,
+    )
     seeded_custom_fields = await _seed_preview_default_fields(
         track=track,
         entry_type=resolved_type,
@@ -350,6 +362,16 @@ async def _create_entry_in_track(
         source_entry_title=title,
     )
     entry_type_spec = resolve_entry_type_spec(resolved_type, runtime_tier)
+    validate_confirmed_creation(
+        track,
+        resolved_type,
+        entry_type_spec,
+        title,
+        body,
+        validated_custom_fields,
+        tags,
+        attachment_ids,
+    )
     tag_ids = list(tags or [])
     await validate_taxonomy_constraints(
         track_id=track_id,

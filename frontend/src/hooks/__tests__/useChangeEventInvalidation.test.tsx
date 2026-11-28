@@ -70,8 +70,24 @@ describe('useChangeEventInvalidation', () => {
     const { unmount } = renderHook(() => useChangeEventInvalidation(), { wrapper });
     await settle();
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-    expect(fetchEventsPage).toHaveBeenCalledWith({ since: null, limit: 50 });
+    expect(fetchEventsPage).toHaveBeenCalledWith({ since: null, limit: 50, include_invalidations: true });
     expect(invalidateAfterChangeEvents).toHaveBeenCalledWith(expect.anything(), events);
+    unmount();
+  });
+
+  it('refreshes a track from a redacted live invalidation and bounded catch-up without an entry identifier', async () => {
+    const socket = new FakeWebSocket();
+    vi.mocked(openEventStream).mockResolvedValue(socket as unknown as WebSocket);
+    vi.mocked(fetchEventsPage).mockResolvedValue({ events: [], scope_invalidations: ['track:other'], next_cursor: null, resume_cursor: 'resume', has_more: false });
+    const { unmount } = renderHook(() => useChangeEventInvalidation(), { wrapper });
+    await settle();
+    await act(async () => {
+      socket.onmessage?.({data: JSON.stringify({type:'scope_invalidated', scope:'track:affected'})} as MessageEvent);
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(invalidateAfterChangeEvents).toHaveBeenCalledWith(expect.anything(), [expect.objectContaining({action:'entry.invalidate', scope:'track:affected'})]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(invalidateAfterChangeEvents).toHaveBeenLastCalledWith(expect.anything(), [expect.objectContaining({action:'entry.invalidate', scope:'track:other'})]);
     unmount();
   });
 
@@ -90,7 +106,7 @@ describe('useChangeEventInvalidation', () => {
     await act(async () => resolveOld({ events: [{ ...eventActor, id: 'old', action: 'app.update' }], next_cursor: 'old-cursor', has_more: false }));
     expect(invalidateAfterChangeEvents).not.toHaveBeenCalled();
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-    expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: null, limit: 50 });
+    expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: null, limit: 50, include_invalidations: true });
     unmount();
   });
 
@@ -110,7 +126,7 @@ describe('useChangeEventInvalidation', () => {
     act(() => first.drop());
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
     expect(openEventStream).toHaveBeenCalledTimes(2);
-    expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: 'page-two', limit: 50 });
+    expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: 'page-two', limit: 50, include_invalidations: true });
     expect(vi.mocked(invalidateAfterChangeEvents).mock.calls.map(call => call[1])).toEqual([[live], [missed]]);
     unmount();
   });
@@ -235,7 +251,7 @@ describe('useChangeEventInvalidation', () => {
     expect(invalidateAfterChangeEvents).toHaveBeenCalledTimes(1);
     expect(invalidateAfterChangeEvents).toHaveBeenCalledWith(expect.anything(), [event]);
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-    expect(fetchEventsPage).toHaveBeenNthCalledWith(3, { since: 'second-page', limit: 50 });
+    expect(fetchEventsPage).toHaveBeenNthCalledWith(3, { since: 'second-page', limit: 50, include_invalidations: true });
     expect(invalidateAfterChangeEvents).toHaveBeenCalledTimes(1);
     unmount();
   });
@@ -263,7 +279,7 @@ describe('useChangeEventInvalidation', () => {
       expect(invalidateAfterChangeEvents).toHaveBeenCalledTimes(1);
       expect(invalidateAfterChangeEvents).toHaveBeenCalledWith(expect.anything(), events);
       await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-      expect(fetchEventsPage).toHaveBeenNthCalledWith(3, { since: 'third', limit: 50 });
+      expect(fetchEventsPage).toHaveBeenNthCalledWith(3, { since: 'third', limit: 50, include_invalidations: true });
     } finally { unmount(); visibility.mockRestore(); }
   });
 
@@ -288,7 +304,7 @@ describe('useChangeEventInvalidation', () => {
       await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
       expect(invalidateAfterChangeEvents).not.toHaveBeenCalled();
       await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-      expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: null, limit: 50 });
+      expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: null, limit: 50, include_invalidations: true });
     } finally { unmount(); visibility.mockRestore(); }
   });
 
@@ -313,7 +329,7 @@ describe('useChangeEventInvalidation', () => {
       await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
       expect(invalidateAfterChangeEvents).toHaveBeenCalledWith(expect.anything(), [event]);
       await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-      expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: 'renewal-resume', limit: 50 });
+      expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: 'renewal-resume', limit: 50, include_invalidations: true });
     } finally { unmount(); visibility.mockRestore(); }
   });
 
@@ -328,7 +344,7 @@ describe('useChangeEventInvalidation', () => {
     expect(fetchEventsPage).toHaveBeenCalledTimes(1);
     expect(invalidateAfterChangeEvents).toHaveBeenCalledTimes(2);
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-    expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: 'reconciled', limit: 50 });
+    expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: 'reconciled', limit: 50, include_invalidations: true });
     unmount();
   });
 
@@ -376,7 +392,7 @@ describe('useChangeEventInvalidation', () => {
       }
       expect(legacyRefresh).toHaveBeenCalledTimes(1);
       await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-      expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: 'applied', limit: 50 });
+      expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: 'applied', limit: 50, include_invalidations: true });
       expect(legacyRefresh).toHaveBeenCalledTimes(1);
     } finally { unmount(); window.removeEventListener(CHANGE_EVENT_APPLIED, legacyRefresh); }
   });
@@ -399,7 +415,7 @@ describe('useChangeEventInvalidation', () => {
       await act(async () => resolveApply());
       expect(legacyRefresh).not.toHaveBeenCalled();
       await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-      expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: null, limit: 50 });
+      expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: null, limit: 50, include_invalidations: true });
     } finally { unmount(); window.removeEventListener(CHANGE_EVENT_APPLIED, legacyRefresh); }
   });
 
@@ -423,7 +439,7 @@ describe('useChangeEventInvalidation', () => {
       await act(async () => resolveApply());
       expect(legacyRefresh).not.toHaveBeenCalled();
       await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-      expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: null, limit: 50 });
+      expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: null, limit: 50, include_invalidations: true });
     } finally { unmount(); window.removeEventListener(CHANGE_EVENT_APPLIED, legacyRefresh); }
   });
 
@@ -476,7 +492,7 @@ describe('useChangeEventInvalidation', () => {
     rerender();
     await settle();
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-    expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: null, limit: 50 });
+    expect(fetchEventsPage).toHaveBeenNthCalledWith(2, { since: null, limit: 50, include_invalidations: true });
     expect(invalidateAfterChangeEvents).toHaveBeenCalledTimes(2);
     unmount();
   });

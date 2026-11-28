@@ -55,30 +55,86 @@ current_sync_lease: ContextVar[SyncLease | None] = ContextVar(
 )
 
 
+def require_current_package_sync(connector, fresh) -> None:
+    """Reject effects from an outdated or withdrawn package installation."""
+    if getattr(connector, "mapping_profile", "") != "package":
+        if (
+            fresh is None
+            or getattr(fresh, "legacy_sync_paused", False)
+            or getattr(fresh, "legacy_sync_revision", 0)
+            != getattr(connector, "legacy_sync_revision", 0)
+            or getattr(fresh, "mapping_profile", "") == "package"
+        ):
+            raise SyncLeaseLost("Connector paused or removed during synchronization")
+        return
+    from app.agentive.services.connector_packages import installation_package_id
+    from app.connectors.package_discovery import current_admission
+
+    if (
+        fresh is None
+        or not fresh.enabled
+        or fresh.subclass_slug != connector.subclass_slug
+        or fresh.package_revision != connector.package_revision
+        or installation_package_id(fresh) not in current_admission().packages
+    ):
+        raise SyncLeaseLost("Connector package changed during synchronization")
+
+
 async def save_connector_changes(connector, *, fields: tuple[str, ...]) -> None:
     """Vendor refresh/cursor writes share the current worker's fence.
 
     Outside sync, the adapter's authenticated setup path retains its existing
     persistence contract. During sync only named fields are copied to a fresh
     node, so a pulled stale instance cannot overwrite newer binding settings.
+    Secret fields are encrypted at rest and left plaintext on the in-memory
+    connector so the rest of the call can keep using them.
     """
     lease = current_sync_lease.get()
-    if lease is None:
-        await connector.save()
-        return
-    from app.agentive.nodes import Connector
+    plain_auth = None
+    if "auth_state" in fields:
+        from app.agentive.services.connector_registry_node import (
+            decrypt_auth_state,
+            encode_package_secrets,
+            encrypt_auth_state,
+            encryption_applies,
+        )
 
-    async with sync_effect(lease):
-        fresh = await Connector.get(connector.id)
-        if (
-            fresh is None
-            or fresh.workspace_id != lease.workspace_id
-            or fresh.owner != lease.principal_id
+        if encryption_applies(
+            getattr(connector, "kind", None), getattr(connector, "subclass_slug", None)
         ):
-            raise SyncLeaseLost("Connector binding is no longer current")
-        for field in fields:
-            setattr(fresh, field, getattr(connector, field))
-        await fresh.save()
+            plain_auth = decrypt_auth_state(
+                getattr(connector, "auth_state", None) or {}
+            )
+            manifest = getattr(connector, "package_manifest", None) or {}
+            protected = {
+                field["key"]
+                for field in manifest.get("configuration") or []
+                if field.get("type") == "secret"
+            }
+            connector.auth_state = encrypt_auth_state(
+                encode_package_secrets(plain_auth, protected), require_key=True
+            )
+    try:
+        if lease is None:
+            await connector.save()
+            return
+        from app.agentive.nodes import Connector
+
+        async with sync_effect(lease):
+            fresh = await Connector.get(connector.id)
+            if (
+                fresh is None
+                or fresh.workspace_id != lease.workspace_id
+                or fresh.owner != lease.principal_id
+            ):
+                raise SyncLeaseLost("Connector binding is no longer current")
+            require_current_package_sync(connector, fresh)
+            for field in fields:
+                setattr(fresh, field, getattr(connector, field))
+            await fresh.save()
+    finally:
+        if plain_auth is not None:
+            connector.auth_state = plain_auth
 
 
 def _now() -> datetime:

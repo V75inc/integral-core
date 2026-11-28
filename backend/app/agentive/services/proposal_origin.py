@@ -9,7 +9,7 @@ from typing import Any, Iterator
 
 from app.schemas.agentive.work import WorkExecutionContext
 
-_active: ContextVar[tuple[object, dict[str, Any]] | None] = ContextVar(
+_active: ContextVar[tuple[object, dict[str, Any], bool, bool] | None] = ContextVar(
     "integral_proposal_origin", default=None
 )
 _deferred_invocation: ContextVar[tuple[object, WorkExecutionContext] | None] = (
@@ -49,9 +49,16 @@ def origin_for(
 
 
 @contextmanager
-def bind_proposal_origin(proof: dict[str, Any]) -> Iterator[None]:
+def bind_proposal_origin(
+    proof: dict[str, Any],
+    *,
+    interactive_chat: bool = False,
+    check_permission: bool = False,
+) -> Iterator[None]:
     """Bind server-derived proof for this adapter task, never inherited tasks."""
-    token = _active.set((asyncio.current_task(), dict(proof)))
+    token = _active.set(
+        (asyncio.current_task(), dict(proof), interactive_chat, check_permission)
+    )
     try:
         yield
     finally:
@@ -72,3 +79,15 @@ def current_proposal_origin(
     ):
         return None
     return dict(proof)
+
+
+def interactive_resident_proposal() -> bool:
+    """Only the native chat broker selects the resident's confirmation policy."""
+    active = _active.get()
+    return bool(active and active[0] is asyncio.current_task() and active[2])
+
+
+def checking_resident_permission() -> bool:
+    """Defer the review notification until a possible standing decision is resolved."""
+    active = _active.get()
+    return bool(active and active[0] is asyncio.current_task() and active[3])
