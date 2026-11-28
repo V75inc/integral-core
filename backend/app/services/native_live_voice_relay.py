@@ -19,6 +19,8 @@ from typing import Literal
 from app.services.live_caller_turns import voiced_sample_count
 from app.services.live_voice_continuation import (
     explicit_continuation as _explicit_continuation,
+)
+from app.services.live_voice_continuation import (
     multiple_continuation_cues as _multiple_continuation_cues,
 )
 from app.services.native_live_voice_host import NativeLiveVoiceHost
@@ -34,12 +36,12 @@ from app.services.native_voice import (
 from app.services.native_voice_review import VoiceReviewReadout
 from app.services.native_voice_review_audio import CALL_VOICE
 from app.services.openai_voice_protocol import (
+    PCM_RATE,
     LiveAppendAccepted,
     LiveClosed,
     LiveDelegation,
     LiveTaskRequest,
     LiveTranscript,
-    PCM_RATE,
 )
 
 logger = logging.getLogger(__name__)

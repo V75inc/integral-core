@@ -180,6 +180,7 @@ def routine_review(item, work_id, run_id):
 
 @contextmanager
 def confirmed_routine(review):
+    """Bind the exact routine review for the current confirmation context."""
     token = _confirmed.set(review if review.routine is not None else None)
     try:
         yield
@@ -188,6 +189,7 @@ def confirmed_routine(review):
 
 
 def permits_routine(item):
+    """Check whether the staged routine exactly matches the scoped review."""
     reviewed = _confirmed.get()
     return (
         reviewed is not None

@@ -17,7 +17,6 @@ from app.models.nodes import Entry, EntryType, Track
 from app.schemas.policy import Resource, Subject
 from app.services.policy_engine import evaluate
 from app.services.resource_location import DATA_APP_STATES, locate_resource
-
 from app.services.voice_approval_contract import VOICE_REVIEW_CAPABILITIES
 
 
@@ -269,7 +268,6 @@ async def read_entry_review(
             return await read_batch_review(item, work_id, run_id)
         if item.kind == "routine_task_create" and replacement is None:
             from app.services.native_voice_reminder import reminder_review
-
             from app.services.native_voice_routine import routine_review
 
             return reminder_review(item, work_id, run_id) or routine_review(

@@ -27,8 +27,8 @@ from app.services.native_voice import (
     build_native_voice_relay,
     open_phone_relay,
     open_public_phone_relay,
-    supports_phone_voice,
     open_upstream,
+    supports_phone_voice,
     voice_thread_continuity,
 )
 from app.services.native_voice_review_audio import ReviewVoice

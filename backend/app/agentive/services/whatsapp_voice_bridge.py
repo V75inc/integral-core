@@ -61,6 +61,7 @@ def claim_phone_socket(call_id: str) -> bool:
 
 
 def release_phone_socket(call_id: str) -> None:
+    """Release the process-local ownership claim after the relay exits."""
     with _guard:
         _phone_socket_claims.discard(call_id)
 

@@ -104,6 +104,7 @@ ACCESS_REVIEW_PENDING = frozenset(
 
 
 def review_coverage(kind: str) -> str:
+    """Classify the explicit review-projection coverage for a staged kind."""
     if kind.startswith("modify_operational_model."):
         kind = "modify_operational_model.*"
     if kind in IMPLEMENTED_VOICE_KINDS:
@@ -177,6 +178,7 @@ def _permits_exact_update(staged, proposal):
 
 
 def permits_voice_deletion(staged):
+    """Use the canonical deletion review policy without changing its scope."""
     from app.services.native_voice_deletion import permits_deletion
 
     return permits_deletion(staged)

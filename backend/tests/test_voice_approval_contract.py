@@ -2,13 +2,13 @@
 
 from app.agentive.tooling.manifest import load_manifest
 from app.services.voice_approval_contract import (
-    VOICE_REVIEW_CAPABILITIES,
+    ACCESS_REVIEW_PENDING,
+    DOMAIN_REVIEW_PENDING,
     IMPLEMENTED_VOICE_KINDS,
     ORDINARY_REVIEW_PENDING,
-    DOMAIN_REVIEW_PENDING,
-    ACCESS_REVIEW_PENDING,
-    review_coverage,
+    VOICE_REVIEW_CAPABILITIES,
     review_channel,
+    review_coverage,
 )
 
 
@@ -60,9 +60,11 @@ def test_native_voice_registry_points_at_exact_broker_capabilities():
 
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from datetime import datetime, timezone, timedelta
+
 import pytest
+
 from app.agentive.services.approval_decisions import proposal_from_staged
 from app.services.native_voice_review import VoiceReviewReadout
 from app.services.voice_approval_contract import (

@@ -131,8 +131,8 @@ async def decide_staged_write(
 
     proposal = proposal_from_staged(staged)
     from app.services.voice_approval_contract import (
-        permits_voice_review,
         permits_voice_deletion,
+        permits_voice_review,
     )
 
     if source == "resident_permission":
