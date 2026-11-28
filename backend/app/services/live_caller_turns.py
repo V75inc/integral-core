@@ -26,6 +26,13 @@ _SETTLE_SECONDS = 0.5
 _MAX_SECONDS = 90
 
 
+def voiced_sample_count(pcm: bytes) -> int:
+    """Conservative PCM energy hint, never a semantic or playback receipt."""
+    samples = array("h", pcm)
+    voiced = sum(abs(value) > 700 for value in samples)
+    return voiced if voiced > len(samples) // 10 else 0
+
+
 @dataclass
 class LiveCallerTurns:
     """Pair complete local speech with actual timestamped Live transcript fragments."""
@@ -53,17 +60,17 @@ class LiveCallerTurns:
         if not pcm or len(pcm) % 2:
             self._invalid = True
             return
-        samples = array("h", pcm)
-        voiced = sum(abs(value) > 700 for value in samples)
-        if voiced > len(samples) // 10:
+        count = len(pcm) // 2
+        voiced = voiced_sample_count(pcm)
+        if voiced:
             self.speech_revision += 1
             self._voiced += voiced
             self._quiet = 0
             self._last_change = self.clock()
         elif self._voiced:
-            self._quiet += len(samples)
+            self._quiet += count
         if self._voiced:
-            self._samples += len(samples)
+            self._samples += count
             if self._samples > PCM_RATE * _MAX_SECONDS:
                 self._invalid = True
 

@@ -18,7 +18,7 @@ Synthetic sessions exercise the original browser framing, native resident
 admission, independent exact-review audio preparation and post-playback caller
 capture. The real Live provider does not furnish an ordinary audio-completion
 or response-cancel event. A commentary ACK accompanied by transcript and PCM
-is evidence of offered speech, not proof of complete playback. Live permits
+is evidence of offered speech, not proof of complete playback. Continuous silent PCM does not satisfy this fence or defer result scheduling. Live permits
 only up to 800 ms of automatic acknowledgment delay; a timely silent status
 append suppresses pending automatic acknowledgments but cannot retract earlier
 speech. Result updates carry the original delegation ID. A voice approval
@@ -26,13 +26,32 @@ still requires the exact verified review and fresh, independently captured
 caller answer, never a delegation or transcript event. The existing capture
 size budget is unchanged; rendered review audio has a separate bounded
 verification path using the same authorized Speech to Text credential.
+The isolated Live renderer seeds a developer startup message and supplies only
+paced synthetic silence, per the provider's startup audio contract. It closes
+the synthesis session before independent transcription of the buffered WAV;
+only a verified recording can proceed to the existing playback and fresh
+caller-capture step. A missing or different readback leaves review pending.
+Review projections distinguish display quotation delimiters from the literal
+values being reviewed. Live verifies the separately projected spoken question;
+if a source value itself contains quotes, it retains the strict literal
+representation. Numbers, identifiers and meaningful punctuation are not
+normalized; the exact proposal and revision fingerprint is unchanged. Quiet
+thread-status/history context is coalesced while Live input has no clock or
+an independent review owns the microphone. Resume context delivery only on a
+fresh admitted ordinary audio frame; never reinterpret a deferred snapshot as
+consent or resident work.
 
 The shared media factory preserves each transport's admitted action scope; the tool-free public adapter separately checks a current public grant before PCM input and output and has no resident dispatch. The pending telephone connector can call these factories without changing its bearer or grant contract; it still needs its own integration review. Its current transport does not offer browser playback-confirmation or navigation capabilities.
 
 Voice assignment continues to allow only the qualified Realtime IDs. Do not
 publish GPT-Live as an enabled voice choice until provider-level playback,
 interruption, result delivery, follow-up/steering and the pending telephone
-relay's caller-scope contract are qualified. This is an implementation
+relay's caller-scope contract are qualified. Live client-delegation notices
+have no structured continuation operation: a new transcript while resident
+work is active is not automatically a queue item or steering correction.
+Until the host can distinguish those intents through a reviewed typed
+contract, the relay declines the follow-up rather than guessing or promising
+execution. This is an implementation
 checkpoint, not a claim of equivalent product support.
 
 This contract covers signed-in browser calls attached to an Integral Native

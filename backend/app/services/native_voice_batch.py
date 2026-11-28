@@ -85,6 +85,9 @@ async def read_batch_review(item, work_id, run_id):
         item.session_id,
         _fingerprint(item),
         children=tuple(children),
+        speech_action=", and also ".join(
+            child.speech_action or child.action for child in children
+        ),
     )
 
 

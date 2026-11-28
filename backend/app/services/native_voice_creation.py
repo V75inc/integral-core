@@ -192,7 +192,10 @@ async def read_creation_review(item, work_id, run_id):
     """Project the canonical form and validated effective values without writing."""
     from app.agentive.services.entry_proposal_revision import _contexts
     from app.models.nodes import EntryType, Track
-    from app.services.native_voice_review import VoiceReviewReadout
+    from app.services.native_voice_review import (
+        VoiceReviewReadout,
+        spoken_review_action,
+    )
     from app.services.operational_model_runtime import (
         resolve_entry_type_spec,
         resolve_track_runtime_profile,
@@ -298,6 +301,7 @@ async def read_creation_review(item, work_id, run_id):
         creation,
         tuple(f["key"] for f in spec.get("fields") or [] if f.get("type") == "date"),
         destination_label=row["track"].get("title") or "the selected Track",
+        speech_action=spoken_review_action(text, entry, fields, labels, destination),
         creation_text_keys=tuple(
             f["key"]
             for f in spec.get("fields") or []

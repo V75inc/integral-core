@@ -42,7 +42,10 @@ async def presentation_review(item, work_id, run_id):
     from app.schemas.policy import Resource, Subject
     from app.services.app_home import home_revision_token
     from app.services.dashboard_service import get_dashboard
-    from app.services.native_voice_review import VoiceReviewReadout
+    from app.services.native_voice_review import (
+        VoiceReviewReadout,
+        spoken_review_action,
+    )
     from app.services.policy_engine import evaluate
 
     if not is_presentation_effect(item.kind, item.payload):
@@ -156,6 +159,12 @@ async def presentation_review(item, work_id, run_id):
         target_id,
         _fingerprint(item),
         presentation={"kind": item.kind, "payload": payload},
+        speech_action=spoken_review_action(
+            text,
+            payload,
+            app.name,
+            dashboard.name if item.kind == "update_dashboard" else "",
+        ),
     )
 
 

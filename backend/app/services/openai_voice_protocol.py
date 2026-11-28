@@ -142,6 +142,7 @@ class LiveTaskRequest:
 
     delegation_id: str
     turn: CompletedCallerTurn
+    provider_delegated: bool = True
 
 
 class LiveTurnLedger:
@@ -194,7 +195,9 @@ class LiveTurnLedger:
             raise LiveProtocolError("Live caller turn is too large")
         return text
 
-    def commit(self, turn: CompletedCallerTurn) -> LiveTaskRequest | None:
+    def commit(
+        self, turn: CompletedCallerTurn, *, accept_explicit_continuation: bool = False
+    ) -> LiveTaskRequest | None:
         """Bind at most one delegation to a newly completed, verified utterance.
 
         Duplicate delegation events for one utterance are consumed together;
@@ -230,6 +233,14 @@ class LiveTurnLedger:
             item for item in self._fragments if item.end_ms > turn.end_ms
         ]
         if not candidates:
+            if accept_explicit_continuation:
+                # Explicit caller-authored control commands have their own
+                # host correlation; never fabricate a provider delegation.
+                return LiveTaskRequest(
+                    "local-continuation-" + turn.identifier,
+                    turn,
+                    provider_delegated=False,
+                )
             return None
         selected = min(candidates, key=lambda item: (item.offset_ms, item.identifier))
         return LiveTaskRequest(selected.identifier, turn)
@@ -289,7 +300,12 @@ class OpenAILiveSession:
         return event
 
     async def start(
-        self, *, instructions: str, voice: str, timeout: float = 10
+        self,
+        *,
+        instructions: str,
+        voice: str,
+        timeout: float = 10,
+        startup_message: str | None = None,
     ) -> None:
         """Send the documented first message; require the resolved client mode."""
         if self.ready or self.closing or self.closed:
@@ -301,6 +317,24 @@ class OpenAILiveSession:
                     "session": {
                         "model": self.model,
                         "instructions": instructions,
+                        **(
+                            {
+                                "input": [
+                                    {
+                                        "type": "message",
+                                        "role": "developer",
+                                        "content": [
+                                            {
+                                                "type": "input_text",
+                                                "text": startup_message,
+                                            }
+                                        ],
+                                    }
+                                ]
+                            }
+                            if startup_message
+                            else {}
+                        ),
                         "audio": {
                             "format": {"type": "audio/pcm", "rate": PCM_RATE},
                             "output": {"voice": voice},

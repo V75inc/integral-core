@@ -115,8 +115,11 @@ The Realtime session adapter accepts the documented conversational IDs
 `gpt-realtime-1.5` and the existing legacy Realtime IDs. A custom registration
 using one of those exact IDs can be assigned without treating arbitrary model
 names as compatible. Translation and transcription are distinct roles.
-`gpt-live-1` and `gpt-live-1.1` use a different wire protocol and are not
-assignable through the Realtime session adapter. See the
+`gpt-live-1` is selectable for local qualification through a distinct Live
+wire adapter. `gpt-live-1.1` remains gated pending equivalent qualification.
+For Live task continuations, say "After that" for separate work or "Correction
+to the current task" for a refinement. When intent is unclear or two commands
+arrive together, the host asks for clarification rather than merging them. See the
 [OpenAI GPT-Live migration guide](https://developers.openai.com/api/docs/guides/live-migration).
 Only OpenAI streaming transcription is currently supported; other provider
 connections are not offered as voice choices. Live resolution follows provider

@@ -51,7 +51,10 @@ async def _has_anchors(entry_id):
 async def deletion_review(item, work_id, run_id):
     """Describe exactly one current, authorized, unambiguous leaf record."""
     from app.schemas.policy import Resource, Subject
-    from app.services.native_voice_review import VoiceReviewReadout
+    from app.services.native_voice_review import (
+        VoiceReviewReadout,
+        spoken_review_action,
+    )
     from app.services.policy_engine import evaluate
     from app.services.resource_location import DATA_APP_STATES, locate_resource
 
@@ -131,6 +134,9 @@ async def deletion_review(item, work_id, run_id):
         target,
         _fingerprint(item),
         deletion={"payload": p, "title": entry.title, "destination": destination},
+        speech_action=spoken_review_action(
+            action, entry.title, track.title, app.name if location.app_id else ""
+        ),
     )
 
 

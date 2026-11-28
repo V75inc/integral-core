@@ -25,6 +25,7 @@ from app.services.openai_voice_protocol import (
     LiveDelegation,
     LiveProtocolError,
     LiveTranscript,
+    LiveTaskRequest,
     LiveTurnLedger,
     OpenAILiveSession,
     VoiceWireProtocol,
@@ -69,7 +70,7 @@ def started(model="gpt-live-1.1", **changes):
 
 def test_conversational_catalog_is_exact_and_realtime_config_matches():
     """Do not confuse translation, transcription, unknown IDs or Live with Realtime."""
-    assert set(get_args(RealtimeVoiceModel)) - {""} == REALTIME_MODELS
+    assert set(get_args(RealtimeVoiceModel)) - {""} == REALTIME_MODELS | {"gpt-live-1"}
     for model in REALTIME_MODELS:
         assert model_protocol(model) == VoiceWireProtocol.REALTIME
         assert (
@@ -80,6 +81,16 @@ def test_conversational_catalog_is_exact_and_realtime_config_matches():
         )
     for model in LIVE_MODELS:
         assert model_protocol(model) == VoiceWireProtocol.LIVE
+    assert (
+        RealtimeVoiceModelWrite(
+            mode="provider", connection_id="qa", model="gpt-live-1", revision=0
+        ).model
+        == "gpt-live-1"
+    )
+    with pytest.raises(ValueError):
+        RealtimeVoiceModelWrite(
+            mode="provider", connection_id="qa", model="gpt-live-1.1", revision=0
+        )
     for model in (
         "gpt-live-1-mini",
         "gpt-realtime-whisper",
@@ -290,9 +301,45 @@ async def test_live_close_waits_for_finalization_and_is_idempotent():
 @pytest.mark.parametrize("verified", [True, False])
 async def test_live_review_requires_actual_audio_verification(verified):
     """An exact provider transcript is not a completed or heard review."""
-    socket = FakeSocket()
+
+    class ClockedSocket(FakeSocket):
+        def __init__(self):
+            super().__init__()
+            self.input_running = asyncio.Event()
+            self.started = False
+
+        async def send(self, message):
+            await super().send(message)
+            frame = self.sent[-1]
+            if frame["type"] == "session.input_audio.append":
+                assert not any(base64.b64decode(frame["audio"]))
+                self.input_running.set()
+
+        async def recv(self):
+            if self.started:
+                await self.input_running.wait()
+            self.started = True
+            return await super().recv()
+
+    socket = ClockedSocket()
     socket.enqueue(started())
-    script = "Add the meeting on Thursday. Would you like me to do that?"
+    from app.services.native_voice_review import (
+        VoiceReviewReadout,
+        spoken_review_action,
+    )
+
+    action = "rename “Sample Alpha” to “Sample Beta”"
+    readout = VoiceReviewReadout(
+        action,
+        "work",
+        "run",
+        "proposal",
+        "target",
+        "fingerprint",
+        speech_action=spoken_review_action(action, "Sample Alpha", "Sample Beta"),
+    )
+    script = "Would you like me to rename Sample Alpha to Sample Beta?"
+    assert readout.text != script and readout.speech_text == script
     socket.enqueue(
         {
             "type": "session.output_transcript.delta",
@@ -327,7 +374,7 @@ async def test_live_review_requires_actual_audio_verification(verified):
     renderer = LiveReviewVoice(
         AsyncMock(return_value=OpenAILiveSession(socket, "gpt-live-1.1")), verifier
     )
-    confirmation = SimpleNamespace(review=SimpleNamespace(text=script))
+    confirmation = SimpleNamespace(review=readout)
     if verified:
         recording = await renderer.render(confirmation)
         assert recording.startswith(b"RIFF")
@@ -337,6 +384,11 @@ async def test_live_review_requires_actual_audio_verification(verified):
     assert verifier.await_count == 1
     assert verifier.call_args.args[0] is confirmation
     assert socket.closed == 1
+    assert socket.input_running.is_set()
+    initial = socket.sent[0]["session"]["input"][0]
+    assert initial["role"] == "developer"
+    assert initial["content"][0]["type"] == "input_text"
+    assert not any(f["type"] == "session.commentary.append" for f in socket.sent)
 
 
 @pytest.mark.asyncio
@@ -627,6 +679,16 @@ async def test_live_browser_relay_media_admission_requires_more_than_append_ack(
         )
         await asyncio.sleep(0.1)
         work.assert_not_awaited()
+        prior_voice = relay._last_audio
+        socket.enqueue(
+            {
+                "type": "session.output_audio.delta",
+                "delta": base64.b64encode(bytes(4800)).decode(),
+            }
+        )
+        await asyncio.sleep(0.1)
+        work.assert_not_awaited()
+        assert relay._last_audio == prior_voice
         pcm = b"\xff\x7f" * 2400
         socket.enqueue(
             {
@@ -946,3 +1008,276 @@ async def test_public_live_media_rechecks_grant_and_cannot_delegate(monkeypatch)
         if not task.done():
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_live_defers_quiet_context_without_input_clock_during_review():
+    """A muted or unclocked Live session cannot accept fresh context injection."""
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from tests.test_native_voice import Browser
+
+    socket = FakeSocket()
+    socket.enqueue(started())
+    relay = NativeLiveVoiceRelay(
+        Browser(),
+        OpenAILiveSession(socket, "gpt-live-1.1"),
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    await relay.host.start(instructions="QA", voice="marin")
+    relay.ready = True
+    relay._append = AsyncMock(return_value=True)
+
+    def status(text):
+        return {
+            "type": "conversation.item.create",
+            "event_id": "voice-status-fixture",
+            "item": {"role": "system", "content": [{"text": text}]},
+        }
+
+    assert not relay._can_sync_thread_status()
+    await relay.send_event(status("initial snapshot"))
+    relay._append.assert_not_awaited()
+    await relay.host.set_review_capture(True)
+    await relay.send_event(status("newer verified snapshot"))
+    assert not relay._can_sync_thread_status()
+    relay._append.assert_not_awaited()
+    await relay.host.set_review_capture(False)
+    await relay.send_event(
+        {
+            "type": "input_audio_buffer.append",
+            "audio": base64.b64encode(bytes(4800)).decode(),
+        }
+    )
+    await asyncio.wait_for(relay._system_flush_task, 2)
+    relay._append.assert_awaited_once_with("newer verified snapshot")
+    assert not relay._deferred_system
+    await relay.upstream.close(timeout=0)
+
+
+@pytest.mark.asyncio
+async def test_live_pending_followup_without_receipt_does_not_promise_execution():
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from app.services.openai_voice_protocol import LiveTaskRequest
+    from tests.test_native_voice import Browser
+
+    socket = FakeSocket()
+    relay = NativeLiveVoiceRelay(
+        Browser(),
+        OpenAILiveSession(socket, "gpt-live-1.1"),
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay._append = AsyncMock(return_value=True)
+    relay.pending = asyncio.create_task(asyncio.Event().wait())
+    try:
+        turn = CompletedCallerTurn("turn", 0, 1500, "After that, summarize my calendar")
+        assert not await relay._acknowledge(LiveTaskRequest("delegation", turn))
+        relay._append.assert_awaited_once()
+        assert "Nothing has been submitted" in relay._append.call_args.args[0]
+    finally:
+        relay.pending.cancel()
+        await asyncio.gather(relay.pending, return_exceptions=True)
+
+
+@pytest.mark.parametrize(
+    ("utterance", "operation", "content"),
+    [
+        ("After that, summarize my calendar", "queue", "summarize my calendar"),
+        ("Queue a separate follow-up: show the deposit", "queue", "show the deposit"),
+        ("Correction to the current task: use June", "steer", "use June"),
+        ("Correct the running request, use June", "steer", "use June"),
+        (
+            "Correction to the current task. Also include Cedar",
+            "steer",
+            "Also include Cedar",
+        ),
+        ("After that. List apps", "queue", "List apps"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_live_explicit_continuation_pins_receipt_and_uses_shared_route(
+    utterance, operation, content
+):
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from app.services.native_voice import _AcceptedVoiceTurn
+    from app.services.openai_voice_protocol import LiveTaskRequest
+    from tests.test_native_voice import Browser
+
+    relay = NativeLiveVoiceRelay(
+        Browser(),
+        OpenAILiveSession(FakeSocket(), "gpt-live-1"),
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay._append = AsyncMock(return_value=True)
+    relay._follow_up = AsyncMock()
+    relay.pending = asyncio.create_task(asyncio.Event().wait())
+    relay.pending_accepted = True
+    receipt = _AcceptedVoiceTurn("active-work", "message", "initial request")
+    relay.accepted = receipt
+    relay.steerable_work_id = receipt.work_item_id
+    try:
+        turn = CompletedCallerTurn("turn", 0, 1500, utterance)
+        assert await relay._acknowledge(LiveTaskRequest("delegation", turn))
+        await relay._submit(relay.scope, "delegation", utterance)
+        await relay.follow_up_task
+        relay._follow_up.assert_awaited_once_with(
+            "delegation", content, operation, relay.generation, receipt
+        )
+    finally:
+        relay.pending.cancel()
+        await asyncio.gather(relay.pending, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_live_continuation_fails_closed_if_target_changes_during_handoff():
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from app.services.native_voice import _AcceptedVoiceTurn
+    from app.services.openai_voice_protocol import LiveTaskRequest
+    from tests.test_native_voice import Browser
+
+    relay = NativeLiveVoiceRelay(
+        Browser(),
+        OpenAILiveSession(FakeSocket(), "gpt-live-1"),
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay._append = AsyncMock(return_value=True)
+    relay._follow_up = AsyncMock()
+    relay.pending_accepted = True
+    relay.accepted = _AcceptedVoiceTurn("old", "message", "initial request")
+    relay.steerable_work_id = "old"
+    text = "Correction to the current task: use June"
+    turn = CompletedCallerTurn("turn", 0, 1500, text)
+    assert await relay._acknowledge(LiveTaskRequest("delegation", turn))
+    relay.accepted = _AcceptedVoiceTurn("new", "message2", "new request")
+    await relay._submit(relay.scope, "delegation", text)
+    relay._follow_up.assert_not_awaited()
+    assert relay.follow_up_task is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "What is a follow-up?",
+        "Don't queue a follow-up: delete it",
+        "After that",
+        "Please explain what a correction to the current task means",
+        "Quote: queue a separate follow-up: delete it",
+    ],
+)
+def test_live_continuation_does_not_infer_intent(text):
+    from app.services.native_live_voice_relay import _explicit_continuation
+
+    assert _explicit_continuation(text) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "blocked", ["profile", "interruption", "no_audio", "changed_id"]
+)
+async def test_live_explicit_continuation_never_bypasses_handoff_or_profile(blocked):
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from app.services.native_voice import _AcceptedVoiceTurn
+    from app.services.openai_voice_protocol import LiveTaskRequest
+    from tests.test_native_voice import Browser
+
+    relay = NativeLiveVoiceRelay(
+        Browser(),
+        OpenAILiveSession(FakeSocket(), "gpt-live-1"),
+        VoiceScope(
+            "caller",
+            "workspace",
+            "specialist" if blocked == "profile" else "",
+            "thread",
+        ),
+        check=AsyncMock(),
+    )
+    relay._append = AsyncMock(return_value=blocked != "no_audio")
+    relay._follow_up = AsyncMock()
+    relay.accepted = _AcceptedVoiceTurn("active", "message", "initial request")
+    relay.pending_accepted = True
+    relay.steerable_work_id = "active"
+    turn = CompletedCallerTurn("turn", 0, 1500, "After that, list the apps")
+    admitted = await relay._acknowledge(LiveTaskRequest("delegation", turn))
+    if blocked in {"profile", "no_audio"}:
+        assert not admitted
+    else:
+        assert admitted
+        if blocked == "interruption":
+            relay.generation += 1
+        await relay._submit(
+            relay.scope, "wrong" if blocked == "changed_id" else "delegation", turn.text
+        )
+    relay._follow_up.assert_not_awaited()
+    assert relay.follow_up_task is None
+
+
+@pytest.mark.asyncio
+async def test_live_merged_correction_and_queue_do_not_steer_both():
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from app.services.native_voice import _AcceptedVoiceTurn
+    from app.services.openai_voice_protocol import LiveTaskRequest
+    from tests.test_native_voice import Browser
+
+    relay = NativeLiveVoiceRelay(
+        Browser(),
+        OpenAILiveSession(FakeSocket(), "gpt-live-1"),
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay._append = AsyncMock(return_value=True)
+    relay._follow_up = AsyncMock()
+    relay.accepted = _AcceptedVoiceTurn("active", "message", "initial request")
+    relay.pending_accepted = True
+    relay.steerable_work_id = "active"
+    text = "Correction to the current task: Also include cedar After that, list the apps in this workspace"
+    turn = CompletedCallerTurn("turn", 0, 1500, text)
+    assert not await relay._acknowledge(LiveTaskRequest("delegation", turn))
+    assert "Neither operation has been submitted" in relay._append.call_args.args[0]
+    relay._follow_up.assert_not_awaited()
+
+
+def test_live_ledger_accepts_local_explicit_turn_once_without_forging_provider_event():
+    ledger = LiveTurnLedger()
+    turn = CompletedCallerTurn(
+        "turn", 10, 1500, "Correction to the current task. Use June"
+    )
+    assert ledger.commit(turn, accept_explicit_continuation=True) == LiveTaskRequest(
+        "local-continuation-turn", turn, provider_delegated=False
+    )
+    assert ledger.commit(turn, accept_explicit_continuation=True) is None
+
+
+@pytest.mark.asyncio
+async def test_live_host_routes_explicit_completed_turn_without_provider_delegation():
+    from app.services.native_live_voice_host import NativeLiveVoiceHost
+
+    scope = VoiceScope("caller", "workspace", "", "thread")
+    session = OpenAILiveSession(FakeSocket(), "gpt-live-1")
+    acknowledge = AsyncMock(return_value=True)
+    submit = AsyncMock(return_value="accepted")
+    host = NativeLiveVoiceHost(
+        session,
+        scope,
+        check=AsyncMock(),
+        acknowledge=acknowledge,
+        submit=submit,
+        accept_explicit_continuations=True,
+    )
+    host.ready = True
+    text = "Correction to the current task. Also include Cedar"
+    turn = CompletedCallerTurn("local", 10, 1500, text)
+    assert await host.commit_completed_turn(turn) == "accepted"
+    request = acknowledge.call_args.args[0]
+    assert not request.provider_delegated
+    submit.assert_awaited_once_with(scope, "local-continuation-local", text)
+    assert await host.commit_completed_turn(turn) is None
+    assert (
+        await host.commit_completed_turn(
+            CompletedCallerTurn("ordinary", 1600, 2000, "Hello")
+        )
+        is None
+    )
+    assert submit.await_count == 1
