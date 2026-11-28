@@ -545,3 +545,33 @@ the resident. Current workspace facts always use current authorized reads.
 See [ADR 020](adr/020-source-linked-working-memory.md).
 
 Spoken intent and result responses address the authenticated person directly as you or your. An available display name is quoted context for occasional direct address, never a third-person possessive or authority. The message passed to the resident retains the person’s original perspective.
+
+### Approval presentation contract
+
+Every staged-write decision uses the same canonical proposal, policy,
+principal/workspace/conversation scope, decision ledger and executor.
+The presentation selection is independent of the inference model: without
+a live call the chat review is available; during a call the server offers
+an exact spoken review when the current proposal has an admissible
+projection. An independent microphone decision, not a model tool argument,
+is bound to that exact unchanged proposal. Approval or rejection is
+recorded through the canonical staged-write decision service.
+
+The voice approval contract is the common policy entry point for those
+projections. Bounded one-shot and recurring schedules with no unattended
+write grant now qualify, including agent reports, literal reminders and
+assignment digests on common unambiguous cadences. The readout includes
+the actual instruction, local cadence/timezone, run limit, destination and
+whether automatic writes are permitted. The execution receipt and saved
+routine must agree before voice reports success.
+
+The active call keeps a compact pending-review status. If an exact spoken
+projection is unavailable, it clearly identifies the visual-review
+exception, and the caller can explicitly open the original card. Closing
+the call restores ordinary card presentation. This exception is intentional
+for unverified complex effects, scoped unattended writes, unsupported
+profiles, and high-impact operations whose policy requires stronger
+review. The contract must not treat a generic model summary or a bare
+spoken yes as authorization. New proposal types require a complete
+projection and independent decision/readback tests before verbal approval
+is enabled.

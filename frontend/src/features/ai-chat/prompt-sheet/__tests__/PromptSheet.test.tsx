@@ -186,3 +186,18 @@ it("keeps a same-thread spoken review compact, allowing optional details and ord
     act(() => clearCallReview(owner));
   }
 });
+
+it("keeps visual-only safety fallback compact during a call until explicitly opened", () => {
+  const owner = Symbol();
+  renderPendingWrite();
+  try {
+    act(() => presentCallReview(owner, "thread-1", "token-1", true));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("Visual review required for this change");
+    fireEvent.click(screen.getByRole("button", { name: "Review details" }));
+    expect(screen.getByRole("dialog", { name: "Approve a change" })).toBeVisible();
+    expect(approveWrite).not.toHaveBeenCalled();
+  } finally {
+    act(() => clearCallReview(owner));
+  }
+});

@@ -18,16 +18,7 @@ from app.schemas.policy import Resource, Subject
 from app.services.policy_engine import evaluate
 from app.services.resource_location import DATA_APP_STATES, locate_resource
 
-_VOICE_CAPABILITIES = {
-    "create_entry": "integral_create_entry",
-    "delete_entry": "integral_delete_entry",
-    "update_entry": "integral_update_entry",
-    "batch": "integral_commit_batch",
-    "routine_task_create": "integral_schedule_task",
-    "update_app": "integral_update_app",
-    "create_dashboard": "integral_create_dashboard",
-    "update_dashboard": "integral_update_dashboard",
-}
+from app.services.voice_approval_contract import VOICE_REVIEW_CAPABILITIES
 
 
 async def pending_review_work(thread, principal, workspace):
@@ -44,7 +35,7 @@ async def pending_review_work(thread, principal, workspace):
     item = pending[0]
     if (
         item.get("kind") != "staged_write"
-        or item.get("write_kind") not in _VOICE_CAPABILITIES
+        or item.get("write_kind") not in VOICE_REVIEW_CAPABILITIES
         or not item.get("token")
     ):
         return None
@@ -62,7 +53,7 @@ async def pending_review_work(thread, principal, workspace):
     proof = change.origin_proof or {}
     if (
         proof.get("version") != "work-proposal-v1"
-        or proof.get("capability_key") != _VOICE_CAPABILITIES[change.kind]
+        or proof.get("capability_key") != VOICE_REVIEW_CAPABILITIES[change.kind]
         or not proof.get("work_item_id")
         or not proof.get("run_id")
         or (
@@ -119,8 +110,11 @@ class VoiceReviewReadout:
     children: tuple["VoiceReviewReadout", ...] = field(default=(), repr=False)
     update_field_types: tuple[tuple[str, str], ...] = field(default=(), repr=False)
     speech_action: str = field(default="", repr=False)
+    routine: dict | None = field(default=None, repr=False)
 
     def _question(self, action: str) -> str:
+        if self.routine:
+            return f"I propose to {action} Do you approve this schedule?"
         if self.deletion:
             return f"Would you like me to {action}? This also removes its comments and sharing links. Attached files will no longer be accessible through this record. This cannot be undone. Say yes, delete it, or no to keep it."
         return f"Would you like me to {action}?"
@@ -138,6 +132,7 @@ class VoiceReviewReadout:
             return all(child.matches_focus(focus) for child in self.children)
         return (
             self.reminder is not None
+            or self.routine is not None
             or (
                 self.presentation is not None
                 and focus is not None
@@ -176,7 +171,7 @@ async def pending_work_proposal(
                 continue
         elif (
             proof.get("version") != "work-proposal-v1"
-            or proof.get("capability_key") != _VOICE_CAPABILITIES.get(item.kind)
+            or proof.get("capability_key") != VOICE_REVIEW_CAPABILITIES.get(item.kind)
             or proof.get("work_item_id") != work_id
             or proof.get("run_id") != run_id
             or proof.get("principal_id") != principal
@@ -275,7 +270,11 @@ async def read_entry_review(
         if item.kind == "routine_task_create" and replacement is None:
             from app.services.native_voice_reminder import reminder_review
 
-            return reminder_review(item, work_id, run_id)
+            from app.services.native_voice_routine import routine_review
+
+            return reminder_review(item, work_id, run_id) or routine_review(
+                item, work_id, run_id
+            )
         if item.kind == "create_entry":
             from app.agentive.staging import StagingError
             from app.services.native_voice_creation import read_creation_review
@@ -527,6 +526,10 @@ async def read_applied_values(review, *, principal, workspace, expected_creation
             "",
             "",
         )
+    if review.routine is not None:
+        from app.services.native_voice_routine import read_saved_routine
+
+        return await read_saved_routine(review, principal, workspace)
     if review.reminder is not None:
         from app.services.native_voice_reminder import read_saved_reminder
 

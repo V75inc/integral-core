@@ -65,7 +65,6 @@ async def project():
 @pytest.mark.parametrize(
     "key,value",
     [
-        ("delivery_mode", "agent"),
         ("write_scope", ["track"]),
         ("thread_id", "other"),
         ("workspace_id", "other"),
@@ -280,3 +279,108 @@ async def test_batch_decision_fences_order_payload_and_origin(change, monkeypatc
             "payload": payload,
         }
         assert await batch.read_batch_review(replacement, "work", "run") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["agent", "reminder", "assignment_digest"])
+async def test_recurring_routine_exact_voice_projection_and_scoped_decision(
+    change, monkeypatch, mode
+):
+    from app.services.voice_approval_contract import confirmed_voice_review
+
+    change.payload.pop("run_at")
+    change.payload.update(delivery_mode=mode, cron="0 9 * * 1-5", max_runs=5)
+    monkeypatch.setattr(review, "list_pending_tokens", AsyncMock(return_value=[change]))
+    spoken = await project()
+    assert spoken and spoken.routine == change.payload
+    assert "weekdays at 9:00 AM" in spoken.text
+    assert "America Guyana time" in spoken.text
+    assert "5 successful runs" in spoken.text
+    assert (
+        "Check the compass." in spoken.text and "Untrusted summary" not in spoken.text
+    )
+    monkeypatch.setattr(approval_decisions, "get_token", AsyncMock(return_value=change))
+    apply = AsyncMock(return_value={"consumed": True})
+    monkeypatch.setattr(approval_decisions, "bless_and_execute", apply)
+
+    async def decide():
+        return await approval_decisions.decide_staged_write(
+            principal_id="caller",
+            workspace_id="workspace",
+            conversation_id="thread",
+            proposal_id="proposal",
+            decision="approve",
+            source="voice",
+        )
+
+    with pytest.raises(StagingError):
+        await decide()
+    with confirmed_voice_review(spoken):
+        change.payload["cron"] = "0 10 * * 1-5"
+        with pytest.raises(StagingError):
+            await decide()
+        apply.assert_not_awaited()
+        change.payload["cron"] = "0 9 * * 1-5"
+        assert (await decide())["consumed"]
+    apply.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_one_shot_agent_schedule_is_eligible_but_not_unattended_write_scope(
+    change, monkeypatch
+):
+    change.payload["delivery_mode"] = "agent"
+    monkeypatch.setattr(review, "list_pending_tokens", AsyncMock(return_value=[change]))
+    spoken = await project()
+    assert spoken and "January 15, 2099 at 9:00 AM" in spoken.text
+    assert (
+        "run once" in spoken.text
+        and "no permission to automatically apply workspace writes" in spoken.text
+    )
+    change.payload["write_scope"] = [
+        {"resource_type": "track", "resource_id": "target"}
+    ]
+    assert await project() is None
+
+
+@pytest.mark.asyncio
+async def test_recurring_routine_readback_revalidates_actual_saved_state(
+    change, monkeypatch
+):
+    from contextlib import nullcontext
+    from app.agentive.services import staging_execution, staging_routine_commands
+    from app.services import release_admission
+
+    change.payload.pop("run_at")
+    change.payload.update(delivery_mode="agent", cron="0 9 * * *", max_runs=None)
+    monkeypatch.setattr(review, "list_pending_tokens", AsyncMock(return_value=[change]))
+    spoken = await project()
+    row = SimpleNamespace(
+        **change.payload,
+        user_id=change.user_id,
+        source_staging_token=change.token,
+        next_run_at="2099-01-16T13:00:00+00:00",
+        status="active",
+    )
+    monkeypatch.setattr(
+        staging_execution,
+        "load_staging_execution_result",
+        AsyncMock(return_value={"routine_id": "saved"}),
+    )
+    monkeypatch.setattr(
+        release_admission, "release_admission", lambda *args: nullcontext()
+    )
+    monkeypatch.setattr(
+        staging_routine_commands, "admit_owned_routine", AsyncMock(return_value=row)
+    )
+    result = await review.read_applied_values(
+        spoken, principal="caller", workspace="workspace"
+    )
+    assert result and result.text == "Your routine is scheduled in this chat."
+    row.cron = "0 10 * * *"
+    assert (
+        await review.read_applied_values(
+            spoken, principal="caller", workspace="workspace"
+        )
+        is None
+    )
