@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Live phone relays and call ids already hung up, in this process only.
 _phone_relays: dict[str, "_PhoneRelay"] = {}
+_phone_socket_claims: set[str] = set()
 _hung_up_calls: set[str] = set()
 # Meta tokens for accepted calls, so hangup can end the provider leg.
 _call_api_keys: dict[str, str] = {}
@@ -45,6 +46,25 @@ def call_has_phone_relay(call_id: str) -> bool:
         return bool(call_id) and call_id in _phone_relays
 
 
+def claim_phone_socket(call_id: str) -> bool:
+    """Reserve the local socket before opening any asynchronous upstream."""
+    with _guard:
+        if (
+            not call_id
+            or call_id in _hung_up_calls
+            or call_id in _phone_socket_claims
+            or call_id in _phone_relays
+        ):
+            return False
+        _phone_socket_claims.add(call_id)
+        return True
+
+
+def release_phone_socket(call_id: str) -> None:
+    with _guard:
+        _phone_socket_claims.discard(call_id)
+
+
 def attach_phone_relay(
     *,
     call_id: str,
@@ -57,7 +77,7 @@ def attach_phone_relay(
     A call that already hung up is not attached. The caller closes ``upstream``.
     """
     with _guard:
-        if not call_id or call_id in _hung_up_calls:
+        if not call_id or call_id in _hung_up_calls or call_id in _phone_relays:
             return None
         relay = _PhoneRelay(call_id, upstream, bearer, submit)
         _phone_relays[call_id] = relay
@@ -401,11 +421,30 @@ async def confirm_phone_line(record: dict) -> bool:
     workspace_id = (record.get("workspace_id") or "").strip()
     if not binding_id or not principal_id or not workspace_id:
         return False
-    from app.agentive.nodes import WhatsAppChannelBinding
+    from app.agentive.nodes import ChannelIdentity, WhatsAppChannelBinding
+    from app.agentive.services.whatsapp_call_admission import _comparable_e164
     from app.agentive.services.whatsapp_channel_binding import workspace_line_grant
 
     binding = await WhatsAppChannelBinding.get(binding_id)
-    if binding is None or not getattr(binding, "enabled", False):
+    if (
+        binding is None
+        or not getattr(binding, "enabled", False)
+        or getattr(binding, "user_id", "") != principal_id
+    ):
+        return False
+    identities = await ChannelIdentity.find(channel="whatsapp", user_id=principal_id)
+    session = record.get("channel_session") or ""
+    matching = []
+    for identity in identities:
+        number = _comparable_e164(str(getattr(identity, "channel_user_id", "") or ""))
+        if (
+            number
+            and getattr(identity, "verified", False)
+            and getattr(identity, "user_id", "") == principal_id
+            and _session_id(workspace_id, number) == session
+        ):
+            matching.append(identity)
+    if len(matching) != 1:
         return False
     grant = await workspace_line_grant(workspace_id, binding.id)
     return bool(

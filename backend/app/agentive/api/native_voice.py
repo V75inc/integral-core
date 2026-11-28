@@ -39,6 +39,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 # Per process. Another API worker does not see this set.
 _active_calls: set[str] = set()
+# Phone relays currently speak the legacy Realtime wire protocol only.
+_PHONE_REALTIME_MODELS = frozenset(
+    {
+        "gpt-realtime",
+        "gpt-realtime-mini",
+        "gpt-realtime-1.5",
+        "gpt-realtime-2",
+        "gpt-realtime-2.1",
+        "gpt-realtime-2.1-mini",
+    }
+)
+
+
+def _phone_model_supported(credential) -> bool:
+    return (
+        credential is not None
+        and getattr(credential, "model", None) in _PHONE_REALTIME_MODELS
+    )
 
 
 def principal_has_live_call(principal: str | None) -> bool:
@@ -260,11 +278,12 @@ async def phone_voice(socket: WebSocket):
     """
     from app.agentive.services.whatsapp_voice_bridge import (
         attach_phone_relay,
-        call_has_phone_relay,
+        claim_phone_socket,
         close_model_socket,
         confirm_phone_line,
         discard_relay_bearer,
         relay_bearer_record,
+        release_phone_socket,
     )
 
     presented = socket.headers.get("x-integral-phone-bearer") or ""
@@ -277,15 +296,15 @@ async def phone_voice(socket: WebSocket):
         await socket.close(code=4403)
         return
     await socket.accept()
+    if not claim_phone_socket(record["call_id"]):
+        await socket.close(code=4403)
+        return
     principal = record["principal_id"]
     claimed = False
-    release_call = True
     upstream = None
     try:
         if principal_has_live_call(principal):
-            # A second socket for the call that is already bridged must not
-            # tear that call down. A different live call still releases this one.
-            release_call = not call_has_phone_relay(record["call_id"])
+            # Another call is already active for this member.
             await socket.close(code=4403)
             return
         _active_calls.add(principal)
@@ -296,7 +315,7 @@ async def phone_voice(socket: WebSocket):
             await socket.close(code=4403)
             return
         credential = await resolve_realtime_credential(record["workspace_id"])
-        if credential is None:
+        if not _phone_model_supported(credential):
             await socket.close(code=4404)
             return
         upstream = await open_upstream(credential)
@@ -323,7 +342,15 @@ async def phone_voice(socket: WebSocket):
             record["thread_id"],
             channel_session=record.get("channel_session", ""),
         )
-        relay = open_phone_relay(_PhoneSocket(socket), upstream, scope, check=authorize)
+
+        async def check_phone_scope(current_scope):
+            if not await confirm_phone_line(record):
+                raise InsufficientPermissionsError(message="Phone line unavailable")
+            return await authorize(current_scope)
+
+        relay = open_phone_relay(
+            _PhoneSocket(socket), upstream, scope, check=check_phone_scope
+        )
         try:
             await relay.run()
         except WebSocketDisconnect:
@@ -336,14 +363,14 @@ async def phone_voice(socket: WebSocket):
             # it on every exit this socket owns: a live principal, a missing
             # credential, an upstream failure, or the relay ending. A second
             # socket for a call that is already bridged leaves that call up.
-            if release_call:
-                await _hang_up_phone_quietly(
-                    record["call_id"],
-                    upstream,
-                    binding_id=record.get("binding_id", ""),
-                )
-                discard_relay_bearer(record["call_id"])
+            await _hang_up_phone_quietly(
+                record["call_id"],
+                upstream,
+                binding_id=record.get("binding_id", ""),
+            )
+            discard_relay_bearer(record["call_id"])
         finally:
+            release_phone_socket(record["call_id"])
             if claimed:
                 _active_calls.discard(principal)
             if (
@@ -366,11 +393,12 @@ async def public_phone_voice(socket: WebSocket):
     from app.agentive.services.whatsapp_public_voice import PublicPhoneRelay
     from app.agentive.services.whatsapp_voice_bridge import (
         attach_phone_relay,
-        call_has_phone_relay,
+        claim_phone_socket,
         close_model_socket,
         confirm_public_call,
         discard_relay_bearer,
         relay_bearer_record,
+        release_phone_socket,
     )
 
     presented = socket.headers.get("x-integral-phone-bearer") or ""
@@ -379,19 +407,17 @@ async def public_phone_voice(socket: WebSocket):
         await socket.close(code=4403)
         return
     await socket.accept()
+    if not claim_phone_socket(record["call_id"]):
+        await socket.close(code=4403)
+        return
     upstream = None
-    release_call = True
     try:
-        if call_has_phone_relay(record["call_id"]):
-            release_call = False
-            await socket.close(code=4403)
-            return
         grant = await confirm_public_call(record)
         if grant is None:
             await socket.close(code=4403)
             return
         credential = await resolve_realtime_credential(record["workspace_id"])
-        if credential is None:
+        if not _phone_model_supported(credential):
             await socket.close(code=4404)
             return
         upstream = await open_upstream(credential)
@@ -425,14 +451,14 @@ async def public_phone_voice(socket: WebSocket):
         pass
     finally:
         try:
-            if release_call:
-                await _hang_up_phone_quietly(
-                    record["call_id"],
-                    upstream,
-                    binding_id=record.get("binding_id", ""),
-                )
-                discard_relay_bearer(record["call_id"])
+            await _hang_up_phone_quietly(
+                record["call_id"],
+                upstream,
+                binding_id=record.get("binding_id", ""),
+            )
+            discard_relay_bearer(record["call_id"])
         finally:
+            release_phone_socket(record["call_id"])
             if (
                 socket.client_state
                 == socket.application_state

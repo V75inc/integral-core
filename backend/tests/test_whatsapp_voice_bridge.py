@@ -633,6 +633,7 @@ def _reset_phone_hangups() -> None:
     from app.agentive.services.whatsapp_call_control import clear_process_call_claims
 
     bridge._phone_relays.clear()
+    bridge._phone_socket_claims.clear()
     bridge._hung_up_calls.clear()
     keys = getattr(bridge, "_call_api_keys", None)
     if keys is not None:
@@ -1447,7 +1448,7 @@ async def test_phone_socket_delivers_one_pcm_chunk_for_a_valid_bearer(monkeypatc
 
     async def credential(_workspace):
         assert native_voice.principal_has_live_call("user-1")
-        return SimpleNamespace(model="fake-model", api_key="not-logged")
+        return SimpleNamespace(model="gpt-realtime", api_key="not-logged")
 
     async def allow(scope):
         return SimpleNamespace(id=scope.thread)
@@ -1712,7 +1713,7 @@ def test_phone_voice_attaches_the_relay_and_hangs_up_on_close(monkeypatch):
         return SimpleNamespace()
 
     async def credential(_workspace):
-        return SimpleNamespace(model="fake-model", api_key="not-logged")
+        return SimpleNamespace(model="gpt-realtime", api_key="not-logged")
 
     monkeypatch.setattr(bridge, "attach_phone_relay", spy_attach)
     monkeypatch.setattr(bridge, "hang_up_phone_call", spy_hangup)
@@ -2188,3 +2189,60 @@ def test_relay_bearer_carries_channel_session_and_defaults_to_empty():
         )
     finally:
         _reset_phone_hangups()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        ("gpt-realtime", True),
+        ("gpt-realtime-2.1-mini", True),
+        ("gpt-live-1", False),
+        ("gpt-live-1.1", False),
+        ("unrecognized", False),
+    ],
+)
+def test_phone_protocol_qualification(model, expected):
+    from app.agentive.api.native_voice import _phone_model_supported
+
+    assert _phone_model_supported(SimpleNamespace(model=model)) is expected
+
+
+@pytest.mark.unit
+def test_phone_socket_local_reservation_lifecycle():
+    from app.agentive.services import whatsapp_voice_bridge as bridge
+
+    _reset_phone_hangups()
+    try:
+        assert bridge.claim_phone_socket("local-call")
+        bridge.release_phone_socket("local-call")
+        assert bridge.claim_phone_socket("local-call")
+    finally:
+        _reset_phone_hangups()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_member_line_requires_current_verified_identity(monkeypatch):
+    from app.agentive.nodes import ChannelIdentity, WhatsAppChannelBinding
+    from app.agentive.services import whatsapp_channel_binding, whatsapp_voice_bridge
+
+    binding = SimpleNamespace(id="line-1", enabled=True, user_id="user-1")
+    identity = SimpleNamespace(
+        user_id="user-1", channel_user_id="+12025550123", verified=True
+    )
+    grant = SimpleNamespace(enabled=True, calling_enabled=True)
+    monkeypatch.setattr(WhatsAppChannelBinding, "get", AsyncMock(return_value=binding))
+    monkeypatch.setattr(ChannelIdentity, "find", AsyncMock(return_value=[identity]))
+    monkeypatch.setattr(
+        whatsapp_channel_binding, "workspace_line_grant", AsyncMock(return_value=grant)
+    )
+    record = dict(
+        binding_id="line-1",
+        principal_id="user-1",
+        workspace_id="ws-1",
+        channel_session="wa:ws-1:+12025550123",
+    )
+    assert await whatsapp_voice_bridge.confirm_phone_line(record)
+    identity.verified = False
+    assert not await whatsapp_voice_bridge.confirm_phone_line(record)

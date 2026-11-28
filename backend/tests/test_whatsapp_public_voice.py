@@ -18,6 +18,7 @@ def _reset_hangups() -> None:
 
     bridge._hung_up_calls.clear()
     bridge._phone_relays.clear()
+    bridge._phone_socket_claims.clear()
     bridge._relay_bearers.clear()
     bridge._call_api_keys.clear()
 
@@ -215,7 +216,7 @@ async def test_public_socket_sends_an_empty_tool_session(monkeypatch):
         return upstream
 
     async def credential(_workspace):
-        return SimpleNamespace(model="fake-model", api_key="not-logged")
+        return SimpleNamespace(model="gpt-realtime", api_key="not-logged")
 
     async def confirmed(_record):
         return grant
