@@ -27,6 +27,8 @@ caller answer, never a delegation or transcript event. The existing capture
 size budget is unchanged; rendered review audio has a separate bounded
 verification path using the same authorized Speech to Text credential.
 
+The shared media factory preserves each transport's admitted action scope; the tool-free public adapter separately checks a current public grant before PCM input and output and has no resident dispatch. The pending telephone connector can call these factories without changing its bearer or grant contract; it still needs its own integration review. Its current transport does not offer browser playback-confirmation or navigation capabilities.
+
 Voice assignment continues to allow only the qualified Realtime IDs. Do not
 publish GPT-Live as an enabled voice choice until provider-level playback,
 interruption, result delivery, follow-up/steering and the pending telephone

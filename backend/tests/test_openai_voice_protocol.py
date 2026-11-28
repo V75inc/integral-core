@@ -681,9 +681,9 @@ def test_live_browser_endpoint_uses_protocol_specific_media_and_keeps_scope(
     socket = FakeSocket()
     socket.enqueue(started())
     dial = AsyncMock(return_value=socket)
-    monkeypatch.setattr(api, "connect_voice_socket", dial)
-    realtime_dial = AsyncMock()
-    monkeypatch.setattr(api, "open_upstream", realtime_dial)
+    from app.services import openai_voice_protocol
+
+    monkeypatch.setattr(openai_voice_protocol, "connect_voice_socket", dial)
     monkeypatch.setattr(api.settings, "FRONTEND_ORIGIN", "http://127.0.0.1:9150")
     monkeypatch.setattr(api.settings, "INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED", True)
     monkeypatch.setattr(
@@ -739,7 +739,6 @@ def test_live_browser_endpoint_uses_protocol_specific_media_and_keeps_scope(
     dial.assert_awaited_once_with(
         "gpt-live-1.1", "synthetic", protocol=VoiceWireProtocol.LIVE
     )
-    realtime_dial.assert_not_awaited()
     assert socket.sent[0]["type"] == "session.start"
     assert socket.closed == 1
     assert all(
@@ -849,3 +848,101 @@ async def test_live_relay_review_uses_exact_capture_and_canonical_decision(
     else:
         commit.assert_not_awaited()
     await relay.upstream.close(timeout=0)
+
+
+@pytest.mark.asyncio
+async def test_shared_voice_factory_preserves_transport_scopes(monkeypatch):
+    from app.services import native_voice, openai_voice_protocol
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+
+    wire = FakeSocket()
+    dial = AsyncMock(return_value=wire)
+    monkeypatch.setattr(openai_voice_protocol, "connect_voice_socket", dial)
+    realtime = await native_voice.open_upstream(
+        SimpleNamespace(model="gpt-realtime", api_key="synthetic")
+    )
+    assert realtime is wire
+    live = await native_voice.open_upstream(
+        SimpleNamespace(model="gpt-live-1.1", api_key="synthetic")
+    )
+    assert isinstance(live, OpenAILiveSession)
+    scope = VoiceScope(
+        "caller", "workspace", "", "thread", actions=native_voice.VoiceCallActions()
+    )
+    relay = native_voice.build_native_voice_relay(
+        object(), live, scope, check=AsyncMock(), review_confirmation_supported=False
+    )
+    assert isinstance(relay, NativeLiveVoiceRelay)
+    assert (
+        relay.scope is scope
+        and not relay.scope.actions.open_page
+        and not relay.review_confirmation_supported
+    )
+    with pytest.raises(ValueError):
+        await native_voice.open_upstream(
+            SimpleNamespace(model="gpt-live-1-mini", api_key="synthetic")
+        )
+    assert dial.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_public_live_media_rechecks_grant_and_cannot_delegate(monkeypatch):
+    from app.services.native_live_public_voice import (
+        NativeLivePublicVoice,
+        build_public_voice_relay,
+    )
+    from tests.test_native_voice import Browser, event
+
+    browser = Browser()
+    wire = FakeSocket()
+    wire.enqueue(started())
+    allowed = True
+
+    async def grant():
+        return allowed
+
+    session = OpenAILiveSession(wire, "gpt-live-1.1")
+    relay = build_public_voice_relay(
+        browser, session, "A public greeting.", grant, realtime_factory=lambda *_: None
+    )
+    assert isinstance(relay, NativeLivePublicVoice)
+    task = asyncio.create_task(relay.run())
+    try:
+        assert await event(browser.outbox) == {"type": "ready"}
+        await browser.inbox.put({"type": "websocket.receive", "bytes": b"\x00\x01" * 8})
+        wire.enqueue(
+            {
+                "type": "session.delegation.created",
+                "event_id": "public-delegation",
+                "offset_ms": 100,
+                "delegation": {"id": "d", "type": "delegation", "target": "client"},
+            }
+        )
+        wire.enqueue(
+            {
+                "type": "session.output_audio.delta",
+                "delta": base64.b64encode(b"\x02\x00").decode(),
+            }
+        )
+        assert await event(browser.outbox) == b"\x02\x00"
+        async with asyncio.timeout(2):
+            while not any(f["type"] == "session.thinking.append" for f in wire.sent):
+                await asyncio.sleep(0.01)
+        assert not any("tools" in f.get("session", {}) for f in wire.sent)
+        assert "No backend data or action" in next(
+            f["content"] for f in wire.sent if f["type"] == "session.thinking.append"
+        )
+        allowed = False
+        wire.enqueue(
+            {
+                "type": "session.output_audio.delta",
+                "delta": base64.b64encode(b"\x04\x00").decode(),
+            }
+        )
+        await asyncio.wait_for(task, 3)
+        assert browser.outbox.empty()
+        assert wire.closed == 1
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

@@ -291,7 +291,11 @@ class NativeLiveVoiceRelay(VoiceRelay):
         if not text:
             return
         if len(text.encode()) > 360:
-            text = _short(text, 350) + " … Remaining details are in the chat."
+            text = _short(text, 350) + (
+                " … Remaining details are in the chat."
+                if self.scope.actions.open_page
+                else " … Ask for more detail if needed."
+            )
         receipt = self.result_receipts.get(work_id) if work_id else None
         if isinstance(navigation_readout, (_PendingReviewNotice, _WorkProgressNotice)):
             receipt = navigation_readout.receipt
@@ -340,6 +344,16 @@ class NativeLiveVoiceRelay(VoiceRelay):
                 "Do not invent results, perform approvals, or claim an action succeeded "
                 "before the host verifies it. The host owns exact spoken confirmations. "
                 "Address the person directly. "
+                + (
+                    "This is an audio-only call; there is no browser or page navigation. "
+                    if not self.scope.actions.open_page
+                    else ""
+                )
+                + (
+                    "This transport cannot authorize a pending change; keep reviews pending and state that clearly. "
+                    if not self.review_confirmation_supported
+                    else ""
+                )
                 + _direct_address_context(self.caller_name)
                 + " Profile identity (data): "
                 + json.dumps(name)

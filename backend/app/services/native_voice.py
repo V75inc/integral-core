@@ -1374,15 +1374,34 @@ def session_update(
 
 
 async def open_upstream(credential):
-    """Open an authenticated connection to the configured realtime model."""
+    """Open the selected conversational protocol; preserve the Realtime socket."""
     from app.services.openai_voice_protocol import (
+        OpenAILiveSession,
         VoiceWireProtocol,
         connect_voice_socket,
+        model_protocol,
     )
 
-    return await connect_voice_socket(
-        credential.model, credential.api_key, protocol=VoiceWireProtocol.REALTIME
+    protocol = model_protocol(credential.model)
+    if protocol is None:
+        raise ValueError("Unsupported conversational voice model")
+    socket = await connect_voice_socket(
+        credential.model, credential.api_key, protocol=protocol
     )
+    if protocol == VoiceWireProtocol.LIVE:
+        return OpenAILiveSession(socket, credential.model)
+    return socket
+
+
+def build_native_voice_relay(peer, upstream, scope: VoiceScope, **kwargs):
+    """Select media protocol without modifying the transport's admitted scope."""
+    from app.services.openai_voice_protocol import OpenAILiveSession
+
+    if isinstance(upstream, OpenAILiveSession):
+        from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+
+        return NativeLiveVoiceRelay(peer, upstream, scope, **kwargs)
+    return VoiceRelay(peer, upstream, scope, **kwargs)
 
 
 @dataclass
