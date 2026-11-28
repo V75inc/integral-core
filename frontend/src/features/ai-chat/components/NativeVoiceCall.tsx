@@ -75,17 +75,25 @@ export type NativeVoiceState = "idle" | "connecting" | "live";
 export function createVoicePlayback(audio: AudioContext) {
   const sources = new Map<AudioBufferSourceNode, { at: number; samples: number; handle?: number }>();
   let nextTime = 0;
+  let pacedLive = false;
   function enqueueBuffer(buffer: AudioBuffer, handle?: number) {
     const source = audio.createBufferSource();
     source.buffer = buffer;
     source.connect(audio.destination);
     source.onended = () => { sources.delete(source); source.disconnect(); };
-    const at = Math.max(audio.currentTime + 0.02, nextTime);
+    // GPT-Live streams paced 100ms PCM packets instead of Realtime's
+    // bursty responses. Keep a modest playout lead and preserve contiguous
+    // scheduling despite inter-packet jitter; replenish only on underrun.
+    const now = audio.currentTime;
+    const at = pacedLive
+      ? (nextTime > now + 0.005 ? nextTime : now + 0.15)
+      : Math.max(now + 0.02, nextTime);
     sources.set(source, { at, samples: Math.round(buffer.duration * SAMPLE_RATE), handle });
     nextTime = at + buffer.duration;
     source.start(at);
   }
   return {
+    usePacedLive: () => { pacedLive = true; },
     enqueue(data: ArrayBuffer, handle?: number) {
       if (data.byteLength === 0 || data.byteLength % 2 !== 0) return;
       const pcm = new DataView(data);
@@ -431,7 +439,7 @@ export function NativeVoiceControls({ surface = "dock", eligible, opening, playi
           if (ready) playback?.enqueue(data, playbackHandle);
           return;
         }
-        const event = JSON.parse(String(data)) as { type: string; message?: string; thread_id?: string; handle?: number | null; report_handles?: number[]; id?: string; proposal_id?: string; audio?: string; origin_revision?: number; navigation?: unknown };
+        const event = JSON.parse(String(data)) as { type: string; message?: string; thread_id?: string; audio_protocol?: string; handle?: number | null; report_handles?: number[]; id?: string; proposal_id?: string; audio?: string; origin_revision?: number; navigation?: unknown };
         if (event.type === "navigation" && ready && acceptedThreadId && event.id) {
           if (navigationRequests.has(event.id)) return;
           navigationRequests.add(event.id);
@@ -572,6 +580,7 @@ export function NativeVoiceControls({ surface = "dock", eligible, opening, playi
           }
           const wasRinging = Boolean(stopRing);
           stopRingback();
+          if (event.audio_protocol === "live") playback?.usePacedLive();
           ready = true;
           lastCapture = performance.now();
           const enableCapture = () => {

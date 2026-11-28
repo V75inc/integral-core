@@ -70,7 +70,7 @@ def started(model="gpt-live-1.1", **changes):
 
 def test_conversational_catalog_is_exact_and_realtime_config_matches():
     """Do not confuse translation, transcription, unknown IDs or Live with Realtime."""
-    assert set(get_args(RealtimeVoiceModel)) - {""} == REALTIME_MODELS | {"gpt-live-1"}
+    assert set(get_args(RealtimeVoiceModel)) - {""} == REALTIME_MODELS | LIVE_MODELS
     for model in REALTIME_MODELS:
         assert model_protocol(model) == VoiceWireProtocol.REALTIME
         assert (
@@ -87,9 +87,15 @@ def test_conversational_catalog_is_exact_and_realtime_config_matches():
         ).model
         == "gpt-live-1"
     )
-    with pytest.raises(ValueError):
+    assert (
         RealtimeVoiceModelWrite(
             mode="provider", connection_id="qa", model="gpt-live-1.1", revision=0
+        ).model
+        == "gpt-live-1.1"
+    )
+    with pytest.raises(ValueError):
+        RealtimeVoiceModelWrite(
+            mode="provider", connection_id="qa", model="gpt-live-1-mini", revision=0
         )
     for model in (
         "gpt-live-1-mini",
@@ -797,6 +803,7 @@ def test_live_browser_endpoint_uses_protocol_specific_media_and_keeps_scope(
             assert browser.receive_json() == {
                 "type": "ready",
                 "thread_id": "fixture-thread",
+                "audio_protocol": "live",
             }
     dial.assert_awaited_once_with(
         "gpt-live-1.1", "synthetic", protocol=VoiceWireProtocol.LIVE
@@ -1281,3 +1288,119 @@ async def test_live_host_routes_explicit_completed_turn_without_provider_delegat
         is None
     )
     assert submit.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_live_host_explicit_end_uses_relay_terminal_path_without_delegation():
+    scope = VoiceScope("caller", "workspace", "", "thread")
+    session = OpenAILiveSession(FakeSocket(), "gpt-live-1")
+    end = AsyncMock()
+    submit = AsyncMock()
+    host = NativeLiveVoiceHost(
+        session,
+        scope,
+        check=AsyncMock(),
+        acknowledge=AsyncMock(),
+        submit=submit,
+        request_end=end,
+    )
+    host.ready = True
+    await host.commit_completed_turn(
+        CompletedCallerTurn("end", 0, 1500, "Okay, please end this call now.")
+    )
+    end.assert_awaited_once()
+    submit.assert_not_awaited()
+    assert not session.closed
+
+
+@pytest.mark.asyncio
+async def test_live_relay_notifies_browser_end_even_without_provider_finalization():
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from tests.test_native_voice import Browser
+
+    browser = Browser()
+    session = OpenAILiveSession(FakeSocket(), "gpt-live-1")
+    session.close = AsyncMock(return_value=False)
+    relay = NativeLiveVoiceRelay(
+        browser,
+        session,
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay.host.ready = True
+    await relay._request_live_end()
+    await relay._watch_live_end()
+    assert await browser.outbox.get() == {"type": "call_ending"}
+    assert await browser.outbox.get() == {"type": "call_ended"}
+    assert relay.host.closing
+    assert not relay.host.ready
+
+
+@pytest.mark.asyncio
+async def test_live_settings_advertise_the_same_exact_registry_as_backend_validation(
+    monkeypatch,
+):
+    from app.services import voice_configuration as config
+
+    monkeypatch.setattr(config, "can_access_workspace", AsyncMock(return_value="owner"))
+    monkeypatch.setattr(config, "owner_subject", AsyncMock(return_value="caller"))
+    monkeypatch.setattr(config, "configuration_record", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        config, "resolve_realtime_credential", AsyncMock(return_value=None)
+    )
+    response = await config.describe_realtime("caller", "workspace")
+    assert set(response["supported_models"]) == REALTIME_MODELS | LIVE_MODELS
+    assert "gpt-live-1-mini" not in response["supported_models"]
+
+
+def test_live_turn_boundary_keeps_greeting_separate_from_explicit_hangup():
+    now = [0.0]
+    turns = LiveCallerTurns(clock=lambda: now[0])
+    turns.audio(b"\xff\x7f" * 2400)
+    turns.observe(LiveTranscript("user", "Hello, say hello back", 100, 900, "greeting"))
+    now[0] = 1.9
+    turns.audio(bytes(72000))
+    assert turns.poll() is None  # No delegation yet; normal 3s wait.
+    # New speech after the strong PCM boundary settles the earlier social turn.
+    turns.audio(b"\xff\x7f" * 2400)
+    turns.observe(
+        LiveTranscript("user", "Okay, please end this call now", 2200, 3000, "hangup")
+    )
+    previous = turns.poll()
+    assert previous and previous.text == "Hello, say hello back" and previous.superseded
+    turns.audio(bytes(72000))
+    now[0] = 5.1
+    ending = turns.poll()
+    assert (
+        ending
+        and ending.text == "Okay, please end this call now"
+        and not ending.superseded
+    )
+
+
+@pytest.mark.asyncio
+async def test_live_superseded_end_cannot_close_call_or_admit_late_delegation():
+    scope = VoiceScope("caller", "workspace", "", "thread")
+    end = AsyncMock()
+    submit = AsyncMock()
+    host = NativeLiveVoiceHost(
+        OpenAILiveSession(FakeSocket(), "gpt-live-1"),
+        scope,
+        check=AsyncMock(),
+        acknowledge=AsyncMock(return_value=True),
+        submit=submit,
+        request_end=end,
+        accept_explicit_continuations=True,
+    )
+    host.ready = True
+    host.ledger.observe(LiveDelegation("late", 900, "late-event"))
+    assert (
+        await host.commit_completed_turn(
+            CompletedCallerTurn(
+                "superseded", 100, 1200, "Please end this call", superseded=True
+            )
+        )
+        is None
+    )
+    end.assert_not_awaited()
+    submit.assert_not_awaited()

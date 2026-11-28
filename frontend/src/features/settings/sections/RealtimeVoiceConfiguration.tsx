@@ -37,13 +37,13 @@ function ScopedRealtimeVoiceConfiguration({ workspace, user, connections, profil
     onError: () => { void query.refetch(); },
   });
   const data = query.data;
-  const { options, selected } = voiceRoleOptions(connections, profiles, "realtime", data?.configuration);
+  const { options, selected } = voiceRoleOptions(connections, profiles, "realtime", data?.configuration, data?.supported_models);
   const currentDraft = draft?.revision === data?.revision ? draft : null;
   const selectedModel = options.find(option => option.id === currentDraft?.id && option.id !== "legacy");
   const dirty = Boolean(currentDraft && (selectedModel || currentDraft.id === "disabled"));
   function submit() {
     if (!currentDraft) return;
-    if (selectedModel && isRealtimeVoiceModel(selectedModel.model)) {
+    if (selectedModel && isRealtimeVoiceModel(selectedModel.model, data?.supported_models)) {
       save.mutate({ mode: "provider", connection_id: selectedModel.connectionId, model: selectedModel.model, revision: currentDraft.revision });
     } else if (currentDraft.id === "disabled") {
       save.mutate({ mode: "disabled", connection_id: "", model: "", revision: currentDraft.revision });

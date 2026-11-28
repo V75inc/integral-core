@@ -292,13 +292,14 @@ export const REALTIME_VOICE_QUERY_KEY = ["realtime-voice-configuration"] as cons
 export interface RealtimeVoiceChoice {
   mode: "provider" | "disabled";
   connection_id: string;
-  model: "" | "gpt-realtime-2.1-mini" | "gpt-realtime-2.1" | "gpt-realtime-2" | "gpt-realtime-1.5" | "gpt-realtime" | "gpt-realtime-mini" | "gpt-live-1";
+  model: string; // The server validates its own supported model registry.
 }
 export interface RealtimeVoiceConfiguration {
   editable: boolean;
   revision: number;
   configuration: Partial<RealtimeVoiceChoice> & Pick<RealtimeVoiceChoice, "mode">;
   effective_model: string;
+  supported_models?: string[];
 }
 export const realtimeVoiceConfigurationApi = {
   async get(request?: AxiosRequestConfig): Promise<RealtimeVoiceConfiguration> {

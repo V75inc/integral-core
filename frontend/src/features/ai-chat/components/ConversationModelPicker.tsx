@@ -2,6 +2,7 @@ import { isChatProfile } from "../../../api/modelProfileKinds";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { aiConfigurationApi } from "../../../api/aiConfiguration";
 import { errorMessageFromAxios } from "../../../api/helpers";
+import { Button } from "../../../components/ui/Button";
 import { HoverTooltip } from "../../../components/ui/HoverTooltip";
 import { Brain, ChevronDown, X } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -126,18 +127,24 @@ export function ConversationModelPicker() {
   const heavyModel = configuration.data.effective.routing?.heavy_model || configuration.data.effective.model;
   const lightModel = configuration.data.effective.routing?.light_model;
   const profileName = (model: string | undefined) => configuration.data?.profiles.find(profile => profile.model === model)?.name || model;
+  const workspaceModel = profileName(heavyModel) || "Not configured";
+  const workspaceRoutingLabel = automatic && lightModel ? `${profileName(lightModel)} + ${workspaceModel}` : workspaceModel;
+  const overrideLabel = current === "__heavy" ? "Heavy only" : selected?.name || "Saved model";
+  const overrideActive = current !== "";
   return (
     <div ref={anchor} className="relative"
       onPointerEnter={() => { if (!open) setTooltipDismissed(false); }}
       onBlur={event => {
         if (!open && !event.currentTarget.contains(event.relatedTarget)) setTooltipDismissed(false);
       }}>
-      <HoverTooltip label="Choose model and reasoning" placement="top" disabled={open || tooltipDismissed}>
-        <IconButton label="Model for this conversation"
+      <HoverTooltip label={overrideActive ? `Conversation override: ${overrideLabel}` : "Choose model and reasoning"} placement="top" disabled={open || tooltipDismissed}>
+        <Button type="button" variant="ghost" size="xs" aria-label="Model for this conversation"
+          aria-description={overrideActive ? `Conversation override: ${overrideLabel}` : `Workspace default: ${workspaceRoutingLabel}`}
           aria-haspopup="dialog" aria-expanded={open} disabled={isRunning}
-          onClick={() => { setTooltipDismissed(true); setOpenThread(value => value === activeThreadId ? null : activeThreadId); }} size="md">
-          <Brain size={17} strokeWidth={LINE_ICON_STROKE} aria-hidden />
-        </IconButton>
+          onClick={() => { setTooltipDismissed(true); setOpenThread(value => value === activeThreadId ? null : activeThreadId); }}
+          icon={<Brain size={17} strokeWidth={LINE_ICON_STROKE} aria-hidden />}>
+          <Text variant="label" tone={overrideActive ? "brand" : "inherit"}>{overrideActive ? "Chat override" : "Workspace default"}</Text>
+        </Button>
       </HoverTooltip>
       {open && createPortal(
         <Surface ref={panel} role="dialog" aria-label="Chat model settings" elevation="pop" padding="md"
@@ -152,6 +159,18 @@ export function ConversationModelPicker() {
             <IconButton label="Close model settings" size="sm" onClick={close}><X size={15} aria-hidden /></IconButton>
           </div>
           <div className="mt-4 space-y-3">
+            <Surface tone="panel-2" border="none" radius="input" padding="sm">
+              <Text as="p" variant="label" tone={overrideActive ? "brand" : "default"}>
+                {overrideActive ? `Conversation override: ${overrideLabel}` : "Using workspace default"}
+              </Text>
+              <Text as="p" variant="meta" tone="muted">
+                {current === "__heavy" ? "Uses the workspace’s main model only, even if automatic routing is enabled." : overrideActive ? `Overrides workspace default (${workspaceRoutingLabel}). Settings changes do not replace this chat’s selection.` : "Main model changes in Settings apply to this chat."}
+              </Text>
+              {overrideActive && <Button type="button" variant="outline" size="xs" className="mt-2" disabled={disabled}
+                onClick={() => { panel.current?.querySelector<HTMLSelectElement>("select")?.focus(); change.mutate(""); }}>
+                Use workspace default
+              </Button>}
+            </Surface>
             <label className="block space-y-1">
               <Text as="span" variant="label">Use model</Text>
               <Select aria-label="Use model" value={current} disabled={disabled} onChange={event => change.mutate(event.target.value)}>

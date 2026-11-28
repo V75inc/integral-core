@@ -194,7 +194,7 @@ export function AiConfigurationSection({
     );
     return () => clearTimeout(timer);
   }, [profile?.model]);
-  const specialty = profile?.embedding_only ? "Embeddings" : profile?.model && specializedModel(profile.model);
+  const specialty = profile?.embedding_only ? "Embeddings" : profile?.model && specializedModel(profile.model, realtime.data?.supported_models);
   const nonChat = Boolean(specialty);
   const caps = useQuery({
     queryKey: ["model-capabilities", selectedConnection?.provider, capModel],
@@ -333,7 +333,7 @@ export function AiConfigurationSection({
     if (p.id === data.default_profile_id) roles.unshift(data.routing?.mode === "light_heavy" ? "Heavy model" : "Main model");
     if (data.routing?.mode === "light_heavy" && p.id === data.routing.light_profile_id) roles.push("Light model");
     if (p.id === (images.data?.configuration.profile_id || images.data?.recommended_profile_id)) roles.push("Vision");
-    return roles.length ? roles.join(" · ") + " · Assigned" : p.embedding_only ? "Embeddings" : specializedModel(p.model);
+    return roles.length ? roles.join(" · ") + " · Assigned" : p.embedding_only ? "Embeddings" : specializedModel(p.model, realtime.data?.supported_models);
   };
   const profiles = data.profiles.filter((p) =>
     `${p.name} ${p.model}`.toLowerCase().includes(needle),
@@ -1024,14 +1024,14 @@ export function AiConfigurationSection({
                     />
                   </Field>
                 )}
-                {customModel && selectedConnection && selectedConnection.provider !== "anthropic" && (!specializedModel(profile.model) || profile.embedding_only) && (
+                {customModel && selectedConnection && selectedConnection.provider !== "anthropic" && (!specializedModel(profile.model, realtime.data?.supported_models) || profile.embedding_only) && (
                   <label className="flex items-center gap-2">
                     <input type="checkbox" checked={!!profile.embedding_only}
                       onChange={e => setProfile({ ...profile, embedding_only: e.target.checked, generation_settings: {} })} />
                     <Text as="span" variant="body-sm">Use as an embedding encoder</Text>
                   </label>
                 )}
-                {nonChat && <Text variant="body-sm" tone="muted">{specialty === "Realtime Voice" && !isRealtimeVoiceModel(profile.model)
+                {nonChat && <Text variant="body-sm" tone="muted">{specialty === "Realtime Voice" && !isRealtimeVoiceModel(profile.model, realtime.data?.supported_models)
                   ? "This voice model is not assignable through the currently supported Realtime session protocol."
                   : `Assign this model under ${specialty}.`}</Text>}
                 {!nonChat && <>
