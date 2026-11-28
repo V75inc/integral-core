@@ -1,4 +1,5 @@
 import { useRecordNavigation } from '../hooks/useRecordNavigation';
+import { browserFilteredCount } from '../components/tracks/detail/browserFilteredCount';
 import { useDeployment } from '../hooks/useDeployment';
 import { MAX_FIELD_FILTERS, toRequestFilters, type FieldFilter } from '../components/tracks/fieldFilters';
 import { PAGE_SIZES } from '../components/ui/ListPager';
@@ -663,6 +664,18 @@ export function TrackDetailPage() {
     enabled: Boolean(id && !pagedMode && firstEntryPage?.hasMore && firstEntryPage.nextCursor
       && (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId)),
     queryFn: () => tracksApi.getEntriesTotal(id!, entryFilters),
+    retry: false,
+  });
+
+  // A tab or filter can show part of the Track. Count the whole Track too, so the
+  // header agrees with the count shown on the App and Track lists.
+  const narrowed = Boolean(requestFilters.length || activeView?.entry_type_keys?.length ||
+    (activeView?.config as { filters?: unknown[] } | undefined)?.filters?.length);
+  const { data: trackTotal } = useQuery({
+    queryKey: ['track', id, 'entries-total', 'whole-track'],
+    enabled: Boolean(id && narrowed && firstEntryPage
+      && (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId)),
+    queryFn: () => tracksApi.getEntriesTotal(id!, {}),
     retry: false,
   });
 
@@ -1967,6 +1980,8 @@ export function TrackDetailPage() {
         track={track}
         workspaceAccentColor={trackWorkspaceAccentColor}
         entriesTotal={entriesTotal}
+        trackTotal={narrowed ? trackTotal ?? undefined : undefined}
+        shownEntries={browserFilteredCount(filterType, filterTags, isPagesView, filteredEntries.length)}
         loadedEntries={loadedEntries}
         hasMoreEntries={hasNextPage}
         publicShareEnabled={Boolean(publicShareQuery.data?.enabled)}

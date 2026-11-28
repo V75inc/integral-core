@@ -144,6 +144,7 @@ async def test_personal_workspace_members_returns_owner_only(
     payload = members.json()
     assert payload["total"] == 1
     assert payload["members"][0]["role"] == "owner"
+    assert payload["members"][0]["email"] == "test@example.com"
 
 
 @pytest.mark.asyncio
@@ -243,6 +244,28 @@ async def test_workspace_admin_can_patch_settings_and_manage_members(
         },
     )
     assert add_admin.status_code == 200, add_admin.text
+
+    members = await second_user_client.get(f"/api/workspaces/{ws_id}/members")
+    assert members.status_code == 200, members.text
+    emails = [m.get("email") for m in members.json()["members"]]
+    assert len(emails) == 2 and all(emails), emails
+
+    # One blank stored address leaves that row without an email; the rest list.
+    from jvspatial.core.context import get_default_context
+
+    database = get_default_context().database
+    account = await database.get("object", test_user.user_id)
+    account["context"]["email"] = ""
+    await database.save("object", account)
+    try:
+        members = await second_user_client.get(f"/api/workspaces/{ws_id}/members")
+        assert members.status_code == 200, members.text
+        by_account = {m["user_id"]: m.get("email") for m in members.json()["members"]}
+        assert len(by_account) == 2 and by_account[test_user.user_id] is None
+        assert by_account[second_user.user_id]
+    finally:
+        account["context"]["email"] = "test@example.com"
+        await database.save("object", account)
 
     patch_ws = await second_user_client.patch(
         f"/api/workspaces/{ws_id}",

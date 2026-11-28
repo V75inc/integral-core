@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { findEntryTypeBySlug } from '../../utils/entryMetaFields';
 import { SeamlessField } from '../entries/SeamlessField';
+import { canInlineEditField } from '../entries/EntryInlineFields';
+import { useDetailDateDraft } from './useDetailDateDraft';
+import { isEntryUnavailable, isOlderRevision } from '../entries/savedEntryRead';
 import type { RelationChoice } from '../entries/EntryFormExpanded';
 import { appsApi, entriesApi, entryTypesApi } from '../../api';
 import { extensionsApi, requireOperationOutput } from '../../api/extensions';
@@ -9,6 +12,7 @@ import { toolsApi } from '../../api/tools';
 import { useToast } from '../../context/ToastContext';
 import { Surface } from '../../ui/Surface';
 import { Text } from '../../ui/Text';
+import { Button } from '../ui/Button';
 import { deriveAutoOffsetPatch } from '../../utils/fieldDateOffset';
 import { patchFromAppSettings } from '../../utils/fieldSettingDefaults';
 import { deriveRelationLabelPatch } from '../../utils/relationFieldSync';
@@ -22,6 +26,14 @@ import {
 } from './regionConditions';
 import type { ViewWidgetProps } from './types';
 import type { OperationalModelFieldSpec, Entry, EntryTypeNode } from '../../types';
+
+/** Read-time values of a record; one that could not be checked is unknown. */
+function projectedValues(entry: Entry): Record<string, unknown> {
+  const unknown = Object.entries(entry.read_time_fields?.status || {})
+    .filter(([, status]) => status === 'unavailable')
+    .map(([key]) => [key, null]);
+  return { ...entry.read_time_fields?.values, ...Object.fromEntries(unknown) };
+}
 
 /**
  * Config-driven subset-of-fields form region — the reusable Oracle-APEX-
@@ -217,11 +229,19 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
       try {
         const fetched = await entriesApi.get(hostEntryId);
         if (!cancelled) {
-          setTargetEntry(fetched);
+          setTargetEntry(prev => (prev && isOlderRevision(fetched, prev) ? prev : fetched));
           setTargetEditable(true);
         }
-      } catch {
-        if (!cancelled) setTargetEntry(null);
+      } catch (cause) {
+        if (!cancelled) {
+          // Retain the current record only for a temporary read failure.
+          if (isEntryUnavailable(cause)) {
+            setTargetEntry(null);
+            setTargetEditable(false);
+          } else {
+            setTargetEntry(prev => (prev && prev.id === hostEntryId ? prev : null));
+          }
+        }
       }
     }
 
@@ -417,7 +437,112 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     ]
   );
 
-  if (isLoading || loadingTypes || (loadingTarget && !draftBound)) {
+  // Detail view: date fields open their picker and save only on Save.
+  const detailEdit = lifecycle?.mode === 'detail' ? lifecycle.detailEdit : undefined;
+  const dateDraft = useDetailDateDraft(
+    targetEntry && targetEntry.id === hostEntryId ? targetEntry : null,
+    ({ entry: saved, stillShown }) => {
+      if (stillShown) {
+        setTargetEntry(prev => (prev?.id === saved.id && !isOlderRevision(saved, prev) ? saved : prev));
+      }
+      detailEdit?.onSaved(saved, { current: stillShown });
+    },
+    () => { setTargetEntry(null); setTargetEditable(false); },
+  );
+  // A record's reading view shows its own snapshot, so what is on screen and
+  // the revision a save is checked against always belong together.
+  const snapshotBound =
+    !draftBound && lifecycle?.mode === 'detail' && bindMode === 'self';
+  // That snapshot, and any newer revision, also replaces values shared between
+  // regions, both for what was saved here and for what changed elsewhere.
+  const syncLive = live?.sync;
+  const seenRevision = useRef<{ entryId: string; revision: number } | null>(null);
+  useEffect(() => {
+    if (draftBound || !targetEntry?.id || !targetEntry.record_revision) return;
+    const seen = seenRevision.current;
+    const sameRecord = seen?.entryId === targetEntry.id;
+    if (sameRecord && targetEntry.record_revision <= seen!.revision) return;
+    seenRevision.current = { entryId: targetEntry.id, revision: targetEntry.record_revision };
+    if (!sameRecord && !snapshotBound) return;
+    const current = { ...targetEntry.custom_fields, ...projectedValues(targetEntry) };
+    for (const field of allFields) {
+      if (field.key in current) syncLive?.(field.key, current[field.key]);
+    }
+  }, [draftBound, snapshotBound, targetEntry, allFields, syncLive]);
+
+  // Re-reading the record already on screen (after a save) keeps it there.
+  const awaitingTarget =
+    loadingTarget && !draftBound && (!targetEntry || targetEntry.id !== hostEntryId);
+
+  // Fields show this region's snapshot with its live projections; every
+  // sibling commit still counts for visible_if.
+  const draftValues = draftBound
+    ? { ...(lifecycle?.customFields || {}), ...(targetEntry?.custom_fields || {}) }
+    : { ...(targetEntry?.custom_fields || {}) };
+  const projected = !draftBound && targetEntry ? projectedValues(targetEntry) : {};
+  // Dates come only from the snapshot there; other fields still follow a
+  // sibling region's more-recent commit.
+  const shared = Object.fromEntries(
+    Object.entries(live?.values || {}).filter(([key]) => {
+      const type = fieldByKey.get(key)?.type;
+      return !(snapshotBound && (type === 'date' || type === 'datetime'));
+    }),
+  );
+  const persistedValues = dateDraft.base ?? draftValues;
+  // Shared values inform the form, and live projections are resolved on each read.
+  const values: Record<string, unknown> = {
+    ...persistedValues,
+    ...shared,
+    ...dateDraft.values,
+    ...projected,
+  };
+  const visibilityValues = {
+    ...values,
+    ...(live?.values || {}),
+    ...(dateDraft.values || {}),
+    ...projected,
+  };
+  const projectedStatus = (!draftBound && targetEntry?.read_time_fields?.status) || {};
+  // Locked here too, whether or not the host took the latest record.
+  const protectedKeys = [
+    ...(detailEdit?.readOnlyKeys || []),
+    ...Object.keys(projected),
+    ...Object.keys(projectedStatus),
+  ];
+  const visibleFields = displayFields.filter(
+    f =>
+      !(lifecycle?.mode === 'create' && f.hide_on_create) &&
+      isVisible(fieldVisibleIfByKey.get(f.key), visibilityValues)
+  );
+  // Entry detail passes mode="detail" without onDraftPatch (view-only until
+  // pencil → edit). FormRegion used to treat that as self-bind + editable,
+  // so the invoice shell looked like the compose form. Match
+  // EditableRelatedLinesWidget: detail is always read-only.
+  const readOnly =
+    lifecycle?.mode === 'detail' ||
+    (draftBound ? false : !targetEditable);
+
+  // Evaluate writability against the current snapshot rather than the draft's
+  // captured revision. Automatically derived fields must still be writable.
+  const currentValues = { ...draftValues, ...shared, ...dateDraft.values, ...projected };
+  const isWritableDate = (field: OperationalModelFieldSpec) =>
+    Boolean(detailEdit && targetEditable && bindMode === 'self' &&
+      targetEntry?.id === hostEntryId && targetEntry?.record_revision &&
+      targetEntry.schema_revision &&
+      (field.type === 'date' || field.type === 'datetime') &&
+      canInlineEditField(field, currentValues, protectedKeys) &&
+      !autoLockedKeys.has(field.key));
+  const activeDraft = dateDraft.values;
+  const allowedDateDraft = Boolean(activeDraft &&
+    Object.keys(activeDraft).every(key => {
+      const field = fieldByKey.get(key);
+      return field && isWritableDate(field);
+    }));
+  useEffect(() => {
+    if (activeDraft && !allowedDateDraft && !dateDraft.saving) dateDraft.cancel();
+  }, [activeDraft, allowedDateDraft, dateDraft.saving]);
+
+  if (isLoading || loadingTypes || awaitingTarget) {
     return (
       <Surface
         tone="panel-2"
@@ -431,26 +556,6 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
   if (!targetEntry && !draftBound) {
     return null;
   }
-
-  // Merge the shared channel on top of this region's own entry snapshot —
-  // a sibling region's more-recent commit wins for visible_if purposes,
-  // while fields this region itself owns still read from its own state.
-  const draftValues = draftBound
-    ? { ...(lifecycle?.customFields || {}), ...(targetEntry?.custom_fields || {}) }
-    : { ...(targetEntry?.custom_fields || {}) };
-  const values = { ...draftValues, ...(live?.values || {}) };
-  const visibleFields = displayFields.filter(
-    f =>
-      !(lifecycle?.mode === 'create' && f.hide_on_create) &&
-      isVisible(fieldVisibleIfByKey.get(f.key), values)
-  );
-  // Entry detail passes mode="detail" without onDraftPatch (view-only until
-  // pencil → edit). FormRegion used to treat that as self-bind + editable,
-  // so the invoice shell looked like the compose form. Match
-  // EditableRelatedLinesWidget: detail is always read-only.
-  const readOnly =
-    lifecycle?.mode === 'detail' ||
-    (draftBound ? false : !targetEditable);
 
   return (
     <Surface
@@ -466,8 +571,13 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
       >
         {visibleFields.map(field => {
           const detailEditable = editableInDetailKeys.has(field.key);
+          const explicitDate = Boolean(
+            !detailEditable && isWritableDate(field)
+          );
           const fieldLocked =
-            (readOnly && !detailEditable) || autoLockedKeys.has(field.key);
+            (readOnly && !detailEditable && !explicitDate) ||
+            autoLockedKeys.has(field.key) ||
+            projectedStatus[field.key] === 'unavailable';
           return (
             <div key={field.key} data-field-key={field.key}>
               {config.show_labels === true && <Text as="div" variant="label" className="mb-1.5">{field.name}{field.required ? ' *' : ''}</Text>}
@@ -475,7 +585,22 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
               externalLabel={config.show_labels === true ? true : undefined}
               field={fieldLocked ? { ...field, readonly: true } : field}
               value={values[field.key]}
-              onChange={next => commitField(field.key, next)}
+              onChange={next => {
+                if (!explicitDate) {
+                  void commitField(field.key, next);
+                  return;
+                }
+                // The picker reports the stored value on blur too.
+                if ((next ?? '') === (values[field.key] ?? '')) return;
+                // Derive the offset from the record revision used by Save.
+                const changed = {
+                  ...persistedValues,
+                  ...dateDraft.values,
+                  [field.key]: next,
+                };
+                const offset = deriveAutoOffsetPatch(allFields, changed, field.key);
+                dateDraft.change({ [field.key]: next, ...offset });
+              }}
               entryId={targetEntry?.id || lifecycle?.entryId || undefined}
               relationChoices={relationChoices[field.key]}
               relationSource={{ trackId: view.track_id, entryTypeId: activeEntryType?.id || '',
@@ -490,6 +615,31 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
           );
         })}
       </div>
+      {visibleFields.some(field => projectedStatus[field.key] === 'unavailable') ? (
+        <div role="status" className="mt-3">
+          <Text as="p" variant="body-sm" tone="muted">Some live fields could not be checked. Their values are unknown.</Text>
+        </div>
+      ) : null}
+      {dateDraft.values && allowedDateDraft ? (
+        <div className="mt-3 space-y-2">
+          {dateDraft.error ? (
+            <div role="alert">
+              <Text as="p" variant="body-sm" tone="danger">{dateDraft.error}</Text>
+            </div>
+          ) : null}
+          <div className="flex items-center gap-2">
+            <Button type="button" size="sm" loading={dateDraft.saving} onClick={() => { void dateDraft.save(allowedDateDraft); }}>Save</Button>
+            <Button type="button" size="sm" variant="ghost" disabled={dateDraft.saving} onClick={dateDraft.cancel}>Cancel</Button>
+          </div>
+        </div>
+      ) : null}
+      {dateDraft.refreshError ? (
+        <div role="status" className="mt-3 space-y-2">
+          <Text as="p" variant="body-sm" tone="warn">Saved. Refresh the entry to check its latest live fields.</Text>
+          <details><summary>Show refresh error</summary><Text as="p" variant="body-sm">{dateDraft.refreshError}</Text></details>
+          <Button type="button" size="sm" variant="secondary" loading={dateDraft.refreshing} onClick={() => { void dateDraft.refresh(); }}>Refresh entry</Button>
+        </div>
+      ) : null}
     </Surface>
   );
 }
