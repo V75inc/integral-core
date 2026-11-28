@@ -83,6 +83,17 @@ class NativeLiveVoiceHost:
         ):
             return
         await self.check(self.scope)
+        # A call may close while its authorization check awaits storage.
+        # Never send a stale capture frame into the closing provider session.
+        if (
+            not self.ready
+            or self.closing
+            or self.microphone_muted
+            or self.review_capture
+            or self.session.closing
+            or self.session.closed
+        ):
+            return
         self.turns.audio(pcm)
         await self.session.append_audio(pcm)
 

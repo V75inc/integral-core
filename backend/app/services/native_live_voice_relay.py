@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import secrets
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -38,7 +39,41 @@ from app.services.openai_voice_protocol import (
     LiveDelegation,
     LiveTaskRequest,
     LiveTranscript,
+    PCM_RATE,
 )
+
+logger = logging.getLogger(__name__)
+_LIVE_OUTPUT_QUIET_SECONDS = 0.35
+
+
+@dataclass
+class _LiveBargeIn:
+    """Media-only speech hysteresis, independent of durable turn admission.
+
+    Avoid treating a single noisy capture frame as a caller interruption, and
+    release playback after a short quiet interval rather than the conservative
+    1.5-second completed-turn fence. The host still owns command admission.
+    """
+
+    speaking: bool = False
+    voiced_run: int = 0
+    quiet_run: int = 0
+
+    def update(self, pcm: bytes) -> bool:
+        if not pcm or len(pcm) % 2:
+            return self.speaking
+        count = len(pcm) // 2
+        if voiced_sample_count(pcm):
+            self.voiced_run += count
+            self.quiet_run = 0
+            if self.voiced_run >= PCM_RATE * 12 // 100:
+                self.speaking = True
+        else:
+            self.voiced_run = 0
+            self.quiet_run += count
+            if self.quiet_run >= PCM_RATE // 5:
+                self.speaking = False
+        return self.speaking
 
 
 @dataclass
@@ -85,6 +120,9 @@ class NativeLiveVoiceRelay(VoiceRelay):
         self._commentary: _Commentary | None = None
         self._commentary_lock = asyncio.Lock()
         self._last_audio = 0.0
+        self._barge_in = _LiveBargeIn()
+        self._last_pcm_at: float | None = None
+        self._last_pcm_duration = 0.0
         self._input_clock = asyncio.Event()
         self._review_starting = False
         self._deferred_system: dict[str, str] = {}
@@ -111,6 +149,27 @@ class NativeLiveVoiceRelay(VoiceRelay):
                 return False
         async with self._commentary_lock:
             generation = self.generation
+            # Live has no output_audio_done event. A commentary append can
+            # change the conversational trajectory; wait for observed quiet
+            # before adding a new spoken update, not merely its first PCM.
+            if spoken:
+                deadline = asyncio.get_running_loop().time() + 8
+                while (
+                    asyncio.get_running_loop().time() - self._last_audio
+                    < _LIVE_OUTPUT_QUIET_SECONDS
+                ):
+                    if (
+                        generation != self.generation
+                        or self.host.closing
+                        or self.speaking
+                        or self.review_confirmation
+                        or asyncio.get_running_loop().time() >= deadline
+                    ):
+                        self.protocol_counts[
+                            "live_commentary_waiting_for_boundary"
+                        ] += 1
+                        return False
+                    await asyncio.sleep(0.05)
             if (
                 not self._input_clock.is_set()
                 or self.host.review_capture
@@ -294,6 +353,9 @@ class NativeLiveVoiceRelay(VoiceRelay):
             and not self.review_confirmation
             and not self.microphone_muted
             and not self.closing
+            and not self.speaking
+            and asyncio.get_running_loop().time() - self._last_audio
+            >= _LIVE_OUTPUT_QUIET_SECONDS
         )
 
     def _defer_system(self, key, text):
@@ -333,13 +395,14 @@ class NativeLiveVoiceRelay(VoiceRelay):
     async def send_event(self, payload):
         kind = payload["type"]
         if kind == "input_audio_buffer.append":
-            before = self.host.turns.speech_revision
-            await self.host.audio(base64.b64decode(payload["audio"], validate=True))
-            if (
+            pcm = base64.b64decode(payload["audio"], validate=True)
+            accepted = (
                 self.host.ready
                 and not self.host.review_capture
                 and not self.microphone_muted
-            ):
+            )
+            await self.host.audio(pcm)
+            if accepted and self.host.ready and not self.host.closing:
                 self._input_clock.set()
                 if (
                     self._deferred_system
@@ -350,16 +413,21 @@ class NativeLiveVoiceRelay(VoiceRelay):
                     )
                 ):
                     self._system_flush_task = asyncio.create_task(self._flush_system())
-            if self.host.turns.speech_revision != before:
-                self.user_spoke = True
-                if not self.speaking:
+                previous = self.speaking
+                speaking = self._barge_in.update(pcm)
+                if speaking and not previous:
+                    self.speaking = True
+                    self.user_spoke = True
+                    self.protocol_counts["live_caller_barge_in"] += 1
                     await self._interrupt()
-                self.speaking = True
-            elif self.speaking and not self.host.turns.speaking:
-                self.speaking = False
-                self.quiet_since = asyncio.get_running_loop().time()
+                elif previous and not speaking:
+                    self.speaking = False
+                    self.quiet_since = asyncio.get_running_loop().time()
+                    self.protocol_counts["live_caller_playback_released"] += 1
         elif kind == "input_audio_buffer.clear":
             self._input_clock.clear()
+            self._barge_in = _LiveBargeIn()
+            self.speaking = False
             await self.host.set_microphone_muted(self.microphone_muted)
             await self.host.set_review_capture(self.review_confirmation is not None)
         elif kind == "conversation.item.create":
@@ -381,6 +449,8 @@ class NativeLiveVoiceRelay(VoiceRelay):
     async def _microphone_changed(self):
         if self.microphone_muted:
             self._input_clock.clear()
+            self._barge_in = _LiveBargeIn()
+            self.speaking = False
         await self.host.set_microphone_muted(self.microphone_muted)
 
     async def _finish_confirmation(self, result, applied=None):
@@ -391,7 +461,16 @@ class NativeLiveVoiceRelay(VoiceRelay):
 
     async def _send_opening(self):
         if not self.user_spoke:
-            await self._append("Give one brief natural greeting.", spoken=True)
+            await self._append(
+                "Give one brief natural greeting. "
+                + _direct_address_context(self.caller_name)
+                + (
+                    "Address the caller by their known name in this greeting."
+                    if self.caller_name
+                    else ""
+                ),
+                spoken=True,
+            )
 
     async def _truncate_interrupted_playback(self, report):
         # Live does not expose Realtime item IDs or a history truncate event.
@@ -435,11 +514,29 @@ class NativeLiveVoiceRelay(VoiceRelay):
             ):
                 item.transcript = True
                 item.changed.set()
+            if pcm:
+                now = asyncio.get_running_loop().time()
+                self.protocol_counts["live_pcm_frames"] += 1
+                if self._last_pcm_at is not None:
+                    excess = max(
+                        0,
+                        round(
+                            1000 * (now - self._last_pcm_at - self._last_pcm_duration)
+                        ),
+                    )
+                    self.protocol_counts["live_pcm_max_excess_gap_ms"] = max(
+                        self.protocol_counts["live_pcm_max_excess_gap_ms"], excess
+                    )
+                self._last_pcm_at = now
+                self._last_pcm_duration = len(pcm) / (2 * PCM_RATE)
+                if self.speaking or self.review_confirmation:
+                    self.protocol_counts["live_pcm_frames_suppressed"] += 1
             if pcm and not self.speaking and not self.review_confirmation:
                 async with self.audio_delivery_lock:
                     await self.check(self.scope)
                     if not self.speaking and not self.review_confirmation:
                         await self.browser.send_bytes(pcm)
+                        self.protocol_counts["live_pcm_frames_offered"] += 1
                         # Live emits continuous PCM, including silence. Silent
                         # frames cannot satisfy spoken-intent admission or keep
                         # completed results indefinitely behind idle audio.
@@ -636,3 +733,6 @@ class NativeLiveVoiceRelay(VoiceRelay):
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             await self.upstream.close(timeout=0)
+            logger.info(
+                "Native Live voice media summary: %s", dict(self.protocol_counts)
+            )

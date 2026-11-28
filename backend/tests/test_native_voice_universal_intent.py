@@ -779,3 +779,17 @@ async def test_verified_review_outcome_supersedes_stale_provider_context():
     assert browser.outbox.empty()
     await relay._retain_review_outcome("unverified")
     assert provider.outbox.empty()
+
+
+def test_realtime_opening_uses_authoritative_caller_name_without_repetition():
+    known = voice._opening_response("Integral AI", "new", "morning", "Eldon Marks")[
+        "response"
+    ]["instructions"]
+    unnamed = voice._opening_response("Integral AI", "new", "morning", "")["response"][
+        "instructions"
+    ]
+    assert '"Eldon Marks"' in known
+    assert "Address the caller by their known name in this greeting." in known
+    assert "never repeat it in every reply" in known
+    assert "known name in this greeting" not in unnamed
+    assert "never guess their name" in unnamed
