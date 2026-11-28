@@ -565,6 +565,12 @@ the actual instruction, local cadence/timezone, run limit, destination and
 whether automatic writes are permitted. The execution receipt and saved
 routine must agree before voice reports success.
 
+For a typed or recovered same-thread proposal during a live call, the
+relay offers the single exact pending review at the next quiet natural
+boundary once per unchanged proposal. A prior accepted voice task cannot
+mask the current typed proposal. Ambiguous/multiple pending proposals
+do not receive an automatic verbal decision.
+
 The active call keeps a compact pending-review status. If an exact spoken
 projection is unavailable, it clearly identifies the visual-review
 exception, and the caller can explicitly open the original card. Closing
