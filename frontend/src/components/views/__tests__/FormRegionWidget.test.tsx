@@ -478,16 +478,18 @@ describe('FormRegionWidget saving dates on the reading view', () => {
   }) as unknown as Entry;
 
   /** The entry dialog's own wiring: one widget, whichever record is shown. */
-  function Host({ entry, canSwitchTo, newer, onUpdate = () => {} }: {
-    entry: Entry; canSwitchTo?: Entry; newer?: Entry; onUpdate?: (saved: Entry) => void;
+  function Host({ entry, canSwitchTo, newer, allowToggle = false, onUpdate = () => {} }: {
+    entry: Entry; canSwitchTo?: Entry; newer?: Entry; allowToggle?: boolean; onUpdate?: (saved: Entry) => void;
   }) {
     const [shown, setShown] = useState(entry);
-    const detailEdit = useDetailRecordEdit(shown, true, setShown, onUpdate);
+    const [editable, setEditable] = useState(true);
+    const detailEdit = useDetailRecordEdit(shown, editable, setShown, onUpdate);
     // Seeded with the whole record, as the layout container does.
     const live = useLiveValuesProvider(shown.custom_fields as Record<string, unknown>);
     return (
       <LiveValuesContext.Provider value={live}>
         <span data-testid="shown">{shown.id}</span>
+        {allowToggle && <button type="button" onClick={() => setEditable(value => !value)}>Toggle editing</button>}
         {canSwitchTo && <button type="button" onClick={() => setShown(canSwitchTo)}>Open next</button>}
         {canSwitchTo && <button type="button" onClick={() => setShown(entry)}>Open first</button>}
         {newer && <button type="button" onClick={() => setShown(newer)}>Host refreshed</button>}
@@ -610,6 +612,65 @@ describe('FormRegionWidget saving dates on the reading view', () => {
     expect(endDate).toBeDisabled();
     expect(endDate).toHaveValue('');
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('discards a pending date edit when the host switches to read-only', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const first = record('entry-a', '2026-03-10', '2026-03-11');
+    mockGet.mockResolvedValue(first);
+    mount(<Host entry={first} allowToggle />);
+    await pickStart(/March 20th, 2026/);
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle editing' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull());
+    expect(screen.getByDisplayValue(shownDate(10))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle editing' }));
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('retains the latest revision when an ordinary refresh returns an earlier snapshot', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const first = record('entry-a', '2026-03-10', '2026-03-11', 3);
+    const saved = record('entry-a', '2026-03-20', '2026-03-11', 4);
+    mockGet.mockResolvedValue(first);
+    mockUpdate.mockResolvedValue(saved);
+    mount(<Host entry={first} newer={{ ...saved }} />);
+    await pickStart(/March 20th, 2026/);
+    mockGet.mockResolvedValue(saved);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull());
+    let finish!: (entry: Entry) => void;
+    mockGet.mockReturnValueOnce(new Promise<Entry>(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole('button', { name: 'Host refreshed' }));
+    await act(async () => { finish(first); });
+    expect(screen.getByDisplayValue(shownDate(20))).toBeInTheDocument();
+  });
+
+  it('clears a record when its current read reports it no longer exists', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const first = record('entry-a', '2026-03-10', '2026-03-11');
+    mockGet.mockResolvedValue(first);
+    mount(<Host entry={first} newer={{ ...first }} />);
+    await screen.findByDisplayValue(shownDate(10));
+    mockGet.mockRejectedValue({ response: { status: 404 } });
+    fireEvent.click(screen.getByRole('button', { name: 'Host refreshed' }));
+    await waitFor(() => expect(screen.queryByTestId('form-region-widget')).toBeNull());
+  });
+
+  it('does not offer a second write after a saved record is no longer available', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const first = record('entry-a', '2026-03-10', '2026-03-11', 3);
+    const saved = record('entry-a', '2026-03-20', '2026-03-11', 4);
+    mockGet.mockResolvedValue(first);
+    mockUpdate.mockResolvedValue(saved);
+    mount(<Host entry={first} />);
+    await pickStart(/March 20th, 2026/);
+    mockGet.mockRejectedValue({ response: { status: 404 } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByTestId('form-region-widget')).toBeNull());
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });
 
   /** Starts a save of entry A that finishes only when the test says so. */

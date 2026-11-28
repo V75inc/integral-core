@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { entriesApi } from '../../api';
 import { errorMessageFromAxios } from '../../api/helpers';
-import { hasRevisions, readSavedEntry } from '../entries/savedEntryRead';
+import { hasRevisions, isEntryUnavailable, readSavedEntry } from '../entries/savedEntryRead';
 import type { Entry } from '../../types';
 
 interface DateDraft {
@@ -31,6 +31,7 @@ type Notice = { entryId: string; message: string } | null;
 export function useDetailDateDraft(
   entry: Entry | null,
   onSaved: (result: DetailDateSave) => void,
+  onUnavailable: () => void,
 ) {
   const [stored, setDraft] = useState<DateDraft | null>(null);
   const [savingIds, setSavingIds] = useState<readonly string[]>([]);
@@ -40,7 +41,12 @@ export function useDetailDateDraft(
   // Changes whenever another record is shown, and when the widget goes away.
   const session = useRef(0);
   const entryId = entry?.id;
-  useLayoutEffect(() => () => { session.current++; }, [entryId]);
+  useLayoutEffect(() => {
+    setDraft(null);
+    setFailure(null);
+    setStale(null);
+    return () => { session.current++; };
+  }, [entryId]);
 
   const draft = stored && stored.entryId === entryId ? stored : null;
   const saving = Boolean(entryId && savingIds.includes(entryId));
@@ -63,8 +69,8 @@ export function useDetailDateDraft(
     setFailure(null);
   }
 
-  async function save() {
-    if (!entry || !draft || saving) return;
+  async function save(allowed: boolean) {
+    if (!entry || !draft || saving || !allowed) return;
     const writing = draft;
     const token = session.current;
     setSavingIds(ids => [...ids, writing.entryId]);
@@ -75,13 +81,14 @@ export function useDetailDateDraft(
         expected_record_revision: writing.recordRevision,
         expected_schema_revision: writing.schemaRevision,
       });
-      const { complete, refreshError } = await readSavedEntry(writing.entryId, saved, () => entry);
+      const { complete, refreshError, unavailable } = await readSavedEntry(writing.entryId, saved, () => entry, true);
       setDraft(current => (current === writing ? null : current));
       const stillShown = token === session.current;
       if (stillShown) {
         setStale(refreshError ? { entryId: writing.entryId, message: refreshError } : null);
       }
-      onSaved({ entry: complete, stillShown });
+      if (stillShown && unavailable) onUnavailable();
+      onSaved({ entry: complete, stillShown: stillShown && !unavailable });
     } catch (cause) {
       if (token === session.current) {
         setFailure({ entryId: writing.entryId,
@@ -106,6 +113,11 @@ export function useDetailDateDraft(
       }
     } catch (cause) {
       if (token === session.current) {
+        if (isEntryUnavailable(cause)) {
+          setStale(null);
+          onUnavailable();
+          return;
+        }
         setStale({ entryId,
           message: errorMessageFromAxios(cause, 'The latest entry could not be loaded.') });
       }

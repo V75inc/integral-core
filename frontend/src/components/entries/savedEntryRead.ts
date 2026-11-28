@@ -7,9 +7,18 @@ export function hasRevisions(entry: Entry): boolean {
     Number.isSafeInteger(entry.schema_revision) && (entry.schema_revision ?? 0) > 0;
 }
 
+/** Definitive failures must not be treated as an offline snapshot. */
+export function isEntryUnavailable(cause: unknown): boolean {
+  const status = (cause as { response?: { status?: number } })?.response?.status;
+  return status === 401 || status === 403 || status === 404 || status === 410;
+}
+
 /** True when ``next`` is an earlier revision of the record than ``shown``. */
 export function isOlderRevision(next: Entry, shown: Entry): boolean {
-  return (next.record_revision ?? 0) < (shown.record_revision ?? 0);
+  return next.id === shown.id && (
+    (next.record_revision ?? 0) < (shown.record_revision ?? 0) ||
+    (next.schema_revision ?? 0) < (shown.schema_revision ?? 0)
+  );
 }
 
 /**
@@ -22,18 +31,22 @@ export async function readSavedEntry(
   entryId: string,
   saved: Entry,
   prior: () => Entry,
-): Promise<{ complete: Entry; refreshError: string | null }> {
+  clearUnavailable = false,
+): Promise<{ complete: Entry; refreshError: string | null; unavailable?: boolean }> {
   // The server still enforces authorization, field validation, approvals
   // and both revisions. Only an authoritative response changes read mode.
   if (saved.id !== entryId) throw new Error('Unexpected saved record');
   try {
     const complete = await entriesApi.get(entryId);
     if (complete.id !== entryId || !hasRevisions(complete) ||
-        (complete.record_revision ?? 0) < (saved.record_revision ?? 0)) {
+        isOlderRevision(complete, saved)) {
       throw new Error('Unexpected refreshed record');
     }
     return { complete, refreshError: null };
   } catch (cause) {
+    if (clearUnavailable && isEntryUnavailable(cause)) {
+      return { complete: saved, refreshError: null, unavailable: true };
+    }
     const before = prior();
     const keys = Array.from(new Set([
       ...Object.keys(before.read_time_fields?.values ?? {}),

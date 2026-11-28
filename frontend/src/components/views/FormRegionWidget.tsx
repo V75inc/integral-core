@@ -4,7 +4,7 @@ import { findEntryTypeBySlug } from '../../utils/entryMetaFields';
 import { SeamlessField } from '../entries/SeamlessField';
 import { canInlineEditField } from '../entries/EntryInlineFields';
 import { useDetailDateDraft } from './useDetailDateDraft';
-import { isOlderRevision } from '../entries/savedEntryRead';
+import { isEntryUnavailable, isOlderRevision } from '../entries/savedEntryRead';
 import type { RelationChoice } from '../entries/EntryFormExpanded';
 import { appsApi, entriesApi, entryTypesApi } from '../../api';
 import { extensionsApi, requireOperationOutput } from '../../api/extensions';
@@ -229,12 +229,19 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
       try {
         const fetched = await entriesApi.get(hostEntryId);
         if (!cancelled) {
-          setTargetEntry(fetched);
+          setTargetEntry(prev => (prev && isOlderRevision(fetched, prev) ? prev : fetched));
           setTargetEditable(true);
         }
-      } catch {
-        // A failed re-read keeps the record already on screen.
-        if (!cancelled) setTargetEntry(prev => (prev && prev.id === hostEntryId ? prev : null));
+      } catch (cause) {
+        if (!cancelled) {
+          // Retain the current record only for a temporary read failure.
+          if (isEntryUnavailable(cause)) {
+            setTargetEntry(null);
+            setTargetEditable(false);
+          } else {
+            setTargetEntry(prev => (prev && prev.id === hostEntryId ? prev : null));
+          }
+        }
       }
     }
 
@@ -436,10 +443,11 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     targetEntry && targetEntry.id === hostEntryId ? targetEntry : null,
     ({ entry: saved, stillShown }) => {
       if (stillShown) {
-        setTargetEntry(prev => (prev && isOlderRevision(saved, prev) ? prev : saved));
+        setTargetEntry(prev => (prev?.id === saved.id && !isOlderRevision(saved, prev) ? saved : prev));
       }
       detailEdit?.onSaved(saved, { current: stillShown });
     },
+    () => { setTargetEntry(null); setTargetEditable(false); },
   );
   // A record's reading view shows its own snapshot, so what is on screen and
   // the revision a save is checked against always belong together.
@@ -465,21 +473,6 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
   // Re-reading the record already on screen (after a save) keeps it there.
   const awaitingTarget =
     loadingTarget && !draftBound && (!targetEntry || targetEntry.id !== hostEntryId);
-
-  if (isLoading || loadingTypes || awaitingTarget) {
-    return (
-      <Surface
-        tone="panel-2"
-        border="none"
-        radius="input"
-        className="h-24 animate-pulse"
-      />
-    );
-  }
-
-  if (!targetEntry && !draftBound) {
-    return null;
-  }
 
   // Fields show this region's snapshot with its live projections; every
   // sibling commit still counts for visible_if.
@@ -529,6 +522,41 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     lifecycle?.mode === 'detail' ||
     (draftBound ? false : !targetEditable);
 
+  // Evaluate writability against the current snapshot rather than the draft's
+  // captured revision. Automatically derived fields must still be writable.
+  const currentValues = { ...draftValues, ...shared, ...dateDraft.values, ...projected };
+  const isWritableDate = (field: OperationalModelFieldSpec) =>
+    Boolean(detailEdit && targetEditable && bindMode === 'self' &&
+      targetEntry?.id === hostEntryId && targetEntry?.record_revision &&
+      targetEntry.schema_revision &&
+      (field.type === 'date' || field.type === 'datetime') &&
+      canInlineEditField(field, currentValues, protectedKeys) &&
+      !autoLockedKeys.has(field.key));
+  const activeDraft = dateDraft.values;
+  const allowedDateDraft = Boolean(activeDraft &&
+    Object.keys(activeDraft).every(key => {
+      const field = fieldByKey.get(key);
+      return field && isWritableDate(field);
+    }));
+  useEffect(() => {
+    if (activeDraft && !allowedDateDraft && !dateDraft.saving) dateDraft.cancel();
+  }, [activeDraft, allowedDateDraft, dateDraft.saving]);
+
+  if (isLoading || loadingTypes || awaitingTarget) {
+    return (
+      <Surface
+        tone="panel-2"
+        border="none"
+        radius="input"
+        className="h-24 animate-pulse"
+      />
+    );
+  }
+
+  if (!targetEntry && !draftBound) {
+    return null;
+  }
+
   return (
     <Surface
       padding="lg"
@@ -544,13 +572,7 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
         {visibleFields.map(field => {
           const detailEditable = editableInDetailKeys.has(field.key);
           const explicitDate = Boolean(
-            detailEdit &&
-              !detailEditable &&
-              bindMode === 'self' &&
-              targetEntry?.record_revision &&
-              targetEntry.schema_revision &&
-              (field.type === 'date' || field.type === 'datetime') &&
-              canInlineEditField(field, values, protectedKeys)
+            !detailEditable && isWritableDate(field)
           );
           const fieldLocked =
             (readOnly && !detailEditable && !explicitDate) ||
@@ -598,7 +620,7 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
           <Text as="p" variant="body-sm" tone="muted">Some live fields could not be checked. Their values are unknown.</Text>
         </div>
       ) : null}
-      {dateDraft.values ? (
+      {dateDraft.values && allowedDateDraft ? (
         <div className="mt-3 space-y-2">
           {dateDraft.error ? (
             <div role="alert">
@@ -606,7 +628,7 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
             </div>
           ) : null}
           <div className="flex items-center gap-2">
-            <Button type="button" size="sm" loading={dateDraft.saving} onClick={() => { void dateDraft.save(); }}>Save</Button>
+            <Button type="button" size="sm" loading={dateDraft.saving} onClick={() => { void dateDraft.save(allowedDateDraft); }}>Save</Button>
             <Button type="button" size="sm" variant="ghost" disabled={dateDraft.saving} onClick={dateDraft.cancel}>Cancel</Button>
           </div>
         </div>
