@@ -130,13 +130,10 @@ async def decide_staged_write(
         )
 
     proposal = proposal_from_staged(staged)
-    from app.services.native_voice_batch import permits_batch
-    from app.services.native_voice_creation import (
-        permits_creation,
+    from app.services.voice_approval_contract import (
+        permits_voice_review,
+        permits_voice_deletion,
     )
-    from app.services.native_voice_deletion import permits_deletion
-    from app.services.native_voice_presentation import permits_presentation
-    from app.services.native_voice_reminder import permits_reminder
 
     if source == "resident_permission":
         from app.services.resident_permissions import holds_permission
@@ -145,23 +142,7 @@ async def decide_staged_write(
             raise StagingError(
                 "strong_confirmation_required", "This change needs review."
             )
-    if (
-        source == "voice"
-        and not permits_reminder(staged)
-        and not permits_batch(staged)
-        and not permits_presentation(staged)
-        and not permits_deletion(staged)
-        and (
-            proposal.effect_class != ApprovalEffectClass.PRIVATE_REVERSIBLE
-            or (
-                proposal.effect_kind != "update_entry"
-                and not (
-                    proposal.effect_kind == "create_entry"
-                    and permits_creation(proposal_id)
-                )
-            )
-        )
-    ):
+    if source == "voice" and not permits_voice_review(staged, proposal):
         raise StagingError(
             "strong_confirmation_required", "This change needs its approval card."
         )
@@ -170,7 +151,7 @@ async def decide_staged_write(
             not strong_confirmation
             or (
                 source != "card"
-                and not (source == "voice" and permits_deletion(staged))
+                and not (source == "voice" and permits_voice_deletion(staged))
             )
         ):
             raise StagingError(

@@ -31,13 +31,12 @@ export function PromptSheetHost({
   const [expanded, setExpanded] = useState<string | null>(null);
   const item = sheet.current;
   const inCall = !!voice && voice.threadId === sheet.threadId && item?.kind === 'staged_write'
-    && item.status === 'pending' && !item.last_error && sheet.page.total === 1
-    && !(voice.requiresDetails && voice.proposal === item.token);
+    && item.status === 'pending' && !item.last_error;
   const compact = inCall && expanded !== item.token;
   const node = sheet.open && item && (compact ? (
     <div className="flex items-center justify-between gap-2 px-4 py-2">
       <Text as="span" variant="body-sm" tone="muted" role="status">
-        {voice.proposal === item.token ? "Awaiting your voice decision" : "Change awaiting review"}
+        {voice.requiresDetails && voice.proposal === item.token ? "Visual review required for this change" : voice.proposal === item.token ? "Awaiting your voice decision" : "Change awaiting review"}
       </Text>
       <Button size="sm" variant="ghost" onClick={() => setExpanded(item.token)}>Review details</Button>
     </div>

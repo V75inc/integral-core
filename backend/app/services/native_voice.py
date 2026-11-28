@@ -3566,27 +3566,11 @@ class VoiceRelay:
                     else:
                         confirmation.heard_decision = verified_decision
                         confirmation.phase = "committing"
-                        from app.services.native_voice_batch import confirmed_batch
-                        from app.services.native_voice_creation import (
-                            confirmed_creation,
-                        )
-                        from app.services.native_voice_deletion import (
-                            confirmed_deletion,
-                        )
-                        from app.services.native_voice_presentation import (
-                            confirmed_presentation,
-                        )
-                        from app.services.native_voice_reminder import (
-                            confirmed_reminder,
+                        from app.services.voice_approval_contract import (
+                            confirmed_voice_review,
                         )
 
-                        with (
-                            confirmed_deletion(current),
-                            confirmed_presentation(current),
-                            confirmed_batch(current),
-                            confirmed_creation(current),
-                            confirmed_reminder(current),
-                        ):
+                        with confirmed_voice_review(current):
                             resolved = await decide_staged_write(
                                 principal_id=self.scope.principal,
                                 workspace_id=self.scope.workspace,
@@ -3648,6 +3632,7 @@ class VoiceRelay:
                                     not current.children
                                     and not current.creation
                                     and not current.reminder
+                                    and not current.routine
                                     and not current.presentation
                                     and not current.deletion
                                     and self.navigation.focus
@@ -3722,7 +3707,7 @@ class VoiceRelay:
         else:
             if followup and followup.intent == "hold":
                 message = "Okay, I’ll leave it pending."
-            elif review.children or review.reminder:
+            elif review.children or review.reminder or review.routine:
                 message = "That’s still pending. To change it, ask me to discard this proposal and prepare a new one."
             else:
                 message = "What would you like me to change?"
@@ -5906,6 +5891,7 @@ class VoiceRelay:
         if self.conversational_review and not review:
             from app.agentive.staging import get_token
             from app.services.prompt_queue import get_queue
+            from app.services.voice_approval_contract import review_channel
 
             thread = await self.check(self.scope)
             if thread and getattr(thread, "prompt_queue", None):
@@ -5929,6 +5915,15 @@ class VoiceRelay:
                             and (staged.origin_proof or {}).get("work_item_id")
                             == receipt.work_item_id
                         ):
+                            if (
+                                review_channel(
+                                    staged.kind,
+                                    voice_active=True,
+                                    exact_voice_review=False,
+                                )
+                                != "visual_review_required"
+                            ):
+                                continue
                             self.manual_review_work_id = receipt.work_item_id
                             await self.browser.send_json(
                                 {
