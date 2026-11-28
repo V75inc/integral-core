@@ -44,7 +44,7 @@ class LiveReviewVoice:
         return None
 
     async def render(self, confirmation) -> bytes:
-        script = confirmation.review.text
+        script = getattr(confirmation.review, "speech_text", confirmation.review.text)
         session = await self.connect()
         pcm = bytearray()
         transcript = ""

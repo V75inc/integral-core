@@ -64,6 +64,7 @@ async def test_entry_review_requires_exact_current_record_and_work(monkeypatch):
     )
     answer = await review.read_entry_review(**args)
     assert answer.text == "Would you like me to rename “Acme” to “Acme Georgetown”?"
+    assert answer.speech_text == "Would you like me to rename Acme to Acme Georgetown?"
     assert "private-token" not in answer.text and "private-id" not in answer.text
     assert await review.read_entry_review(**{**args, "run_id": "other"}) is None
     row["context"]["record_revision"] = 3
@@ -110,3 +111,13 @@ def test_simple_field_projection_is_schema_bound_and_literal(
     spec, value, previous, expected
 ):
     assert review._simple_field_text(spec, value, previous=previous) == expected
+
+
+@pytest.mark.parametrize("literal", ['Alpha "Beta"', "Alpha “Beta”", "Alpha ”Beta“"])
+def test_spoken_review_preserves_literal_quotation_and_meaningful_punctuation(literal):
+    action = f"change “{literal}” from -12.50 to 25.00"
+    assert review.spoken_review_action(action, literal) == action
+    assert (
+        review.spoken_review_action("change “Alpha” from -12.50 to 25.00", "Alpha")
+        == "change Alpha from -12.50 to 25.00"
+    )

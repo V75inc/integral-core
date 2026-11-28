@@ -76,6 +76,29 @@ async def pending_review_work(thread, principal, workspace):
     return proof["work_item_id"], change.token
 
 
+def spoken_review_action(action: str, *literal_values: object) -> str:
+    """Remove display-only quotation delimiters, never literal quoted data.
+
+    Voice cannot pronounce typographic formatting on its own. Callers must
+    supply the actual data used to construct the action. If any literal
+    contains quotes, retain the strict original text; this is not permission
+    to normalize a literal value, identifier, number or other punctuation.
+    """
+
+    def literal_quotes(value):
+        if isinstance(value, str):
+            return any(mark in value for mark in ('"', "“", "”"))
+        if isinstance(value, dict):
+            return any(literal_quotes(item) for item in value.values())
+        if isinstance(value, (list, tuple)):
+            return any(literal_quotes(item) for item in value)
+        return False
+
+    if any(literal_quotes(value) for value in literal_values):
+        return action
+    return action.replace("“", "").replace("”", "")
+
+
 @dataclass(frozen=True)
 class VoiceReviewReadout:
     action: str = field(repr=False)
@@ -95,12 +118,20 @@ class VoiceReviewReadout:
     destination_label: str = field(default="", repr=False)
     children: tuple["VoiceReviewReadout", ...] = field(default=(), repr=False)
     update_field_types: tuple[tuple[str, str], ...] = field(default=(), repr=False)
+    speech_action: str = field(default="", repr=False)
+
+    def _question(self, action: str) -> str:
+        if self.deletion:
+            return f"Would you like me to {action}? This also removes its comments and sharing links. Attached files will no longer be accessible through this record. This cannot be undone. Say yes, delete it, or no to keep it."
+        return f"Would you like me to {action}?"
 
     @property
     def text(self) -> str:
-        if self.deletion:
-            return f"Would you like me to {self.action}? This also removes its comments and sharing links. Attached files will no longer be accessible through this record. This cannot be undone. Say yes, delete it, or no to keep it."
-        return f"Would you like me to {self.action}?"
+        return self._question(self.action)
+
+    @property
+    def speech_text(self) -> str:
+        return self._question(self.speech_action or self.action)
 
     def matches_focus(self, focus):
         if self.children:
@@ -440,6 +471,9 @@ async def read_entry_review(
             hashlib.sha256(encoded).hexdigest(),
             tuple(spoken_fields),
             update_field_types=tuple(update_field_types),
+            speech_action=spoken_review_action(
+                text, entry, item.payload, spoken_fields
+            ),
         )
 
 

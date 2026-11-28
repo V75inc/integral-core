@@ -65,6 +65,10 @@ class NativeLiveVoiceRelay(VoiceRelay):
         self._commentary: _Commentary | None = None
         self._commentary_lock = asyncio.Lock()
         self._last_audio = 0.0
+        self._input_clock = asyncio.Event()
+        self._review_starting = False
+        self._deferred_system: dict[str, str] = {}
+        self._system_flush_task: asyncio.Task | None = None
         self._end_notified = False
         self._task_delegation: ContextVar[str | None] = ContextVar(
             "live_task_delegation", default=None
@@ -78,9 +82,21 @@ class NativeLiveVoiceRelay(VoiceRelay):
         text = _short(text)
         if not text:
             return False
+        if spoken and not self._input_clock.is_set():
+            try:
+                await asyncio.wait_for(self._input_clock.wait(), 2)
+            except TimeoutError:
+                return False
         async with self._commentary_lock:
             generation = self.generation
-            if spoken and (self.speaking or self.review_confirmation):
+            if (
+                not self._input_clock.is_set()
+                or self.host.review_capture
+                or self.review_confirmation
+                or self.microphone_muted
+                or (not spoken and self._review_starting)
+                or (spoken and self.speaking)
+            ):
                 return False
             item = _Commentary(secrets.token_hex(16), spoken)
             self._commentary = item
@@ -107,6 +123,15 @@ class NativeLiveVoiceRelay(VoiceRelay):
                 self._commentary = None
 
     async def _acknowledge(self, request: LiveTaskRequest) -> bool:
+        # Client delegation does not yet carry a reviewed queue/steer intent.
+        # Don't promise a new action while the existing work is still active.
+        if self.pending and not self.pending.done():
+            await self._append(
+                "Briefly acknowledge the person's follow-up. Accurately explain that their earlier request is still active and no follow-up or correction has been submitted. Do not promise execution.",
+                spoken=True,
+                delegation_id=request.delegation_id,
+            )
+            return False
         # The provider's commentary ACK is not proof of speech. Require actual
         # post-append transcript and PCM offered to the current browser too.
         return await self._append(
@@ -144,11 +169,70 @@ class NativeLiveVoiceRelay(VoiceRelay):
         # resident's durable receipt remains authoritative if voice is cut off.
         return None
 
+    def _system_clock_ready(self):
+        return (
+            self._input_clock.is_set()
+            and not self._review_starting
+            and not self.host.review_capture
+            and not self.review_confirmation
+            and not self.microphone_muted
+            and not self.closing
+        )
+
+    def _defer_system(self, key, text):
+        # Quiet context is only an advisory snapshot. Bound and coalesce it;
+        # never retain a provider event or a proposal as admission authority.
+        self._deferred_system[key] = _short(text)
+        if len(self._deferred_system) > 8:
+            self._deferred_system.pop(next(iter(self._deferred_system)))
+
+    async def _flush_system(self):
+        while self._deferred_system and self._system_clock_ready():
+            key = next(iter(self._deferred_system))
+            text = self._deferred_system.pop(key)
+            offered = await self._append(text)
+            if not offered and not self._system_clock_ready():
+                self._deferred_system.setdefault(key, text)
+                return
+
+    def _can_sync_thread_status(self):
+        return self._system_clock_ready() and super()._can_sync_thread_status()
+
+    async def _request_review_confirmation(
+        self, call_id, decision, generation, *, expected=None
+    ):
+        # Let an already-issued context append finish on the open input clock
+        # before muting it. New advisory updates wait for resumed media.
+        self._review_starting = True
+        try:
+            async with self._commentary_lock:
+                pass
+            await super()._request_review_confirmation(
+                call_id, decision, generation, expected=expected
+            )
+        finally:
+            self._review_starting = False
+
     async def send_event(self, payload):
         kind = payload["type"]
         if kind == "input_audio_buffer.append":
             before = self.host.turns.speech_revision
             await self.host.audio(base64.b64decode(payload["audio"], validate=True))
+            if (
+                self.host.ready
+                and not self.host.review_capture
+                and not self.microphone_muted
+            ):
+                self._input_clock.set()
+                if (
+                    self._deferred_system
+                    and self._system_clock_ready()
+                    and (
+                        self._system_flush_task is None
+                        or self._system_flush_task.done()
+                    )
+                ):
+                    self._system_flush_task = asyncio.create_task(self._flush_system())
             if self.host.turns.speech_revision != before:
                 self.user_spoke = True
                 if not self.speaking:
@@ -158,17 +242,28 @@ class NativeLiveVoiceRelay(VoiceRelay):
                 self.speaking = False
                 self.quiet_since = asyncio.get_running_loop().time()
         elif kind == "input_audio_buffer.clear":
+            self._input_clock.clear()
             await self.host.set_microphone_muted(self.microphone_muted)
             await self.host.set_review_capture(self.review_confirmation is not None)
         elif kind == "conversation.item.create":
             item = payload.get("item", {})
             if item.get("role") == "system":
                 for part in item.get("content", []):
-                    await self._append(part.get("text", ""))
+                    text = part.get("text", "")
+                    event_id = payload.get("event_id", "")
+                    key = (
+                        "status" if event_id.startswith("voice-status-") else "history"
+                    )
+                    if not self._system_clock_ready() or (
+                        not await self._append(text) and not self._system_clock_ready()
+                    ):
+                        self._defer_system(key, text)
         else:
             raise ValueError("Realtime-only event in Live relay")
 
     async def _microphone_changed(self):
+        if self.microphone_muted:
+            self._input_clock.clear()
         await self.host.set_microphone_muted(self.microphone_muted)
 
     async def _finish_confirmation(self, result, applied=None):
@@ -395,6 +490,9 @@ class NativeLiveVoiceRelay(VoiceRelay):
                 tasks.append(self.opening_task)
             if self.confirmation_task:
                 tasks.append(self.confirmation_task)
+            if self._system_flush_task:
+                tasks.append(self._system_flush_task)
+            self._deferred_system.clear()
             for task in tasks:
                 if not task.done():
                     task.cancel()

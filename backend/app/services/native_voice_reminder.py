@@ -16,7 +16,10 @@ _confirmation = ContextVar("voice_reminder_confirmation", default=None)
 
 def reminder_review(item, work_id, run_id):
     """Project the exact one-time message, delivery location and local schedule."""
-    from app.services.native_voice_review import VoiceReviewReadout
+    from app.services.native_voice_review import (
+        VoiceReviewReadout,
+        spoken_review_action,
+    )
 
     p = item.payload
     if (
@@ -79,6 +82,7 @@ def reminder_review(item, work_id, run_id):
         item.session_id,
         fingerprint,
         reminder=dict(p),
+        speech_action=spoken_review_action(text, p),
     )
 
 

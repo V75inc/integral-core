@@ -312,7 +312,23 @@ async def test_live_review_requires_actual_audio_verification(verified):
 
     socket = ClockedSocket()
     socket.enqueue(started())
-    script = "Add the meeting on Thursday. Would you like me to do that?"
+    from app.services.native_voice_review import (
+        VoiceReviewReadout,
+        spoken_review_action,
+    )
+
+    action = "rename “Sample Alpha” to “Sample Beta”"
+    readout = VoiceReviewReadout(
+        action,
+        "work",
+        "run",
+        "proposal",
+        "target",
+        "fingerprint",
+        speech_action=spoken_review_action(action, "Sample Alpha", "Sample Beta"),
+    )
+    script = "Would you like me to rename Sample Alpha to Sample Beta?"
+    assert readout.text != script and readout.speech_text == script
     socket.enqueue(
         {
             "type": "session.output_transcript.delta",
@@ -347,7 +363,7 @@ async def test_live_review_requires_actual_audio_verification(verified):
     renderer = LiveReviewVoice(
         AsyncMock(return_value=OpenAILiveSession(socket, "gpt-live-1.1")), verifier
     )
-    confirmation = SimpleNamespace(review=SimpleNamespace(text=script))
+    confirmation = SimpleNamespace(review=readout)
     if verified:
         recording = await renderer.render(confirmation)
         assert recording.startswith(b"RIFF")
@@ -981,3 +997,76 @@ async def test_public_live_media_rechecks_grant_and_cannot_delegate(monkeypatch)
         if not task.done():
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_live_defers_quiet_context_without_input_clock_during_review():
+    """A muted or unclocked Live session cannot accept fresh context injection."""
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from tests.test_native_voice import Browser
+
+    socket = FakeSocket()
+    socket.enqueue(started())
+    relay = NativeLiveVoiceRelay(
+        Browser(),
+        OpenAILiveSession(socket, "gpt-live-1.1"),
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    await relay.host.start(instructions="QA", voice="marin")
+    relay.ready = True
+    relay._append = AsyncMock(return_value=True)
+
+    def status(text):
+        return {
+            "type": "conversation.item.create",
+            "event_id": "voice-status-fixture",
+            "item": {"role": "system", "content": [{"text": text}]},
+        }
+
+    assert not relay._can_sync_thread_status()
+    await relay.send_event(status("initial snapshot"))
+    relay._append.assert_not_awaited()
+    await relay.host.set_review_capture(True)
+    await relay.send_event(status("newer verified snapshot"))
+    assert not relay._can_sync_thread_status()
+    relay._append.assert_not_awaited()
+    await relay.host.set_review_capture(False)
+    await relay.send_event(
+        {
+            "type": "input_audio_buffer.append",
+            "audio": base64.b64encode(bytes(4800)).decode(),
+        }
+    )
+    await asyncio.wait_for(relay._system_flush_task, 2)
+    relay._append.assert_awaited_once_with("newer verified snapshot")
+    assert not relay._deferred_system
+    await relay.upstream.close(timeout=0)
+
+
+@pytest.mark.asyncio
+async def test_live_pending_followup_does_not_promise_unqualified_execution():
+    from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+    from app.services.openai_voice_protocol import LiveTaskRequest
+    from tests.test_native_voice import Browser
+
+    socket = FakeSocket()
+    relay = NativeLiveVoiceRelay(
+        Browser(),
+        OpenAILiveSession(socket, "gpt-live-1.1"),
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    relay._append = AsyncMock(return_value=True)
+    relay.pending = asyncio.create_task(asyncio.Event().wait())
+    try:
+        turn = CompletedCallerTurn("turn", 0, 1500, "After that, summarize my calendar")
+        assert not await relay._acknowledge(LiveTaskRequest("delegation", turn))
+        relay._append.assert_awaited_once()
+        assert (
+            "no follow-up or correction has been submitted"
+            in relay._append.call_args.args[0]
+        )
+    finally:
+        relay.pending.cancel()
+        await asyncio.gather(relay.pending, return_exceptions=True)
