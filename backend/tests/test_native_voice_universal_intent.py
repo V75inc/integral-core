@@ -382,8 +382,9 @@ def test_voice_prompt_and_tool_contract_distinguish_perspectives():
     named = voice.session_update("", caller_name="Casey Example")["session"][
         "instructions"
     ]
-    assert '"Casey Example"' in named and "only in direct address" in named
-    assert "never as a third-person possessive" in named
+    assert '"Casey"' in named and "in direct address" in named
+    assert "Casey Example" not in named
+    assert "never their full name or a title" in named
     for tool in (voice.TOOL, voice._ACTION_TOOL):
         properties = tool["parameters"]["properties"]
         assert (
@@ -788,8 +789,140 @@ def test_realtime_opening_uses_authoritative_caller_name_without_repetition():
     unnamed = voice._opening_response("Integral AI", "new", "morning", "")["response"][
         "instructions"
     ]
-    assert '"Eldon Marks"' in known
-    assert "Address the caller by their known name in this greeting." in known
+    assert '"Eldon"' in known
+    assert "Eldon Marks" not in known
+    assert "familiar given name" in known
     assert "never repeat it in every reply" in known
-    assert "known name in this greeting" not in unnamed
+    assert "familiar given name" not in unnamed
     assert "never guess their name" in unnamed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("matching_cue", [True, False])
+async def test_late_delegation_finishes_audible_item_without_flush_or_restarting(
+    matching_cue, monkeypatch
+):
+    monkeypatch.setattr(voice, "ORDINARY_AUDIO_PREROLL_SECONDS", 0.01)
+    browser, provider = Browser(), Provider(manual_intent=True)
+    work = AsyncMock(return_value="Found it.")
+    relay = voice.VoiceRelay(
+        browser,
+        provider,
+        voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+        work=work,
+    )
+    relay.ready = True
+    reader = asyncio.create_task(relay._read_provider())
+    try:
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "turn"}}
+        )
+
+        async def packet(item, delta):
+            await provider.inbox.put(
+                {
+                    "type": "response.output_audio.delta",
+                    "response_id": "turn",
+                    "item_id": item,
+                    "content_index": 0,
+                    "delta": delta,
+                }
+            )
+
+        await packet("heard", "AAE=")
+        assert (await event(browser.outbox))["type"] == "playback_item"
+        assert await event(browser.outbox) == b"\x00\x01"
+        await provider.inbox.put(
+            {
+                "type": "response.output_item.added",
+                "response_id": "turn",
+                "item": {
+                    "type": "function_call",
+                    "name": voice.DELEGATE,
+                    "call_id": "tool",
+                },
+            }
+        )
+        await packet("heard", "AgM=")
+        await packet("speculative-new-item", "BAU=")
+        assert await event(browser.outbox) == b"\x02\x03"
+        cue = "I'll check your urgent tasks."
+        turn = request(
+            "tool",
+            "turn",
+            "",
+            name=voice.DELEGATE,
+            args={
+                "request": "Find my urgent tasks",
+                "intent_summary": cue,
+            },
+        )
+        turn["response"]["output"].insert(
+            0,
+            {
+                "id": "heard",
+                "type": "message",
+                "content": [
+                    {
+                        "type": "audio",
+                        "transcript": cue if matching_cue else "Let me take a look.",
+                    }
+                ],
+            },
+        )
+        turn["response"]["output"].append(
+            {
+                "id": "speculative-new-item",
+                "type": "message",
+                "content": [{"type": "audio", "transcript": "I already found it."}],
+            }
+        )
+        await provider.inbox.put(turn)
+        if matching_cue:
+            for _ in range(100):
+                if work.await_count:
+                    break
+                await asyncio.sleep(0.001)
+            work.assert_awaited_once()
+            assert not provider.intent_responses
+            assert relay.protocol_counts["handoff_already_spoken"] == 1
+        else:
+            private = (await event(provider.outbox))["response"]
+            assert cue in private["instructions"]
+            work.assert_not_awaited()
+            await provider.inbox.put(
+                {
+                    "type": "response.created",
+                    "response": {"id": "cue", "metadata": private["metadata"]},
+                }
+            )
+            await provider.inbox.put(
+                {
+                    "type": "response.output_audio.delta",
+                    "response_id": "cue",
+                    "delta": "Bgc=",
+                }
+            )
+            assert (await event(browser.outbox))["type"] == "playback_item"
+            assert await event(browser.outbox) == b"\x06\x07"
+            await provider.inbox.put(
+                {
+                    "type": "response.done",
+                    "response": {"id": "cue", "status": "completed"},
+                }
+            )
+            for _ in range(100):
+                if work.await_count:
+                    break
+                await asyncio.sleep(0.001)
+            work.assert_awaited_once()
+        assert browser.outbox.empty()  # no flush or speculative second audio item
+        assert relay.protocol_counts["speech_before_workspace_tool"] == 1
+    finally:
+        reader.cancel()
+        tasks = [reader] + [t for t in (relay.pending, relay.live_read) if t]
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)

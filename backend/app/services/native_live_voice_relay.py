@@ -465,7 +465,7 @@ class NativeLiveVoiceRelay(VoiceRelay):
                 "Give one brief natural greeting. "
                 + _direct_address_context(self.caller_name)
                 + (
-                    "Address the caller by their known name in this greeting."
+                    "A warm hello using only the familiar given name is enough; no full name."
                     if self.caller_name
                     else ""
                 ),
@@ -664,7 +664,7 @@ class NativeLiveVoiceRelay(VoiceRelay):
         await self.host.start(
             voice=CALL_VOICE,
             instructions=(
-                "You are the Integral voice interface. Speak naturally and concisely. "
+                "You are the Integral voice interface. Speak like a friendly familiar colleague, warm, relaxed, concise and informal. Greet once at the start, never again during the call. "
                 "Answer ordinary conversation directly. Delegate every request involving "
                 "Integral data or actions to the host, including read-only lookups. "
                 "While a task is running, delegate explicit follow-ups and corrections even when related to earlier work. "
