@@ -88,14 +88,16 @@ describe("Conversation model settings", () => {
     });
     show();
     const trigger = await screen.findByRole("button", { name: "Model for this conversation" });
-    expect(trigger).toHaveTextContent("Chat override");
+    expect(trigger.querySelector("svg")).toHaveAttribute("stroke", "var(--brand-accent)");
+    expect(trigger).not.toHaveTextContent("Chat override");
     expect(trigger).toHaveAttribute("aria-description", "Conversation override: Deep");
     fireEvent.click(trigger);
     expect(screen.getByText("Conversation override: Deep")).toBeInTheDocument();
     expect(screen.getByText("Overrides workspace default (Main model). Settings changes do not replace this chat’s selection.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Use workspace default" }));
     await waitFor(() => expect(aiConfigurationApi.conversation).toHaveBeenLastCalledWith("thread", "", "inherit"));
-    await waitFor(() => expect(trigger).toHaveTextContent("Workspace default"));
+    await waitFor(() => expect(trigger.querySelector("svg")).toHaveAttribute("stroke", "currentColor"));
+    expect(trigger).not.toHaveTextContent("Workspace default");
     expect(trigger).toHaveAttribute("aria-description", "Workspace default: Main model");
     expect(screen.getByText("Using workspace default")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Use workspace default" })).not.toBeInTheDocument();
@@ -107,7 +109,8 @@ describe("Conversation model settings", () => {
     });
     show();
     const trigger = await screen.findByRole("button", { name: "Model for this conversation" });
-    expect(trigger).toHaveTextContent("Chat override");
+    expect(trigger.querySelector("svg")).toHaveAttribute("stroke", "var(--brand-accent)");
+    expect(trigger).not.toHaveTextContent("Chat override");
     expect(trigger).toHaveAttribute("aria-description", "Conversation override: Heavy only");
     fireEvent.click(trigger);
     expect(screen.getByText("Conversation override: Heavy only")).toBeInTheDocument();
