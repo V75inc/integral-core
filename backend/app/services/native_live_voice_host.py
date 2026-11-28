@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Awaitable, Callable
 
 from app.services.live_caller_turns import LiveCallerTurns
+from app.services.live_voice_continuation import explicit_continuation
 from app.services.native_voice import (
     VoiceScope,
     _bind_ready_thread,
@@ -43,6 +44,7 @@ class NativeLiveVoiceHost:
         check=authorize,
         submit=delegate,
         bind_thread=_bind_ready_thread,
+        accept_explicit_continuations: bool = False,
     ):
         self.session = session
         self.scope = scope
@@ -50,6 +52,7 @@ class NativeLiveVoiceHost:
         self.submit = submit
         self.bind_thread = bind_thread
         self.acknowledge = acknowledge
+        self.accept_explicit_continuations = accept_explicit_continuations
         self.ledger = LiveTurnLedger()
         self.turns = LiveCallerTurns()
         self.ready = False
@@ -125,7 +128,15 @@ class NativeLiveVoiceHost:
         The separate review path owns affirmative/negative decisions. A Live
         transcript or a delegation event never supplies that proof.
         """
-        request = self.ledger.commit(turn)
+        request = self.ledger.commit(
+            turn,
+            accept_explicit_continuation=(
+                self.accept_explicit_continuations
+                and explicit_continuation(turn.text) is not None
+                and not self.review_capture
+                and not self.microphone_muted
+            ),
+        )
         if (
             not self.ready
             or self.closing

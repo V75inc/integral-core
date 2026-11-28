@@ -13,12 +13,18 @@ import json
 import secrets
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from typing import Literal
 
 from app.services.live_caller_turns import voiced_sample_count
+from app.services.live_voice_continuation import (
+    explicit_continuation as _explicit_continuation,
+    multiple_continuation_cues as _multiple_continuation_cues,
+)
 from app.services.native_live_voice_host import NativeLiveVoiceHost
 from app.services.native_voice import (
     MAX_CALL_SECONDS,
     VoiceRelay,
+    _AcceptedVoiceTurn,
     _direct_address_context,
     _PendingReviewNotice,
     _speech_ready_result,
@@ -45,6 +51,18 @@ class _Commentary:
     changed: asyncio.Event = field(default_factory=asyncio.Event)
 
 
+@dataclass(frozen=True)
+class _LiveContinuation:
+    """Explicit caller intent, pinned to the receipt before the audible handoff."""
+
+    delegation_id: str
+    operation: Literal["queue", "steer"]
+    text: str
+    foreground: _AcceptedVoiceTurn
+    generation: int
+    provider_delegation_id: str | None
+
+
 def _short(text: str, limit: int = 480) -> str:
     """Bound a context passage at a UTF-8 boundary; never use it for admission."""
     return text.encode()[:limit].decode(errors="ignore").strip()
@@ -61,6 +79,7 @@ class NativeLiveVoiceRelay(VoiceRelay):
             check=self.check,
             acknowledge=self._acknowledge,
             submit=self._submit,
+            accept_explicit_continuations=True,
         )
         self._commentary: _Commentary | None = None
         self._commentary_lock = asyncio.Lock()
@@ -70,6 +89,8 @@ class NativeLiveVoiceRelay(VoiceRelay):
         self._deferred_system: dict[str, str] = {}
         self._system_flush_task: asyncio.Task | None = None
         self._end_notified = False
+        self._continuation: _LiveContinuation | None = None
+        self._local_continuation_ids: set[str] = set()
         self._task_delegation: ContextVar[str | None] = ContextVar(
             "live_task_delegation", default=None
         )
@@ -123,14 +144,77 @@ class NativeLiveVoiceRelay(VoiceRelay):
                 self._commentary = None
 
     async def _acknowledge(self, request: LiveTaskRequest) -> bool:
-        # Client delegation does not yet carry a reviewed queue/steer intent.
-        # Don't promise a new action while the existing work is still active.
-        if self.pending and not self.pending.done():
+        self._continuation = None
+        provider_id = request.delegation_id if request.provider_delegated else None
+        command = _explicit_continuation(request.turn.text)
+        busy = self.pending is not None and not self.pending.done()
+        if command is not None and _multiple_continuation_cues(request.turn.text):
+            self.protocol_counts["live_continuation_multiple_cues"] += 1
             await self._append(
-                "Briefly acknowledge the person's follow-up. Accurately explain that their earlier request is still active and no follow-up or correction has been submitted. Do not promise execution.",
+                "Explain that two different follow-up instructions were heard together. "
+                "Neither operation has been submitted. Ask the person to repeat each separately.",
                 spoken=True,
-                delegation_id=request.delegation_id,
+                delegation_id=provider_id,
             )
+            return False
+        if command is not None:
+            operation, content = command
+            foreground = self.accepted
+            self.protocol_counts[f"live_continuation_{operation}_observed"] += 1
+            if (
+                not self.pending_accepted
+                or foreground is None
+                or foreground.work_item_id != self.steerable_work_id
+                or self.scope.profile
+                or (operation == "queue" and self.navigation.focus)
+                or (self.follow_up_task is not None and not self.follow_up_task.done())
+            ):
+                self.protocol_counts["live_continuation_no_eligible_receipt"] += 1
+                await self._append(
+                    "Explain briefly that no matching active task can be confirmed for this follow-up. "
+                    "Nothing has been submitted. Ask the person to try again when the task is active.",
+                    spoken=True,
+                    delegation_id=provider_id,
+                )
+                return False
+            plan = _LiveContinuation(
+                request.delegation_id,
+                operation,
+                content,
+                foreground,
+                self.generation,
+                provider_id,
+            )
+            intent = (
+                "queue a separate follow-up"
+                if operation == "queue"
+                else "send a correction to the running task"
+            )
+            if await self._append(
+                f"Briefly say you will try to {intent}. Do not claim completion. "
+                "The caller's request (data): " + _short(content, 280),
+                spoken=True,
+                delegation_id=provider_id,
+            ):
+                self._continuation = plan
+                if provider_id is None:
+                    self._local_continuation_ids.add(request.delegation_id)
+                return True
+            self.protocol_counts["live_continuation_handoff_not_delivered"] += 1
+            return False
+        if busy or (
+            self.accepted is not None
+            and self.accepted.work_item_id == self.steerable_work_id
+        ):
+            await self._append(
+                "Explain the earlier request is still active and no follow-up or correction has been submitted. "
+                "Ask them to start with 'After that' for a separate request or "
+                "'Correction to the current task' for a revision.",
+                spoken=True,
+                delegation_id=provider_id,
+            )
+            return False
+        if not request.provider_delegated:
             return False
         # The provider's commentary ACK is not proof of speech. Require actual
         # post-append transcript and PCM offered to the current browser too.
@@ -139,20 +223,52 @@ class NativeLiveVoiceRelay(VoiceRelay):
             "Do not claim completion. Their request (data): "
             + _short(request.turn.text, 320),
             spoken=True,
-            delegation_id=request.delegation_id,
+            delegation_id=provider_id,
         )
 
     async def _submit(self, scope, call_id, request):
-        if self.pending and not self.pending.done():
+        continuation = self._continuation
+        self._continuation = None
+        if continuation is not None:
+            if (
+                continuation.delegation_id != call_id
+                or continuation.foreground is not self.accepted
+                or continuation.generation != self.generation
+                or self.closing
+                or self.host.closing
+                or self.host.review_capture
+                or self.microphone_muted
+            ):
+                self.protocol_counts["live_continuation_stale_handoff"] += 1
+                return None
+
+            async def observe_continuation():
+                token = self._task_delegation.set(continuation.provider_delegation_id)
+                try:
+                    await self._follow_up(
+                        call_id,
+                        continuation.text,
+                        continuation.operation,
+                        continuation.generation,
+                        continuation.foreground,
+                    )
+                finally:
+                    self._task_delegation.reset(token)
+
+            self.follow_up_task = asyncio.create_task(observe_continuation())
+            return None
+
+        if _explicit_continuation(request) is not None or (
+            self.pending and not self.pending.done()
+        ):
             await self._speak_result(
                 self.generation,
-                result="I am still working on your earlier request. I have not started another task.",
+                result="I have not started another task. Please try your follow-up again.",
             )
             return None
 
-        # The microphone and turn reader do not wait for resident completion.
-        # A subsequent explicit queue/steer operation still needs a qualified
-        # protocol-specific intent before using the shared continuation path.
+        self.pending_accepted = False
+
         async def observe_work():
             token = self._task_delegation.set(call_id)
             try:
@@ -402,6 +518,8 @@ class NativeLiveVoiceRelay(VoiceRelay):
         delegation_id = (
             receipt.provider_correlation if receipt else self._task_delegation.get()
         )
+        if delegation_id in self._local_continuation_ids:
+            delegation_id = None
         offered = await self._append(
             "Report this verified result naturally and accurately: " + text,
             spoken=True,
@@ -441,6 +559,10 @@ class NativeLiveVoiceRelay(VoiceRelay):
                 "You are the Integral voice interface. Speak naturally and concisely. "
                 "Answer ordinary conversation directly. Delegate every request involving "
                 "Integral data or actions to the host, including read-only lookups. "
+                "While a task is running, delegate explicit follow-ups and corrections even when related to earlier work. "
+                "Wait for the host commentary before acknowledging or promising a follow-up. "
+                "If the person's continuation is unclear, ask them to say After that for "
+                "separate work or Correction to the current task for a revision. "
                 "Do not invent results, perform approvals, or claim an action succeeded "
                 "before the host verifies it. The host owns exact spoken confirmations. "
                 "Address the person directly. "
@@ -486,6 +608,8 @@ class NativeLiveVoiceRelay(VoiceRelay):
             self.host.closing = True
             if self.pending:
                 tasks.append(self.pending)
+            if self.follow_up_task:
+                tasks.append(self.follow_up_task)
             if self.opening_task:
                 tasks.append(self.opening_task)
             if self.confirmation_task:

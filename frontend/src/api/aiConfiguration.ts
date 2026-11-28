@@ -292,7 +292,7 @@ export const REALTIME_VOICE_QUERY_KEY = ["realtime-voice-configuration"] as cons
 export interface RealtimeVoiceChoice {
   mode: "provider" | "disabled";
   connection_id: string;
-  model: "" | "gpt-realtime-2.1-mini" | "gpt-realtime-2.1" | "gpt-realtime-2" | "gpt-realtime-1.5" | "gpt-realtime" | "gpt-realtime-mini";
+  model: "" | "gpt-realtime-2.1-mini" | "gpt-realtime-2.1" | "gpt-realtime-2" | "gpt-realtime-1.5" | "gpt-realtime" | "gpt-realtime-mini" | "gpt-live-1";
 }
 export interface RealtimeVoiceConfiguration {
   editable: boolean;
