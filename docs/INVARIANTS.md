@@ -339,7 +339,7 @@ Use `type: member` to refer to an account. Materialize HAS_MEMBER_REF and valida
 
 ## Events, audit, and review
 
-All change emission uses `emit_change_event`; no direct competing logger writes. Transactional resource writes may capture durable `OperationEventOutbox` intent through their canonical command instead; audit persistence and consumers run in the independent event worker after commit. A successful save never waits for delivery. Refusal audit evidence remains independent of rejected writes. See [event worker](backend/event-worker.md). Internal actor recursion bypass stays in process and must not leak into stored audit or observability. High-fan-out denial/cascade actions can suppress websocket push while retaining audit. Introspection extends additively without changing existing key types.
+All change emission uses `emit_change_event`; no direct competing logger writes. Transactional resource writes may capture durable `OperationEventOutbox` intent through their canonical command instead; audit persistence and consumers run in the independent event worker after commit. A successful save never waits for delivery. Refusal audit evidence remains independent of rejected writes. See [event worker](backend/event-worker.md). Internal actor recursion bypass stays in process and must not leak into stored audit or observability. High-fan-out denial/cascade actions can suppress websocket push while retaining audit. Introspection extends additively without changing existing key types. A committed Entry deletion whose event fails current resource admission may release only a scope-only Track invalidation hint, subject to fresh Track read and event-feed authority. Never disclose the deleted Entry identity, snapshots, actor, or event as part of that hint.
 
 ### I-APPROVAL-01 — Reviewed re-entry is narrowly guarded
 
@@ -957,8 +957,19 @@ Preserve the 80% global coverage requirement and 90% per-file requirement for ca
 
 A standing resident permission binds a human to their workspace. Ask (default) never authorizes an edit. Auto covers eligible simple edits in private tracks the caller owns. Custom limits those edits to the saved set. Full covers canonical record creates and updates in that workspace, subject to the caller’s current resource policy and the writer’s validation. Changing modes preserves the saved Custom set. Each effective grant revision is captured at interactive turn admission
 and rechecked under lock at the staged effect. Manual and automatic decisions
-use the canonical writer and receipt. A change to the grant cannot authorize
+use the canonical writer and receipt. For Auto and Custom, ordinary bounded
+scalar edits may be evaluated against the actual effective field schema and
+record revision; reference, file, composite and computed fields and hooks
+are not silently treated as simple edits. A change to the grant cannot authorize
 a proposal from an earlier turn. Voice presents the same decision as chat.
+Custom can separately authorize Home and dashboard presentation changes in an
+owned private App. The App selection is explicit; legacy Track-only selections
+never silently acquire this authority. Scope, current App authority, the exact
+proposal and the relevant Home or dashboard revision are rechecked at the
+canonical writer. This grant does not authorize visibility, schema, deletion,
+sharing or security changes. Complex presentation effects without an explicit
+standing grant retain their review requirements; literal bounded presentation
+label/layout edits can be described and independently confirmed in voice. A single unambiguous leaf Entry deletion may use an independent, deliberate spoken confirmation of the exact permanent removal, with current authority, record revision, and absence of anchored Tracks rechecked at the canonical effect. This is explicit strong review, not a standing grant; ambiguous speech, changed proposals, batch, App or Track deletion and other high-impact effects retain their existing gates.
 
 For legacy staged workspace tools, an explicit dictionary result `ok: false`
 is a refused outcome, even when dispatch returned normally. The approval must
@@ -1231,3 +1242,17 @@ rollback removes both. Accepted queue state does not claim provider acceptance.
 
 Gates: `test_email_delivery_authority.py`, `test_email_operation_effect.py`,
 `contract/test_email_notification_postgres.py`, `contract/test_native_email_postgres.py`.
+
+
+### I-CONTEXT-03 — Source-linked working memory
+
+Working memory is a bounded, encrypted, disposable projection of committed
+conversation and verified retrieval locators. Every release proves current
+principal, workspace, profile and canonical source containment/revision;
+prior statements are dated historical data, never instructions, approval or
+current record truth. Current App reads retain their declared query boundary.
+An inaccessible, stale or ambiguous source must be withheld or resolved
+through fresh authorized work. No per-tenant physical indexes, automatic
+profile biography, raw tool-output replay or authority-bearing memory.
+Verification: `tests/test_working_memory.py` and existing chat, retrieval
+and native voice authority gates.

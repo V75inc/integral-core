@@ -5,7 +5,7 @@ manifest, bindings, core skills, and App fixtures under `examples/`. Do
 not edit; `tests/test_capability_map.py` fails when this file is stale.
 The JSON beside it carries every field.
 
-135 of 137 manifest tools are advertised (61 read, 73 propose, 1 execute) across 19 core skills.
+136 of 138 manifest tools are advertised (62 read, 73 propose, 1 execute) across 19 core skills.
 
 ## Skills → tools
 
@@ -37,6 +37,7 @@ The JSON beside it carries every field.
 | --- | --- | --- | --- | --- | --- |
 | `integral_whoami` | read | handler: `app.api.auth.get_current_user` | GET /api/auth/me | `integral:read` | integral-identity, integral-onboard, integral-scaffold, integral-workspace |
 | `integral_get_scope` | read | service: `app.services.resident_execution_scope.get_execution_scope_for_dispatch` | — | `integral:read` | integral-workspace |
+| `integral_recall_prior_conversation` | read | service: `app.services.working_memory.recall_for_dispatch` | — | `integral:read` | — |
 | `integral_get_page_context` | read | service: `app.services.chat_page_context.get_page_context_for_dispatch` | — | `integral:read` | integral-dashboards, integral-entries, integral-filing, integral-model, integral-organize, integral-scaffold, integral-workspace |
 | `integral_open_view` | read | service: `app.services.agent_navigation.open_view_for_dispatch` | — | `integral:read` | integral-entries, integral-insights, integral-workspace |
 | `integral_list_workspaces` | read | handler: `app.api.workspaces.list_workspaces` | GET /api/workspaces | `integral:read` | integral-workspace |
@@ -219,7 +220,7 @@ in the same App's context; public ones resolve workspace-wide.
 - **skill_unresolved_refs** (0): none
 - **existing_tools_not_dispatchable** (0): none
 - **gap_tools** (2): integral_onboard_user, integral_workspace_setup
-- **advertised_tools_without_skill** (3): integral_delete_skill, integral_set_focus, integral_update_skill
+- **advertised_tools_without_skill** (4): integral_delete_skill, integral_recall_prior_conversation, integral_set_focus, integral_update_skill
 - **editor_catalogue_mismatch** (0): none
 - **app_skill_unresolved_calls** (0): none
 - **delegation_to_unknown_skill** (0): none

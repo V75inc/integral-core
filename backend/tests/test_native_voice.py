@@ -131,15 +131,16 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once(actio
     assert 'Your assistant name is "Payroll Guide"' in instructions
     assert "Explain payroll plainly." in instructions
     assert "Only Integral can record an approval" in instructions
-    assert (
-        event_config["session"]["audio"]["input"]["turn_detection"][
-            "interrupt_response"
-        ]
-        is True
-    )
+    assert event_config["session"]["audio"]["input"]["turn_detection"] == {
+        "type": "semantic_vad",
+        "eagerness": "auto",
+        "create_response": True,
+        "interrupt_response": True,
+    }
     assert [tool["name"] for tool in event_config["session"]["tools"]] == [
         DELEGATE,
         DELEGATE_ACTION,
+        *(["recall_integral_conversation"] if actions.open_page else []),
         "check_integral_chat",
         *(["write_note_to_current_chat"] if actions.post_note else []),
         "cancel_integral_voice_work",

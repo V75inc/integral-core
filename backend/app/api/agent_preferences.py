@@ -159,6 +159,7 @@ async def put_resident_permission(
     revision: str,
     track_id: Optional[str] = None,
     track_ids: Optional[list[str]] = None,
+    app_ids: Optional[list[str]] = None,
     mode: Optional[str] = None,
 ) -> ResidentPermissionValue:
     """Save the caller’s workspace confirmation policy against its current revision."""
@@ -170,5 +171,6 @@ async def put_resident_permission(
         track_id,
         revision,
         track_ids=track_ids,
+        app_ids=app_ids,
         mode=mode,
     )

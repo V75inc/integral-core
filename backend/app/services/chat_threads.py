@@ -1706,6 +1706,9 @@ async def delete_thread_messages(thread: ChatThread) -> int:
             count += 1
         except Exception:
             continue
+    from app.services.working_memory import forget_deleted_conversation
+
+    await forget_deleted_conversation(thread)
     return count
 
 

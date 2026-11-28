@@ -558,6 +558,19 @@ class App(Node):
     # graph wiring required).
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
+    def allows_resident_presentation_permission(
+        self, principal: str, workspace: str
+    ) -> bool:
+        """Only private owned Apps qualify for explicit standing presentation changes."""
+        return bool(
+            principal
+            and workspace
+            and self.owner_user_id == principal
+            and self.workspace_id == workspace
+            and self.visibility == "private"
+            and self.lifecycle_state == "active"
+        )
+
 
 class ApplicationDefinition(Node):
     """An immutable compiled revision of an installed App's contract.

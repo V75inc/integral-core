@@ -687,6 +687,7 @@ def test_large_broker_catalogue_defers_nonessential_tools() -> None:
         always_available
         | {
             "integral_get_page_context",
+            "integral_recall_prior_conversation",
             "integral_open_view",
             "integral_query",
             "integral_governed_query",

@@ -414,7 +414,10 @@ async def submit_chat_turn(
             permission = await read_permission(
                 request.principal_id, request.workspace_id
             )
-            if permission.mode in {"auto", "full"} or permission.track_ids:
+            if permission.mode in {"auto", "full"} or (
+                permission.mode == "custom"
+                and (permission.track_ids or permission.custom_app_ids)
+            ):
                 input_payload["resident_permission_revision"] = permission.revision
         from app.services.performance import capture_trace_context
 
@@ -491,6 +494,16 @@ async def submit_chat_turn(
         )
 
     wake_chat_worker()
+    # Only after the acceptance transaction commits; memory is a disposable
+    # projection, not an admission dependency.
+    from app.services.working_memory import remember_committed_message
+
+    await remember_committed_message(
+        principal=request.principal_id,
+        workspace=request.workspace_id,
+        thread_id=request.thread_id,
+        message_id=receipt.message_id,
+    )
     return receipt
 
 

@@ -977,6 +977,7 @@ def build_brokered_tools(
         immediately_available |= frozenset(
             {
                 "integral_get_page_context",
+                "integral_recall_prior_conversation",
                 "integral_open_view",
                 "integral_query",
                 "integral_governed_query",

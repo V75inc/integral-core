@@ -7,7 +7,7 @@ from typing import Any
 
 from app.middleware.permissions_cache import isolated_permissions_cache
 from app.services.change_event_logger import envelope_from_dblog
-from app.services.event_access import prepare_event_payload
+from app.services.event_access import prepare_event_payload, prepare_track_invalidation
 from app.services.event_history_cursor import (
     decode_history_cursor,
     encode_history_cursor,
@@ -121,6 +121,7 @@ async def read_event_history(
     event_action: str | None = None,
     resource_id: str | None = None,
     resource_type: str | None = None,
+    include_invalidations: bool = False,
 ) -> dict[str, Any]:
     """Walk at most 1000 candidates; a cursor can advance through denied rows.
 
@@ -129,6 +130,7 @@ async def read_event_history(
     window with continuation is distinct from the end of accessible history.
     """
     events: list[dict[str, Any]] = []
+    invalidations: set[str] = set()
     scanned = 0
     binding = {
         "principal_id": user_id,
@@ -141,6 +143,8 @@ async def read_event_history(
         "resource_id": resource_id or "",
         "resource_type": resource_type or "",
     }
+    if include_invalidations:
+        binding["include_invalidations"] = True
     position = decode_history_cursor(cursor, binding=binding) if cursor else None
     scope_options: dict[str, Any] = {}
     if scope and scope.startswith("user:"):
@@ -181,6 +185,16 @@ async def read_event_history(
             scanned += 1
             position = encode_cursor(event.id, event.delivery_ts or event.ts)
             if (
+                include_invalidations
+                and event.action == "entry.delete"
+                and await _in_workspace(event, user_id, workspace_id)
+            ):
+                invalidation = await prepare_track_invalidation(
+                    user_id, event, action=action, evaluate=evaluate
+                )
+                if invalidation:
+                    invalidations.add(invalidation)
+            if (
                 str(event.resource_type).casefold(),
                 event.resource_id,
             ) not in missing and await _in_workspace(event, user_id, workspace_id):
@@ -199,6 +213,11 @@ async def read_event_history(
     )
     return {
         "events": events,
+        **(
+            {"scope_invalidations": sorted(invalidations)}
+            if include_invalidations
+            else {}
+        ),
         "next_cursor": None if exhausted else continuation,
         # Pagination ends at exhaustion; a live forward subscriber still needs
         # its last scanned position, including withheld rows. Preserve the same

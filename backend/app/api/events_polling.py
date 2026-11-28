@@ -61,6 +61,7 @@ async def list_events_polling(
     scope: Optional[str] = None,
     actor_kind: Optional[str] = None,
     limit: Optional[int] = None,
+    include_invalidations: bool = False,
 ) -> Dict[str, Any]:
     """Return ChangeEvents in ASC (ts, id) order for forward-stream consumers."""
     user_id = resolve_principal_id(request)
@@ -99,4 +100,5 @@ async def list_events_polling(
         descending=False,
         scope=scope,
         actor_kind=actor_kind,
+        include_invalidations=include_invalidations,
     )

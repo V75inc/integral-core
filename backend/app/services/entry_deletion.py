@@ -392,6 +392,9 @@ async def delete_entry_fast(
                             raise ResourceConflictError(
                                 message="Entry schema has changed since approval review"
                             )
+                from app.services.native_voice_deletion import recheck_voice_deletion
+
+                await recheck_voice_deletion(current)
                 before = (
                     await current.export(flat=True) if complete is not None else None
                 )

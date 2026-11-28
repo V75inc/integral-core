@@ -202,6 +202,7 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
         assert {tool["name"] for tool in registered} == {
             native_voice.DELEGATE,
             native_voice.DELEGATE_ACTION,
+            native_voice.RECALL_MEMORY,
             native_voice.CHECK_CHAT,
             native_voice.WRITE_CHAT_NOTE,
             native_voice.REVISE_REVIEW,

@@ -146,6 +146,9 @@ async def list_apps(
         {
             **(await export_node(s)),
             "action_url": resolve_resource_action_url("app", s.id),
+            "resident_presentation_permission_eligible": s.allows_resident_presentation_permission(
+                user_id, target_ws
+            ),
         }
         for s in page_apps
     ]

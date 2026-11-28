@@ -283,7 +283,14 @@ async def _call_adapter(inv: CapabilityInvocation, cap: Dict[str, Any]) -> Any:
         check_permission = bool(
             item.kind == "chat_turn"
             and item.input_payload.get("resident_permission_revision")
-            and inv.capability_key in {"integral_create_entry", "integral_update_entry"}
+            and inv.capability_key
+            in {
+                "integral_create_entry",
+                "integral_update_entry",
+                "integral_update_app",
+                "integral_create_dashboard",
+                "integral_update_dashboard",
+            }
             and not proof.get("requires_deferred_link")
         )
         with bind_proposal_origin(

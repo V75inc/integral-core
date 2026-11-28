@@ -6,6 +6,23 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Preserve deliberate review for permanent deletion, with a voice confirmation path for a single eligible leaf Entry. Prefer direct scoped record resolution over unrelated dashboard lookups; suppress speculative audio prefixes before a tool handoff.
+- Reconcile active filtered Track views on committed Entry changes; use authorized scope-only deletion refresh hints (live and catch-up), without exposing deleted record data. Start the independent event worker with the default local Docker stack.
+
+- Give Custom permissions an explicit Home and dashboard selection for eligible owned private Apps, with exact proposal and revision checks. Existing list-only grants do not silently expand. Independently confirm bounded record descriptions, Home labels and dashboard metadata edits in voice; retain review for complex effects without an App grant.
+- Reuse a completed, task-specific navigation acknowledgment rather than voicing it twice; speak the verified route outcome without recap. Use semantic turn detection in the native OpenAI realtime session to reduce interruptions on natural pauses while retaining barge-in.
+
+- Stabilize live voice navigation acknowledgments across route transitions and concurrent result observers, retaining authorization and stale-route checks. Preserve the full qualified destination request when delegating named navigation.
+
+- Honor Auto and Custom permissions for schema-declared simple scalar edits (including text registrations), preserving canonical validation, revision fences and review for unsupported effects.
+
+- Restore voice confirmation for bounded multi-paragraph and bullet-list task descriptions, independent of unrelated UI focus; speak directly to the signed-in person.
+
+- Add bounded encrypted, source-linked native conversation working memory.
+  Voice can recall verified dated caller statements without a resident turn;
+  ambiguous or stale recall falls back to the resident’s scoped memory tool
+  and fresh authorized retrieval. No new physical PostgreSQL indexes.
+
 - Local Docker setup provisions the reviewed PostgreSQL index catalog in a
   separate one-time maintenance container before serving. The API and native
   launcher disable automatic index creation, verify the catalog and use

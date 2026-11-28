@@ -23,6 +23,7 @@ from tests.test_native_voice_live_tools import _tool
     [
         "match",
         "unfocused_match",
+        "different_page",
         "decline",
         "wrong",
         "stale",
@@ -44,6 +45,7 @@ async def test_review_requires_independent_fresh_spoken_confirmation(
         scope,
         check=AsyncMock(return_value=SimpleNamespace(id="thread")),
         review_voice=SimpleNamespace(render=AsyncMock(return_value=b"fixture-WAV")),
+        conversational_review=outcome == "different_page",
     )
     review = VoiceReviewReadout(
         "Title: Acme to Georgetown. This has not been applied.",
@@ -53,7 +55,9 @@ async def test_review_requires_independent_fresh_spoken_confirmation(
         "target",
         "fingerprint",
     )
-    if outcome != "unfocused_match":
+    if outcome == "different_page":
+        relay.navigation.focus = VoiceDestination("track", "other-track", "Other")
+    elif outcome != "unfocused_match":
         relay.navigation.focus = VoiceDestination("entry", "target", "Acme", "track")
     current = AsyncMock(return_value=review)
     monkeypatch.setattr(relay, "_current_review", current)
@@ -180,7 +184,7 @@ async def test_review_requires_independent_fresh_spoken_confirmation(
             assert relay.end_requested.is_set()
             assert relay.review_confirmation is None
             return
-        if outcome in {"match", "unfocused_match", "decline"}:
+        if outcome in {"match", "unfocused_match", "different_page", "decline"}:
             decision.assert_awaited_once_with(
                 principal_id=scope.principal,
                 workspace_id=scope.workspace,

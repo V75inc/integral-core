@@ -27,6 +27,7 @@ export interface EventsPage {
   events: ActivityEvent[];
   next_cursor: string | null;
   resume_cursor?: string | null;
+  scope_invalidations?: string[];
   has_more: boolean;
   /** Optional — present when the backend pagination knows the total. */
   total?: number;
@@ -101,15 +102,18 @@ export async function fetchEventsPage(params: {
   scope?: string;
   actor_kind?: string;
   limit?: number;
+  include_invalidations?: boolean;
 }): Promise<EventsPage> {
   const query: Record<string, string | number> = {};
   if (params.scope) query.scope = params.scope;
   if (params.since) query.since = params.since;
   if (params.actor_kind) query.actor_kind = params.actor_kind;
   if (params.limit !== undefined) query.limit = params.limit;
+  if (params.include_invalidations) query.include_invalidations = "true";
 
   const response = await apiClient.get<{
     events?: EventStreamRaw[];
+    scope_invalidations?: string[];
     next_cursor?: string | null;
     resume_cursor?: string | null;
     has_more?: boolean;
@@ -121,6 +125,7 @@ export async function fetchEventsPage(params: {
     events: rawEvents.map(normalizeChangeEvent),
     next_cursor: response.data?.next_cursor ?? null,
     resume_cursor: response.data?.resume_cursor ?? null,
+    ...(Array.isArray(response.data?.scope_invalidations) ? { scope_invalidations: response.data.scope_invalidations.filter(scope => typeof scope === "string" && scope.startsWith("track:")) } : {}),
     has_more: Boolean(response.data?.has_more),
     total: typeof response.data?.total === 'number' ? response.data.total : undefined,
   };

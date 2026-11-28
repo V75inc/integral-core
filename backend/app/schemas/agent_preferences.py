@@ -31,6 +31,7 @@ class ResidentPermissionValue(BaseModel):
 
     mode: ResidentPermissionMode = "ask"
     custom_track_ids: list[str] = Field(default_factory=list)
+    custom_app_ids: list[str] = Field(default_factory=list)
     track_ids: list[str] = Field(default_factory=list)
     track_id: str = ""
     revision: str = ""

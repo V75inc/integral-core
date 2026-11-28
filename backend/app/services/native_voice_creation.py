@@ -104,6 +104,59 @@ def is_spoken_note(value):
     return len(parts) == 1 and parts[0].type == "text" and parts[0].content == value
 
 
+def spoken_description(value):
+    """Lossless spoken projection of bounded prose or ordinary bullet lists.
+
+    The original body stays in the confirmation fingerprint and write fence.
+    Only presentational whitespace and bullet markers are replaced by pauses.
+    Rich content, links, code, HTML, and nested lists still require visual review.
+    """
+    if value in (None, ""):
+        return ""
+    if (
+        not isinstance(value, str)
+        or len(value) > 800
+        or any(not c.isprintable() and c != "\n" for c in value)
+        or re.search(r"(?i)\b(?:[a-z][a-z0-9+.-]*://|www\.)|\S@\S", value)
+    ):
+        return None
+    allowed = {
+        "paragraph_open",
+        "paragraph_close",
+        "inline",
+        "bullet_list_open",
+        "bullet_list_close",
+        "list_item_open",
+        "list_item_close",
+    }
+    parts = []
+    depth = 0
+    for token in _note_parser.parse(value):
+        if token.type not in allowed:
+            return None
+        if token.type == "bullet_list_open":
+            depth += 1
+            if depth > 1:
+                return None
+        elif token.type == "bullet_list_close":
+            depth -= 1
+        elif token.type == "inline":
+            children = token.children or []
+            if any(c.type not in {"text", "softbreak", "hardbreak"} for c in children):
+                return None
+            text = " ".join(token.content.split())
+            # Markdown escapes/entities can change the displayed text; decline
+            # such cases rather than silently review different wording.
+            visible = "".join(c.content if c.type == "text" else "\n" for c in children)
+            if text != " ".join(visible.split()):
+                return None
+            if text:
+                parts.append(text)
+    return " ".join(
+        part if part.endswith((".", "?", "!", ";")) else part + "." for part in parts
+    )
+
+
 def _spoken_value(value):
     # Numeric text can be an identifier with leading zeros or repeated digits.
     if isinstance(value, str) and re.fullmatch(r"[0-9]{2,}", value):
@@ -182,6 +235,7 @@ async def read_creation_review(item, work_id, run_id):
         source_entry_title=entry["title"],
         materialize=False,
     )
+    spoken_body = spoken_description(entry["body"])
     if (
         refs
         or any(
@@ -191,7 +245,7 @@ async def read_creation_review(item, work_id, run_id):
         )
         or not entry["title"]
         or len(entry["title"]) > 200
-        or len(entry["body"]) > 200
+        or spoken_body is None
     ):
         return None
     labels = {
@@ -202,7 +256,7 @@ async def read_creation_review(item, work_id, run_id):
     text = f'add “{entry["title"]}” to {destination}'
     display = []
     if entry["body"] and entry["body"] != entry["title"]:
-        display.append(("Description", entry["body"]))
+        display.append(("Description", spoken_body))
     display.extend(
         (labels[key], value)
         for key, value in fields.items()

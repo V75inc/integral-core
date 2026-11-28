@@ -77,6 +77,25 @@ def test_local_compose_provisions_before_verify_only_serving(compose):
     )
 
 
+def test_default_compose_supervises_event_worker_with_runtime_storage():
+    """A successful record save must be delivered to other open clients."""
+    import yaml
+
+    services = yaml.safe_load(_read("docker-compose.yml"))["services"]
+    api = services["api"]
+    worker = services["event-worker"]
+    assert worker["build"] == api["build"]
+    assert worker["environment"] == api["environment"]
+    assert worker["volumes"] == api["volumes"]
+    assert worker["command"] == ["python", "-m", "app.cli", "worker", "events"]
+    assert (
+        worker["depends_on"]["storage-init"]["condition"]
+        == "service_completed_successfully"
+    )
+    assert worker["healthcheck"]["test"][-1] == "--check"
+    assert "ports" not in worker
+
+
 def _example_value(rel: str, key: str) -> str | None:
     for line in _read(rel).splitlines():
         stripped = line.strip()

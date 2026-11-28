@@ -80,12 +80,21 @@ Open **Permissions** in the workspace assistant’s composer. The setting applie
 | --- | --- |
 | Ask for approval (default) | Read. Every proposed change waits for a decision. |
 | Approve for me | Make supported simple record additions and edits in private lists you own. Changes involving hooks, assignments or more complex fields still need review. |
-| Custom | Make the same simple edits only in the private lists you select. Checking an app selects its currently eligible lists. |
+| Custom | Make the same simple edits in selected private lists and changes to Home and dashboards in explicitly selected eligible private Apps. Checking an App selects both eligible categories; each can be adjusted individually. |
 | Full access | Create and edit records across apps where you have write access, including shared lists. The canonical writer enforces current access, app rules, record revisions and normal save hooks. |
 
-Choose **Custom** to view or edit your saved selection. Switching to **Ask for approval**, **Approve for me** or **Full access** keeps those selections. Returning to Custom shows the previous choices. A list that loses eligibility cannot authorize an edit.
+Choose **Custom** to view or edit your saved selection. Switching to **Ask for approval**, **Approve for me** or **Full access** keeps those selections. Returning to Custom shows the previous choices. A list or App that loses eligibility cannot authorize an edit. Existing list-only selections remain list-only until the new App layout selection is explicitly saved.
 
-Mode changes take effect on new turns. Previously pending proposals retain their review. Deletion, sharing, connector actions, batches and other effects outside record creation and update keep their existing review requirements. The previous single-list and multi-list settings read back as Custom when nonempty and Ask for approval when empty.
+Mode changes take effect on new turns. Previously pending proposals retain their review. Deletion, sharing, connector actions, batches and other effects outside record creation, update, and explicitly selected private App presentation changes keep their existing review requirements. Without a standing grant, independently confirmed bounded Home label edits and dashboard rename/layout/default edits can be approved by voice. Complex queries, native content, widget replacement and actions retain visual review unless the explicit App presentation grant covers the canonical change. An eligible single leaf record deletion can be confirmed independently by voice after a readback of the exact record and permanent consequence; say “yes, delete it” or “no”. Standing grants never authorize deletion. Independently verified review outcomes enter the realtime model’s dialogue as a quiet status update without proposal data or new authority; explicitly renewed requests start a fresh proposal rather than replaying the old decision. Ambiguous or changed targets and anchored, batch, App and Track deletion retain their stronger review. The previous single-list and multi-list settings read back as Custom when nonempty and Ask for approval when empty.
+
+### Turn detection
+
+The OpenAI realtime voice session uses semantic voice activity detection with
+balanced (`auto`) eagerness. It waits for a more complete spoken thought rather
+than treating every short pause as a finished request. The provider still
+supports interruption, and the relay retains generation fences and current
+authority checks. Independent confirmation capture is unchanged. This affects
+turn detection only, not the member's selected model or resident model routing. Speculative ordinary audio has a bounded 350 ms initial hold to avoid playing a syllable before a tool handoff takes ownership. Verified acknowledgments and results are not held. Genuine barge-in still fences playback.
 
 ### When the caller cannot see chat
 
@@ -96,7 +105,7 @@ asks to put a list in chat, post it once and give a brief spoken receipt.
 If they only want a written answer, honor that request. These choices apply
 to that request. They do not switch the rest of the call to text.
 
-The browser is the only live call adapter today. Use the capabilities of the
+For a quick record directory, the current verified browser App, Track or saved View is the implicit scope when no spoken location has been explicitly selected. A denied, invalid or changed resource never widens silently to the workspace. Explicitly different or workspace-wide questions follow the resident path. The browser is the only live call adapter today. Use the capabilities of the
 authenticated adapter for individual actions. Opening an App on screen
 requires a bound browser and its render acknowledgment. Selecting an App
 as the subject of the next question requires authorized resource resolution.
@@ -151,9 +160,13 @@ during admission, the relay can submit the additional question once after
 verifying the preceding successful result and idle thread. A correction in that
 state requires a fresh instruction. A pending approval keeps its own controls.
 
-For a numbered choice or unique exact name from the current spoken directory,
-the relay verifies the selection and supplies the existing navigation tool with
-the canonical destination IDs. The resident can request the route directly.
+For a numbered choice from the current spoken directory, the relay verifies the
+selection and supplies the existing navigation tool with the canonical destination
+IDs. Legacy name-only requests may use a unique exact directory match. For named
+navigation with the complete caller request, resource kind, leaf title and parent
+qualifications are retained; the resident resolves the actual destination, not its
+containing App, and seeks clarification for an ambiguous or unavailable match.
+The resident can request the route directly.
 Resource labels stay in the data portion of the prompt. The browser confirms a
 successful render before voice announces arrival.
 
@@ -166,7 +179,15 @@ follow-ups before navigating. Navigation is limited to the local paths
 covered by the existing native tool. Recovered events do not navigate.
 The originating browser echoes a one-use request identity after its loaded
 page context matches the exact route and focused resource. A page revision
-correlates origin without retaining unsafe URL queries. A preserved page or
+correlates origin without retaining unsafe URL queries. The browser publishes
+its changed route before acknowledging a render and does not resend identical
+route snapshots. A reordered acknowledgment waits for the exact next context
+transition; unrelated route changes or interrupted requests cannot confirm it.
+Immediate and durable result observers share a single navigation delivery.
+A verified arrival contributes a quiet navigation receipt to the voice model's
+conversation so a subsequent short named destination goes to the resident
+with the current browser context; the voice model does not preemptively ask
+for a parent or resource kind. A preserved page or
 an arrival timeout produces a distinct result. Rechecking browser feedback
 does not confer resource authority.
 
@@ -237,14 +258,12 @@ to them.
 
 A current-review read can speak the exact supported fields of one pending
 record edit tied to the accepted voice work and run, if the target is still
-readable and its recorded revision is current. Initially this covers title,
-status and typed date edits. Voice projects the current record and the actual
+readable and its recorded revision is current. This covers title, status and schema-declared bounded literal text, select, number, boolean and date edits. Conversational review also supports a bounded literal record description replacement, including plain paragraphs and flat bullet lists; this does not expand Auto or Custom list permissions. The same field projection qualifies an eligible standing private-list grant; both typed and spoken turns use it. Composite, reference, file, computed and other unsupported fields retain review. Voice projects the current record and the actual
 staged payload. The same projection must still match when playback begins.
 Simple creation also uses the existing proposal form and canonical field
 validator to present the Track, type, title and effective scalar values.
 The writer checks the same schema and values inside its effect transaction.
-A Markdown field can be empty or contain a short, single line of literal text. Its full value is included in the independent spoken review. Formatted or linked content,
-hooks, relation/file/computed fields, long body content and tags require their existing card.
+A Markdown field can be empty or contain a short, single line of literal text. Its full value is included in the independent spoken review. A description of up to 800 characters may contain plain paragraphs or a flat bullet list; the complete readable content is spoken, and the original body remains in the exact approval fingerprint and writer fence. Rich or linked content, hooks, relation/file/computed fields, descriptions over the bound and tags retain their existing review gate.
 A single proposal containing one supported record creation and one one-time
 reminder in this chat can use spoken review. Both operations must be literal
 and independently reviewable. Approval binds the ordered pair; the record and
@@ -252,7 +271,7 @@ the reminder have separate execution receipts. Other compound effects retain
 their existing review.  Published-profile review remains a
 separate qualification item.
 
-After reconnect, the caller can return to one eligible pending proposal in the same chat. The server checks its work attempt and proposal identity again. At a speech turn boundary the relay offers steering only while its foreground work is known to be queued or running. A reply to a finished clarification can enter the same chat as the next turn.
+A conversational call can confirm the exact eligible pending proposal in the same chat regardless of which App or Track is on screen. The call, work origin, current proposal and authority—not browser focus—bind the decision. After reconnect, the caller can return to one eligible pending proposal in the same chat. The server checks its work attempt and proposal identity again. At a speech turn boundary the relay offers steering only while its foreground work is known to be queued or running. A reply to a finished clarification can enter the same chat as the next turn.
 
 The configured realtime model renders the exact eligible proposal and a short
 question in the call’s voice in a separate tool-free session. Core checks the
@@ -449,3 +468,13 @@ conversation text, user content, filenames, tokens, or provider payloads.
 Automated provider-frame and disposable data tests validate the integration
 contracts. A real signed-in browser/microphone test is a separate gate for
 provider routing, perceived latency, audio playback, and concurrent UX.
+
+
+Explicit historical caller recall may use the source-linked working-memory
+index without a new resident turn. The spoken-intent gate remains mandatory.
+Only a verified, dated caller quotation is eligible for the direct voice
+path; stale, missing or competing sources delegate the original question to
+the resident. Current workspace facts always use current authorized reads.
+See [ADR 020](adr/020-source-linked-working-memory.md).
+
+Spoken intent and result responses address the authenticated person directly as you or your. An available display name is quoted context for occasional direct address, never a third-person possessive or authority. The message passed to the resident retains the person’s original perspective.

@@ -5,6 +5,7 @@ This is a read-only projection. Speech-model output is never a human decision.
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -19,9 +20,13 @@ from app.services.resource_location import DATA_APP_STATES, locate_resource
 
 _VOICE_CAPABILITIES = {
     "create_entry": "integral_create_entry",
+    "delete_entry": "integral_delete_entry",
     "update_entry": "integral_update_entry",
     "batch": "integral_commit_batch",
     "routine_task_create": "integral_schedule_task",
+    "update_app": "integral_update_app",
+    "create_dashboard": "integral_create_dashboard",
+    "update_dashboard": "integral_update_dashboard",
 }
 
 
@@ -83,13 +88,18 @@ class VoiceReviewReadout:
     creation: dict | None = field(default=None, repr=False)
     creation_date_keys: tuple[str, ...] = field(default=(), repr=False)
     reminder: dict | None = field(default=None, repr=False)
+    presentation: dict | None = field(default=None, repr=False)
+    deletion: dict | None = field(default=None, repr=False)
     creation_text_keys: tuple[str, ...] = field(default=(), repr=False)
 
     destination_label: str = field(default="", repr=False)
     children: tuple["VoiceReviewReadout", ...] = field(default=(), repr=False)
+    update_field_types: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
     @property
     def text(self) -> str:
+        if self.deletion:
+            return f"Would you like me to {self.action}? This also removes its comments and sharing links. Attached files will no longer be accessible through this record. This cannot be undone. Say yes, delete it, or no to keep it."
         return f"Would you like me to {self.action}?"
 
     def matches_focus(self, focus):
@@ -97,6 +107,11 @@ class VoiceReviewReadout:
             return all(child.matches_focus(focus) for child in self.children)
         return (
             self.reminder is not None
+            or (
+                self.presentation is not None
+                and focus is not None
+                and focus.id == self.target_id
+            )
             or focus is None
             or (
                 focus.kind == ("track" if self.creation else "entry")
@@ -144,8 +159,60 @@ async def pending_work_proposal(
     return pending[0]
 
 
+def _simple_field_text(spec, value, *, previous=False):
+    """Speak a bounded scalar without resolving references or executing hooks.
+
+    The writer still validates the actual submitted value and schema. Reject
+    composite, derived, protected or reference fields rather than expanding a
+    private-list standing grant to an unknown effect.
+    """
+    from app.services.native_voice_creation import _spoken_value, is_spoken_note
+
+    kind = spec.get("type")
+    if (
+        kind not in {"text", "select", "number", "boolean", "date"}
+        or spec.get("composite")
+        or spec.get("readonly")
+        or (spec.get("validation") or {}).get("preview_default_tool")
+    ):
+        return None
+    if value is None:
+        return "empty" if previous else None
+    if kind == "date":
+        if not isinstance(value, str):
+            return None
+        try:
+            return value if date.fromisoformat(value).isoformat() == value else None
+        except ValueError:
+            return None
+    if kind == "boolean":
+        return str(value).lower() if type(value) is bool else None
+    if kind == "number":
+        if type(value) not in {int, float} or (
+            type(value) is float and not math.isfinite(value)
+        ):
+            return None
+        text = str(value)
+        return text if len(text) <= 200 else None
+    if not isinstance(value, str) or not is_spoken_note(value):
+        return None
+    if kind == "select" and not previous:
+        choices = spec.get("enum") or []
+        if choices and value not in choices:
+            return None
+    return _spoken_value(value) if value else "empty"
+
+
 async def read_entry_review(
-    *, principal, workspace, thread, work_id, run_id, replacement=None
+    *,
+    principal,
+    workspace,
+    thread,
+    work_id,
+    run_id,
+    replacement=None,
+    allow_description_update=False,
+    allow_deletion=False,
 ):
     """Read one exact pending record change or one-time reminder for this work attempt."""
     with isolated_permissions_cache():
@@ -159,6 +226,17 @@ async def read_entry_review(
         )
         if item is None:
             return None
+        if item.kind == "delete_entry" and allow_deletion and replacement is None:
+            from app.services.native_voice_deletion import deletion_review
+
+            return await deletion_review(item, work_id, run_id)
+        if (
+            item.kind in {"update_app", "create_dashboard", "update_dashboard"}
+            and replacement is None
+        ):
+            from app.services.native_voice_presentation import presentation_review
+
+            return await presentation_review(item, work_id, run_id)
         if item.kind == "batch" and replacement is None:
             from app.services.native_voice_batch import read_batch_review
 
@@ -185,6 +263,8 @@ async def read_entry_review(
         }
         if replacement is not None:
             allowed_keys.update(("body", "tags"))
+        elif allow_description_update:
+            allowed_keys.add("body")
         if item.kind != "update_entry" or set(item.payload) - allowed_keys:
             return None
         proposal = proposal_from_staged(item)
@@ -266,57 +346,65 @@ async def read_entry_review(
                 return None
             changes.append(f"{label} from {before or 'empty'} to {after}")
             spoken_fields.append((key, label))
+        if (
+            allow_description_update
+            and replacement is None
+            and "body" in item.payload
+            and (entry.get("body") or "") != (item.payload["body"] or "")
+        ):
+            from app.services.native_voice_creation import spoken_description
+
+            body = item.payload["body"]
+            spoken = spoken_description(body)
+            if spoken is None:
+                return None
+            changes.append(
+                f"description to “{spoken}”" if spoken else "clear the description"
+            )
+            spoken_fields.append(("body", "Description"))
+        update_field_types = []
         if fields:
-            entry_type = await EntryType.get(entry.get("type_id"))
-            if entry_type is None or entry_type.track_id != location.track_id:
-                return None
-            declared = {
-                field["key"]: field
-                for field in (entry_type.form_schema or {}).get("fields", [])
-                if isinstance(field, dict) and isinstance(field.get("key"), str)
-            }
-            if not isinstance(fields, dict) or any(
-                (declared.get(key) or {}).get("type") != "date"
-                or not isinstance(value, str)
-                or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)
-                or (
-                    (entry.get("custom_fields") or {}).get(key) is not None
-                    and (
-                        not isinstance(entry["custom_fields"][key], str)
-                        or not re.fullmatch(
-                            r"\d{4}-\d{2}-\d{2}", entry["custom_fields"][key]
-                        )
-                    )
-                )
-                for key, value in fields.items()
-            ):
-                return None
-            for key, value in fields.items():
-                previous = (entry.get("custom_fields") or {}).get(key)
-                try:
-                    date.fromisoformat(value)
-                    if previous is not None:
-                        date.fromisoformat(previous)
-                except ValueError:
-                    return None
-                label = declared[key].get("label") or declared[key].get("name") or key
-                if not isinstance(label, str) or len(label) > 100:
-                    return None
-                changes.append(f"{label} from {previous or 'empty'} to {value}")
-                spoken_fields.append((f"fields.{key}", label))
             from app.contracts.information import schema_revision_from_profile_version
             from app.services.operational_model_runtime import (
+                resolve_entry_type_spec,
                 resolve_track_runtime_profile,
             )
 
+            entry_type = await EntryType.get(entry.get("type_id"))
             track = await Track.get(location.track_id)
-            if track is None:
+            if (
+                entry_type is None
+                or track is None
+                or entry_type.track_id != location.track_id
+            ):
                 return None
-            model, _, _ = await resolve_track_runtime_profile(track)
+            model, tier, _ = await resolve_track_runtime_profile(track)
             if schema_revision_from_profile_version(
                 getattr(model, "version_number", None)
             ) != item.payload.get("expected_schema_revision"):
                 return None
+            declared = {
+                field["key"]: field
+                for field in resolve_entry_type_spec(entry_type, tier).get("fields", [])
+                if isinstance(field, dict) and isinstance(field.get("key"), str)
+            }
+            for key, value in fields.items():
+                spec = declared.get(key)
+                if not spec or key.startswith("_"):
+                    return None
+                previous = (entry.get("custom_fields") or {}).get(key)
+                before_text = _simple_field_text(spec, previous, previous=True)
+                after_text = _simple_field_text(spec, value)
+                if before_text is None or after_text is None:
+                    return None
+                if type(previous) is type(value) and previous == value:
+                    continue
+                label = spec.get("label") or spec.get("name") or key
+                if not isinstance(label, str) or len(label) > 100:
+                    return None
+                changes.append(f"{label} from {before_text} to {after_text}")
+                spoken_fields.append((f"fields.{key}", label))
+                update_field_types.append((key, spec["type"]))
         if (
             not changes
             or not isinstance(entry.get("title"), str)
@@ -330,7 +418,7 @@ async def read_entry_review(
         else:
             text = f'update “{entry["title"]}” by changing ' + ", and ".join(changes)
         # Refuse unresolved identifiers in the spoken review.
-        if re.search(
+        if len(text) > 1800 or re.search(
             r"\b[one]\.[A-Z][A-Za-z0-9_]*\.[A-Za-z0-9_-]+",
             text,
         ):
@@ -351,6 +439,7 @@ async def read_entry_review(
             proposal.target_id,
             hashlib.sha256(encoded).hexdigest(),
             tuple(spoken_fields),
+            update_field_types=tuple(update_field_types),
         )
 
 
@@ -366,6 +455,14 @@ class VoiceAppliedReadout:
 
 async def read_applied_values(review, *, principal, workspace, expected_creation=None):
     """Read the actual saved fields following a consumed canonical decision."""
+    if review.deletion:
+        from app.services.native_voice_deletion import read_saved_deletion
+
+        return await read_saved_deletion(review, principal, workspace)
+    if review.presentation:
+        from app.services.native_voice_presentation import read_saved_presentation
+
+        return await read_saved_presentation(review, principal, workspace)
     if review.children:
         verified = set()
         for child in review.children:
@@ -467,6 +564,14 @@ async def read_applied_values(review, *, principal, workspace, expected_creation
                 if key.startswith("fields.")
                 else entry.get(key)
             )
+            if key == "body":
+                from app.services.native_voice_creation import spoken_description
+
+                spoken = spoken_description(value)
+                if spoken is None:
+                    return None
+                values.append(f"{label}: {spoken or 'empty'}.")
+                continue
             if value is not None and (
                 type(value) not in (str, bool, int, float) or len(str(value)) > 200
             ):
@@ -525,13 +630,18 @@ async def revise_voice_review(review, field_number, value, *, principal, workspa
         return None
     if key.startswith("fields."):
         field_key = key.removeprefix("fields.")
-        if review.creation and field_key in review.creation_text_keys:
+        update_kind = dict(review.update_field_types).get(field_key)
+        if (
+            review.creation and field_key in review.creation_text_keys
+        ) or update_kind == "text":
             from app.services.native_voice_creation import is_spoken_note
 
             if not is_spoken_note(value):
                 return None
         else:
-            if review.creation and field_key not in review.creation_date_keys:
+            if (review.creation and field_key not in review.creation_date_keys) or (
+                not review.creation and update_kind not in {None, "date"}
+            ):
                 return None
             try:
                 if date.fromisoformat(value).isoformat() != value:

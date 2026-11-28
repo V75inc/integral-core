@@ -146,7 +146,8 @@ async def test_list_tools_returns_catalogue():
     # 132 -> 133: conversation-bound generated document preparation.
     # 133 -> 134: sponsor-scoped resident assignment discovery.
     # 134 -> 135: explicit-source compound uploaded-document filing.
-    assert len(tools) == 135, len(tools)
+    # 135 -> 136: bound native conversation recall (unbound calls return unavailable).
+    assert len(tools) == 136, len(tools)
     assert any(tool.name == "integral_list_resident_opportunities" for tool in tools)
     assert any(tool.name == "integral_prepare_document_attachment" for tool in tools)
     assert any(tool.name == "integral_find_workspace_resources" for tool in tools)

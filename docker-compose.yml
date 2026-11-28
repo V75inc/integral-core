@@ -63,7 +63,7 @@ services:
     env_file:
       - path: .env
         required: false
-    environment:
+    environment: &api-env
       HOST: 0.0.0.0
       PORT: "4000"
       DEBUG: "False"
@@ -113,6 +113,30 @@ services:
       # Attachment bytes live under /data/files (the image's writable root).
       # Keep this volume with the Postgres backup for a complete restore.
       - integral_db:/data
+
+  # Independent durable event delivery, required for other clients to see
+  # committed mutations. Same artifact, stores and restricted serving role.
+  event-worker:
+    build: *api-build
+    command: ["python", "-m", "app.cli", "worker", "events"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment: *api-env
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    volumes:
+      - integral_db:/data
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.cli", "worker", "events", "--check"]
+      interval: 30s
+      timeout: 15s
+      start_period: 30s
+      retries: 3
 
   web:
     build:

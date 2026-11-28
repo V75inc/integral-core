@@ -16,6 +16,17 @@ from tests.test_native_voice_completion import completed_readout
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
 
+async def _completed_caller_turn(relay, browser, provider):
+    """Real caller VAD start/stop fences the prior private response."""
+    previous = relay.steering_offered
+    await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+    assert await event(browser.outbox) == {"type": "flush"}
+    if relay.steering_offered != previous:
+        update = await event(provider.outbox)
+        assert update["type"] == "session.update"
+    await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+
+
 @pytest.mark.parametrize("dispatch", [False, True], ids=["queued", "running"])
 async def test_live_voice_and_explicit_stop_rerun(
     authenticated_client, test_user, monkeypatch, dispatch
@@ -49,6 +60,9 @@ async def test_live_voice_and_explicit_stop_rerun(
                 native_voice.STEER_ACTIVE
                 in {t["name"] for t in update["session"]["tools"]}
             ) == relay.steering_offered
+        # A completed spoken directive follows a real VAD stop. Leaving VAD
+        # open intentionally prevents the intent gate from starting work.
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
 
     async def tool(turn, *, operation=None):
         await provider.inbox.put({"type": "response.created", "response": {"id": turn}})
@@ -421,6 +435,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         assert "accepted" in (await event(provider.outbox))["item"]["output"]
         first = relay.accepted
         assert first is not None
+        await _completed_caller_turn(relay, browser, provider)
         await _tool(
             provider,
             "add-queued",
@@ -432,6 +447,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         )
         await finished_audio("ack", (await event(provider.outbox))["response"])
 
+        await _completed_caller_turn(relay, browser, provider)
         await _send_tool(provider, "check", "check", "check_chat")
         assert "Checked" in (await event(provider.outbox))["item"]["output"]
         check = (await event(provider.outbox))["response"]
@@ -447,6 +463,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         assert promoted is not None and promoted.work_item_id != first.work_item_id
 
         # Saved chat text and the status of the latest admitted job are distinct.
+        await _completed_caller_turn(relay, browser, provider)
         await _tool(
             provider, "check-visible", native_voice.CHECK_CHAT, {"view": "latest_reply"}
         )
@@ -457,6 +474,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         await finished_audio("check-visible-result", visible)
 
         # Status should not fall back to that earlier result.
+        await _completed_caller_turn(relay, browser, provider)
         await _tool(
             provider,
             "check-next",
@@ -677,6 +695,7 @@ async def test_spoken_navigation_context_and_cancellation(
         assert capsule.execution_context.focused_track_id == track_id
         assert dest.id in capsule.execution_context.system_context
         assert capsule.execution_context.extra_data["voice_delegate"] is True
+        await _completed_caller_turn(relay, browser, provider)
         await _tool(provider, "cancel", native_voice.CANCEL_WORK, {})
         assert (await event(provider.outbox))["item"]["call_id"] == "cancel"
         result = (await event(provider.outbox))["response"]["instructions"]
@@ -765,6 +784,8 @@ async def test_spoken_review_of_canonical_entry_proposal(
     "edit",
     [
         "title",
+        "body_manual",
+        "body_manual_reject",
         "date",
         "reject",
         "create",
@@ -774,6 +795,23 @@ async def test_spoken_review_of_canonical_entry_proposal(
         "full_create",
         "full_denied",
         "auto_private",
+        "scalar_custom",
+        "auto_scalar",
+        "scalar_manual",
+        "scalar_manual_reject",
+        "scalar_unsupported",
+        "scalar_stale",
+        # Same write/approval contract, independently described App and schema.
+        "heldout_scalar_custom",
+        "heldout_scalar_custom_typed",
+        "heldout_auto_scalar",
+        "heldout_auto_scalar_voice",
+        "heldout_scalar_manual",
+        "heldout_scalar_manual_typed",
+        "heldout_scalar_manual_reject",
+        "heldout_scalar_manual_reject_typed",
+        "heldout_scalar_unsupported",
+        "heldout_scalar_stale",
         "auto_shared",
         "ask_saved",
         "policy_outside",
@@ -788,6 +826,40 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     authenticated_client, test_user, second_user_client, test_user2, monkeypatch, edit
 ):
     """A synthetic independent recognition can apply exactly one real record edit."""
+    heldout = edit.startswith("heldout_")
+    typed = edit in {
+        "auto_scalar",
+        "heldout_auto_scalar",
+        "heldout_scalar_custom_typed",
+        "heldout_scalar_manual_typed",
+        "heldout_scalar_manual_reject_typed",
+    }
+    edit = edit.removeprefix("heldout_").removesuffix("_typed").removesuffix("_voice")
+    text_key, text_label = (
+        ("accession_ref", "Accession reference")
+        if heldout
+        else ("registration", "Registration")
+    )
+    choice_key, choice_label = (
+        ("preservation_band", "Preservation band")
+        if heldout
+        else ("condition", "Condition")
+    )
+    number_key, number_label = (
+        ("sample_count", "Sample count") if heldout else ("count", "Count")
+    )
+    boolean_key, boolean_label = (
+        ("requires_conservation", "Requires conservation")
+        if heldout
+        else ("expedite", "Expedite")
+    )
+    note_key, note_label = (
+        ("assessment_notes", "Assessment notes") if heldout else ("notes", "Notes")
+    )
+    choices = ["Stable", "Fragile"] if heldout else ["Ready", "Held"]
+    original_text, replacement_text = (
+        ("MUSE-007", "MUSE-019") if heldout else ("QA0001", "QA0002")
+    )
     from app.agentive.services import work_approvals
     from app.agentive.services.proposal_origin import bind_proposal_origin
     from app.agentive.services.speech import service
@@ -811,6 +883,14 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     me = test_user.user_id
     headers = {"X-Integral-Scope": f"ws:{ws}"}
     track_input = {"title": "Contracts", "visibility": "private"}
+    if heldout:
+        app = await authenticated_client.post(
+            "/api/apps",
+            headers=headers,
+            json={"name": "Museum Collections", "visibility": "private"},
+        )
+        assert app.status_code == 200, app.text
+        track_input.update(title="Object assessments", app_id=app.json()["app"]["id"])
     if edit in {"policy_edit", "policy_outside"}:
         for name in ("Planning", "Sales"):
             app = await authenticated_client.post(
@@ -843,20 +923,35 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     date_key, date_label = (
         ("renew_on", "Renewal on") if creating else ("due_date", "Due date")
     )
-    if edit == "date" or creating:
+    scalar = edit in {
+        "scalar_custom",
+        "auto_scalar",
+        "scalar_manual",
+        "scalar_manual_reject",
+        "scalar_unsupported",
+        "scalar_stale",
+    }
+    if edit == "date" or creating or scalar:
         kind = await authenticated_client.post(
             "/api/entry-types",
             headers=headers,
             json={
                 "track_id": track_id,
-                "name": "Contract",
+                "name": "Artifact assessment" if heldout else "Contract",
                 "form_schema": {
                     "fields": [
                         {"key": date_key, "name": date_label, "type": "date"},
-                        {"key": "notes", "name": "Notes", "type": "markdown"},
-                        {"key": "count", "name": "Count", "type": "number"},
+                        {"key": note_key, "name": note_label, "type": "markdown"},
+                        {"key": number_key, "name": number_label, "type": "number"},
                         {"key": "lead", "name": "Assigned lead", "type": "member"},
-                        {"key": "expedite", "name": "Expedite", "type": "boolean"},
+                        {"key": text_key, "name": text_label, "type": "text"},
+                        {
+                            "key": choice_key,
+                            "name": choice_label,
+                            "type": "select",
+                            "enum": choices,
+                        },
+                        {"key": boolean_key, "name": boolean_label, "type": "boolean"},
                     ]
                 },
             },
@@ -865,6 +960,15 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         record_input.update(
             type_id=kind.json()["entry_type"]["id"],
             custom_fields={date_key: "2026-11-26"},
+        )
+    if scalar:
+        record_input["custom_fields"].update(
+            {
+                text_key: original_text,
+                choice_key: choices[0],
+                number_key: 3,
+                boolean_key: True,
+            }
         )
     response = await authenticated_client.post(
         "/api/entries", headers=headers, json=record_input
@@ -896,6 +1000,10 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         "full_create",
         "full_denied",
         "auto_private",
+        "scalar_custom",
+        "auto_scalar",
+        "scalar_unsupported",
+        "scalar_stale",
         "auto_shared",
         "ask_saved",
         "policy_outside",
@@ -963,7 +1071,8 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
             client_request_id="voice-confirmation-fixture",
             parts=[{"type": "text", "text": "Rename Acme to Georgetown"}],
             execution_context=ChatTurnExecutionContext(
-                extra_data={"voice_delegate": True}, focused_track_id=track_id
+                extra_data={} if typed else {"voice_delegate": True},
+                focused_track_id=track_id,
             ),
         )
     )
@@ -985,15 +1094,44 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
             fields={"due_date": "2026-11-27"},
             expected_schema_revision=await _schema_revision_for_update(entry),
         )
+    elif scalar:
+        from app.agentive.tooling.bindings import _schema_revision_for_update
+
+        changes = {text_key: replacement_text}
+        if edit == "auto_scalar":
+            changes = {choice_key: choices[1], number_key: 0, boolean_key: False}
+        if edit == "scalar_unsupported":
+            changes = {note_key: "A note requiring review"}
+        schema_revision = await _schema_revision_for_update(entry)
+        payload.update(
+            fields=changes,
+            expected_schema_revision=(
+                schema_revision
+                if edit != "scalar_stale"
+                else (schema_revision or 0) + 1
+            ),
+        )
     else:
         payload["title"] = "Acme Georgetown"
     if edit == "full_edit":
         payload["body"] = "Updated notes for the whole project."
+    if edit in {"body_manual", "body_manual_reject"}:
+        payload.pop("title", None)
+        payload["body"] = (
+            "Prepare the specimen inspection.\n\n- Confirm the sample count.\n- Record the condition."
+        )
+
+    long_body = (
+        "At noon local time, review the requirements with the team and confirm the delivery plan.\n\n"
+        "- Verify the work completed against the previous report and identify the outstanding items.\n"
+        "- Confirm the final date with the team and note any unresolved questions for the next meeting.\n"
+        "- Prepare the summary for review before closing the task."
+    )
     if creating:
         payload = {
             "track_id": track_id,
             "title": "Water the plants",
-            "body": "At noon local time",
+            "body": long_body if edit == "create" else "At noon local time",
             "entry_type": entry["type_id"],
             "fields": {
                 date_key: "2026-11-27",
@@ -1089,7 +1227,12 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     after = await ChatThread.get(thread.id)
     assert before.updated_at == after.updated_at
     assert [message.id for message in await list_messages(after)] == before_ids
-    relay = native_voice.VoiceRelay(browser, provider, scope)
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        scope,
+        conversational_review=edit in {"body_manual", "body_manual_reject"},
+    )
     relay.accepted = native_voice._AcceptedVoiceTurn(
         receipt.work_item_id, receipt.message_id, "Rename Acme to Georgetown"
     )
@@ -1100,12 +1243,18 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
             "entry", entry["id"], "Acme", track_id
         )
     review = await relay._current_review()
-    if edit == "full_edit":
+    if edit in {"full_edit", "scalar_unsupported", "scalar_stale"}:
         assert (
             review is None
         )  # A body replacement is outside the simple spoken projection.
     else:
         assert review is not None
+    if edit in {"body_manual", "body_manual_reject"}:
+        assert "Confirm the sample count" in review.text
+        assert "Record the condition" in review.text
+    if edit == "create":
+        assert "Verify the work completed" in review.text
+        assert "Prepare the summary" in review.text
     if edit == "date":
         assert "2026-11-26" in review.text and "2026-11-27" in review.text
         from types import SimpleNamespace
@@ -1216,11 +1365,23 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
                 f"/api/tracks/{track_id}/collaborators/{test_user2.id}", headers=headers
             )
             assert removed.status_code == 200, removed.text
-        if edit in {"auto_shared", "policy_outside", "ask_saved", "full_denied"}:
+        if edit in {
+            "auto_shared",
+            "policy_outside",
+            "ask_saved",
+            "full_denied",
+            "scalar_unsupported",
+            "scalar_stale",
+        }:
             if edit == "ask_saved":
                 assert "resident_permission_revision" not in claimed.input_payload
             assert await apply_resident_permission(claimed, ctx, staged.token) is None
-            assert (await Entry.get(entry["id"])).title == "Acme"
+            unchanged = await Entry.get(entry["id"])
+            assert unchanged.title == "Acme"
+            if scalar:
+                assert unchanged.record_revision == entry["record_revision"]
+                assert unchanged.custom_fields[text_key] == original_text
+                assert unchanged.custom_fields.get(note_key) is None
             return
         if edit == "policy_late":
             assert "resident_permission_revision" not in claimed.input_payload
@@ -1262,6 +1423,17 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
             path, headers=headers, json={"track_id": "", "revision": grant["revision"]}
         )
         assert revoked.status_code == 200 and not revoked.json()["track_id"]
+        if edit in {"scalar_custom", "auto_scalar"}:
+            updated = await Entry.get(entry["id"])
+            assert all(updated.custom_fields[k] == v for k, v in changes.items())
+            assert updated.title == "Acme"
+            assert updated.record_revision == entry["record_revision"] + 1
+            assert all(
+                updated.custom_fields[key] == initial
+                for key, initial in entry["custom_fields"].items()
+                if key not in changes
+            )
+            return
         if edit in {"policy_edit", "full_edit", "auto_private"}:
             updated = await Entry.get(entry["id"])
             assert updated.title == "Acme Georgetown"
@@ -1273,6 +1445,33 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         )
         assert len(saved) == 1
         assert not browser.outbox.qsize()
+        return
+    if typed:
+        # The same held-out field is reviewed via the ordinary chat card API,
+        # rather than a microphone confirmation or a synthetic policy grant.
+        from app.agentive.staging import get_token
+        from app.models.nodes import Entry
+
+        assert edit in {"scalar_manual", "scalar_manual_reject"}
+        pending = await Entry.get(entry["id"])
+        assert pending.custom_fields[text_key] == original_text
+        assert pending.record_revision == entry["record_revision"]
+        reject = edit.endswith("reject")
+        response = await authenticated_client.post(
+            "/api/agentive/staging/" + ("revoke-token" if reject else "bless-token"),
+            headers=headers,
+            json={"token": staged.token},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json().get("ok") is True, response.json()
+        saved = await Entry.get(entry["id"])
+        assert saved.custom_fields[text_key] == (
+            original_text if reject else replacement_text
+        )
+        assert saved.record_revision == entry["record_revision"] + int(not reject)
+        assert (await get_token(staged.token)).state == (
+            "revoked" if reject else "consumed"
+        )
         return
     if edit == "batch_partial":
         from app.agentive import staging_executors
@@ -1293,13 +1492,52 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
     confirmation.audio.extend(b"\xff\x7f" * 48000)
 
     async def recognize(*args, **kwargs):
-        return "No thanks" if edit in {"reject", "batch_reject"} else "Yes, please"
+        return (
+            "No thanks"
+            if edit
+            in {"reject", "batch_reject", "scalar_manual_reject", "body_manual_reject"}
+            else "Yes, please"
+        )
 
     monkeypatch.setattr(service, "transcribe_voice_confirmation", recognize)
     monkeypatch.setattr(native_voice, "CAPTURE_SECONDS", 0.01)
     relay.review_confirmation = confirmation
     await relay._capture_review_confirmation(confirmation)
     assert (await event(browser.outbox))["type"] == "review_confirmation_ended"
+    if edit in {"title", "date", "reject", "create"}:
+        # A verified review outcome must update the realtime conversation
+        # before the separate spoken readout, without exposing proposal data.
+        context = await event(provider.outbox)
+        assert context["type"] == "conversation.item.create"
+        assert context["item"]["role"] == "system"
+        assert context["item"]["content"][0]["type"] == "input_text"
+        note = context["item"]["content"][0]["text"]
+        assert (
+            "independently rejected" if edit == "reject" else "independently applied"
+        ) in note
+        assert "own authorization" in note
+        assert staged.token not in note
+    if edit in {"body_manual", "body_manual_reject"}:
+        from app.models.nodes import Entry
+
+        saved = await Entry.get(entry["id"])
+        assert (saved.body or "") == (
+            (entry.get("body") or "") if edit.endswith("reject") else payload["body"]
+        )
+        return
+    if edit in {"scalar_manual", "scalar_manual_reject"}:
+        from app.models.nodes import Entry
+
+        saved = await Entry.get(entry["id"])
+        assert saved.custom_fields[text_key] == (
+            original_text if edit.endswith("reject") else replacement_text
+        )
+        assert saved.record_revision == (
+            entry["record_revision"]
+            if edit.endswith("reject")
+            else entry["record_revision"] + 1
+        )
+        return
     if batch:
         from app.agentive.nodes import RoutineTask
         from app.models.nodes import Entry
@@ -1327,7 +1565,7 @@ async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
         )
         assert len(created) == 1
         assert created[0].custom_fields[date_key] == "2026-11-30"
-        assert created[0].body == "At noon local time"
+        assert created[0].body == long_body
         spoken = (await event(provider.outbox))["response"]["instructions"]
         assert "Water the plants" in spoken and "Current saved values" in spoken
         assert "Count: 0" in spoken and "Expedite: False" in spoken

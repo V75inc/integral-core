@@ -74,3 +74,39 @@ async def test_entry_review_requires_exact_current_record_and_work(monkeypatch):
     check.return_value = SimpleNamespace(allowed=True)
     change.payload["tags"] = ["other"]
     assert await review.read_entry_review(**args) is None
+
+
+@pytest.mark.parametrize(
+    ("spec", "value", "previous", "expected"),
+    [
+        ({"type": "text"}, "00127", False, "zero, zero, one, two, seven"),
+        ({"type": "text"}, "AB-128", False, "AB-128"),
+        ({"type": "select", "enum": ["Ready", "Held"]}, "Ready", False, "Ready"),
+        ({"type": "select", "enum": ["Ready"]}, "Held", False, None),
+        ({"type": "number"}, 0, False, "0"),
+        ({"type": "number"}, True, False, None),
+        ({"type": "number"}, float("nan"), False, None),
+        ({"type": "boolean"}, False, False, "false"),
+        ({"type": "boolean"}, "false", False, None),
+        ({"type": "date"}, "2026-11-27", False, "2026-11-27"),
+        ({"type": "date"}, "2026-02-30", False, None),
+        ({"type": "text"}, None, True, "empty"),
+        ({"type": "member"}, "someone", False, None),
+        ({"type": "relation"}, "some record", False, None),
+        ({"type": "file"}, "attachment", False, None),
+        ({"type": "computed"}, 5, False, None),
+        ({"type": "text", "readonly": True}, "new", False, None),
+        ({"type": "text", "composite": {"base": "text"}}, "new", False, None),
+        (
+            {"type": "text", "validation": {"preview_default_tool": "hook"}},
+            "new",
+            False,
+            None,
+        ),
+        ({"type": "text"}, "x" * 201, False, None),
+    ],
+)
+def test_simple_field_projection_is_schema_bound_and_literal(
+    spec, value, previous, expected
+):
+    assert review._simple_field_text(spec, value, previous=previous) == expected
