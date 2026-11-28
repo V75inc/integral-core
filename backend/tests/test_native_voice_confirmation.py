@@ -621,3 +621,38 @@ def test_review_interpreter_can_extract_literal_names_but_cannot_author_them():
     assert (
         followup.model_copy(update={"field": "Owner"}).correction(review, heard) is None
     )
+
+
+@pytest.mark.asyncio
+async def test_typed_review_uses_active_voice_channel_once_at_quiet_boundary(
+    monkeypatch,
+):
+    from app.services.native_voice_thread_status import VoiceThreadStatus
+
+    browser, upstream = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser,
+        upstream,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+        conversational_review=True,
+        review_confirmation_supported=True,
+    )
+    relay.ready = True
+    relay.opening_requested = True
+    relay.last_thread_status = VoiceThreadStatus(awaiting=1)
+    current = VoiceReviewReadout(
+        "update a record", "work", "run", "token", "target", "fingerprint"
+    )
+    monkeypatch.setattr(relay, "_current_review", AsyncMock(return_value=current))
+    present = AsyncMock()
+    monkeypatch.setattr(relay, "_request_review_confirmation", present)
+    monkeypatch.setattr(relay, "_can_announce_result", lambda: not relay.speaking)
+    relay.speaking = True
+    await relay._maybe_offer_peer_review()
+    present.assert_not_awaited()
+    relay.speaking = False
+    await relay._maybe_offer_peer_review()
+    present.assert_awaited_once_with(None, "ask", relay.generation, expected=current)
+    await relay._maybe_offer_peer_review()
+    present.assert_awaited_once()

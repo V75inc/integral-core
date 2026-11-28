@@ -3838,40 +3838,55 @@ class VoiceRelay:
             if recovered is not None:
                 return recovered
         recovered_token = None
-        if self.accepted is not None:
-            item = await _accepted_voice_work(self.scope, self.accepted)
-        else:
-            # A reconnect can recover the existing thread's single parked
-            # review. The caller still has to reselect the exact record.
+        item = (
+            await _accepted_voice_work(self.scope, self.accepted)
+            if self.accepted is not None
+            else None
+        )
+        if self.accepted is None or (
+            self.conversational_review
+            and (
+                item is None
+                or item.status not in {"queued", "running", "waiting_for_human"}
+            )
+        ):
+            # Recover the exact currently offered proposal in this owned
+            # thread, including one staged by typed chat while a call is live.
+            # A stale previously accepted voice task cannot mask it.
             from app.agentive.work_models import WorkItem
             from app.services.chat_turn_streaming import find_parked_chat_stream_id
+            from app.services.native_voice_review import pending_review_work
 
             thread = await self.check(self.scope)
             if (
-                thread is None
-                or getattr(thread, "active_work_item_id", None)
-                or not getattr(thread, "updated_at", None)
+                thread is not None
+                and not getattr(thread, "active_work_item_id", None)
+                and getattr(thread, "updated_at", None)
             ):
-                return None
-            work_id = await find_parked_chat_stream_id(
-                principal_id=self.scope.principal,
-                workspace_id=self.scope.workspace,
-                thread_id=self.scope.thread,
-                thread_revision=thread.updated_at,
-            )
-            if not work_id and getattr(thread, "prompt_queue", None):
-                from app.services.native_voice_review import pending_review_work
-
-                recovered = await pending_review_work(
-                    thread, self.scope.principal, self.scope.workspace
+                recovered = (
+                    await pending_review_work(
+                        thread, self.scope.principal, self.scope.workspace
+                    )
+                    if getattr(thread, "prompt_queue", None)
+                    else None
                 )
                 if recovered:
                     work_id, recovered_token = recovered
-            item = (
-                await WorkItem.find_one({"context.work_item_id": work_id})
-                if work_id
-                else None
-            )
+                elif self.accepted is None:
+                    work_id = await find_parked_chat_stream_id(
+                        principal_id=self.scope.principal,
+                        workspace_id=self.scope.workspace,
+                        thread_id=self.scope.thread,
+                        thread_revision=thread.updated_at,
+                    )
+                else:
+                    work_id = None
+                if work_id:
+                    item = await WorkItem.find_one({"context.work_item_id": work_id})
+                elif self.accepted is None:
+                    item = None
+            elif self.accepted is None:
+                item = None
             if item is not None and (
                 item.kind != "chat_turn"
                 or (item.principal_id, item.workspace_id, item.thread_id)
@@ -6521,8 +6536,41 @@ class VoiceRelay:
                 continue
             if self._can_sync_thread_status():
                 await self._sync_thread_status()
+                await self._maybe_offer_peer_review()
             else:
                 await self._poll_review_outcomes()
+
+    async def _maybe_offer_peer_review(self):
+        """Use the call channel for a single exact same-thread typed review."""
+        if (
+            not self.conversational_review
+            or not self.review_confirmation_supported
+            or self.scope.profile
+            or self.microphone_muted
+            or not (self.opening_requested or self.user_spoke)
+            or not self.last_thread_status.awaiting
+            or self.result_receipts
+            or self.peer_readouts
+            or not self._can_announce_result()
+        ):
+            return
+        generation = self.generation
+        try:
+            async with asyncio.timeout(1):
+                review = await self._current_review()
+        except (TimeoutError, ServiceUnavailableError):
+            return
+        if (
+            review is None
+            or self.offered_review == (review.proposal_id, review.fingerprint)
+            or generation != self.generation
+            or not self._can_announce_result()
+        ):
+            return
+        self.offered_review = (review.proposal_id, review.fingerprint)
+        await self._request_review_confirmation(
+            None, "ask", generation, expected=review
+        )
 
     def _can_sync_thread_status(self) -> bool:
         return bool(
