@@ -11,7 +11,6 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from time import monotonic
-from urllib.parse import urlencode
 
 from app.agentive.services.profile_management import require_native_chat_profile
 from app.api.errors import (
@@ -1059,6 +1058,7 @@ class _AcceptedVoiceTurn:
     voice_generation: int = -1
     open_only: bool = False
     expected_destination: VoiceDestination | None = None
+    provider_correlation: str | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -1374,17 +1374,34 @@ def session_update(
 
 
 async def open_upstream(credential):
-    """Open an authenticated connection to the configured realtime model."""
-    from websockets.asyncio.client import connect
-
-    return await connect(
-        "wss://api.openai.com/v1/realtime?" + urlencode({"model": credential.model}),
-        additional_headers={"Authorization": f"Bearer {credential.api_key}"},
-        max_size=1_048_576,
-        open_timeout=10,
-        close_timeout=2,
-        proxy=None,
+    """Open the selected conversational protocol; preserve the Realtime socket."""
+    from app.services.openai_voice_protocol import (
+        OpenAILiveSession,
+        VoiceWireProtocol,
+        connect_voice_socket,
+        model_protocol,
     )
+
+    protocol = model_protocol(credential.model)
+    if protocol is None:
+        raise ValueError("Unsupported conversational voice model")
+    socket = await connect_voice_socket(
+        credential.model, credential.api_key, protocol=protocol
+    )
+    if protocol == VoiceWireProtocol.LIVE:
+        return OpenAILiveSession(socket, credential.model)
+    return socket
+
+
+def build_native_voice_relay(peer, upstream, scope: VoiceScope, **kwargs):
+    """Select media protocol without modifying the transport's admitted scope."""
+    from app.services.openai_voice_protocol import OpenAILiveSession
+
+    if isinstance(upstream, OpenAILiveSession):
+        from app.services.native_live_voice_relay import NativeLiveVoiceRelay
+
+        return NativeLiveVoiceRelay(peer, upstream, scope, **kwargs)
+    return VoiceRelay(peer, upstream, scope, **kwargs)
 
 
 @dataclass
@@ -1758,6 +1775,9 @@ class VoiceRelay:
         # disconnects. A broken browser cannot keep the provider open.
         await asyncio.sleep(END_PLAYBACK_SECONDS)
 
+    async def _microphone_changed(self):
+        """Protocol-specific mute control; Realtime clears buffered input on mute."""
+
     async def _read_browser(self):
         while True:
             message = await self.browser.receive()
@@ -1806,9 +1826,11 @@ class VoiceRelay:
                             self.user_reply_deadline = None
                             self.quiet_since = asyncio.get_running_loop().time()
                         await self.send_event({"type": "input_audio_buffer.clear"})
+                        await self._microphone_changed()
                     continue
                 if raw_control == '{"type":"microphone","muted":false}':
                     self.microphone_muted = False
+                    await self._microphone_changed()
                     continue
                 if raw_control != '{"type":"opening"}':
                     if not self.scope.actions.open_page or len(raw_control) > 4096:
@@ -2447,6 +2469,7 @@ class VoiceRelay:
                 voice_generation=generation,
                 open_only=open_only,
                 expected_destination=focus if open_only else None,
+                provider_correlation=call_id,
             )
             if supersedes_readout is not None:
                 self.result_receipts.pop(supersedes_readout, None)
